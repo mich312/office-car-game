@@ -5,8 +5,9 @@ import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PROPS, M } from '@rc/shared';
-import { makeScreen } from './textures.js';
+import { makeScreen, keysTex } from './textures.js';
 import { burst } from './particles.jsx';
 import { audio } from '../audio.js';
 
@@ -90,7 +91,7 @@ function Mug({ p }) {
       <mesh castShadow material={mat}>
         <cylinderGeometry args={[R, R * 0.85, H, 16]} />
       </mesh>
-      <mesh position={[R + 0.05, 0, 0]} rotation-z={Math.PI / 2} castShadow material={mat}>
+      <mesh position={[R + 0.05, 0, 0]} rotation-z={Math.PI / 2} material={mat}>
         <torusGeometry args={[H * 0.28, 0.035, 8, 14]} />
       </mesh>
       <mesh position={[0, H / 2 - 0.02, 0]} rotation-x={-Math.PI / 2}>
@@ -120,7 +121,7 @@ function GlassCup({ p }) {
       }}
     >
       <CylinderCollider args={[H / 2, R]} />
-      <mesh castShadow>
+      <mesh>
         <cylinderGeometry args={[R, R * 0.8, H, 14, 1, true]} />
         <meshPhysicalMaterial color="#d7f0f7" transparent opacity={0.35} roughness={0.05} side={THREE.DoubleSide} />
       </mesh>
@@ -136,11 +137,11 @@ function Pen({ p }) {
     <Body p={p} mass={0.05} friction={0.4} angularDamping={0.05}>
       <group rotation-z={Math.PI / 2}>
         <CylinderCollider args={[L / 2, R]} />
-        <mesh castShadow>
+        <mesh>
           <cylinderGeometry args={[R, R, L, 8]} />
           <meshStandardMaterial color={color} roughness={0.3} />
         </mesh>
-        <mesh position={[0, L / 2 + 0.03, 0]} castShadow>
+        <mesh position={[0, L / 2 + 0.03, 0]}>
           <coneGeometry args={[R * 0.9, 0.09, 8]} />
           <meshStandardMaterial color="#c9a227" metalness={0.7} roughness={0.3} />
         </mesh>
@@ -167,7 +168,7 @@ function PaperStack({ p }) {
           angularDamping={0.4}
         >
           <CuboidCollider args={[W / 2, T / 2, D / 2]} />
-          <mesh castShadow receiveShadow>
+          <mesh receiveShadow>
             <boxGeometry args={[W, T, D]} />
             <meshStandardMaterial color={i % 2 ? '#f7f5ef' : '#efede4'} roughness={0.9} />
           </mesh>
@@ -195,26 +196,21 @@ function Book({ p, i }) {
   );
 }
 
+const keyboardTopMat = () => new THREE.MeshStandardMaterial({ map: keysTex(), roughness: 0.5 });
+let _kbTop = null;
 function Keyboard({ p }) {
-  const W = 0.44 * m2u, H = 0.03 * m2u, D = 0.15 * m2u;
-  const keys = useMemo(() => {
-    const arr = [];
-    for (let r = 0; r < 4; r++) for (let c = 0; c < 12; c++) arr.push([(-W / 2) + 0.14 + c * (W - 0.3) / 11, (-D / 2) + 0.12 + r * (D - 0.24) / 3]);
-    return arr;
-  }, [W, D]);
+  const W = 0.44 * m2u, H = 0.05 * m2u, D = 0.15 * m2u;
+  const topMat = (_kbTop ??= keyboardTopMat());
   return (
     <Body p={p} mass={0.7} friction={0.8}>
-      <CuboidCollider args={[W / 2, H / 2 + 0.02, D / 2]} />
+      <CuboidCollider args={[W / 2, H / 2, D / 2]} />
       <mesh castShadow receiveShadow>
         <boxGeometry args={[W, H, D]} />
         <meshStandardMaterial color="#23262d" roughness={0.5} />
       </mesh>
-      {keys.map(([x, z], i) => (
-        <mesh key={i} position={[x, H / 2 + 0.012, z]}>
-          <boxGeometry args={[0.09, 0.025, 0.09]} />
-          <meshStandardMaterial color="#3a3f4a" roughness={0.4} />
-        </mesh>
-      ))}
+      <mesh position={[0, H / 2 + 0.002, 0]} rotation-x={-Math.PI / 2} material={topMat}>
+        <planeGeometry args={[W * 0.98, D * 0.95]} />
+      </mesh>
     </Body>
   );
 }
@@ -248,6 +244,20 @@ function Monitor({ p, screen }) {
   );
 }
 
+// all five star-base legs merged into one geometry, shared by every chair
+let _chairBaseGeo = null;
+function chairBaseGeo() {
+  if (_chairBaseGeo) return _chairBaseGeo;
+  const parts = [];
+  for (let i = 0; i < 5; i++) {
+    const g = new THREE.BoxGeometry(0.09, 0.07, 0.62 * m2u);
+    g.rotateY((i / 5) * Math.PI * 2);
+    parts.push(g);
+  }
+  _chairBaseGeo = mergeGeometries(parts);
+  return _chairBaseGeo;
+}
+
 function Chair({ p }) {
   const seatH = 0.45 * m2u;
   return (
@@ -258,13 +268,10 @@ function Chair({ p }) {
       <CuboidCollider args={[0.24 * m2u, 0.05 * m2u, 0.24 * m2u]} position={[0, 0.1, 0]} />
       <CuboidCollider args={[0.22 * m2u, 0.26 * m2u, 0.04 * m2u]} position={[0, 0.32 * m2u, -0.22 * m2u]} />
       {/* visuals */}
-      {[0, 1, 2, 3, 4].map((i) => (
-        <mesh key={i} rotation-y={(i / 5) * Math.PI * 2} position={[0, -seatH + 0.07, 0]} castShadow>
-          <boxGeometry args={[0.09, 0.07, 0.62 * m2u]} />
-          <meshStandardMaterial color="#3a3d44" metalness={0.6} roughness={0.35} />
-        </mesh>
-      ))}
-      <mesh position={[0, -seatH / 2 + 0.1, 0]} castShadow>
+      <mesh geometry={chairBaseGeo()} position={[0, -seatH + 0.07, 0]}>
+        <meshStandardMaterial color="#3a3d44" metalness={0.6} roughness={0.35} />
+      </mesh>
+      <mesh position={[0, -seatH / 2 + 0.1, 0]}>
         <cylinderGeometry args={[0.05 * m2u, 0.05 * m2u, seatH, 10]} />
         <meshStandardMaterial color="#9aa1ab" metalness={0.85} roughness={0.25} />
       </mesh>
@@ -278,6 +285,22 @@ function Chair({ p }) {
       </mesh>
     </Body>
   );
+}
+
+// all six leaf cones merged into one geometry, shared by every plant
+let _plantLeavesGeo = null;
+function plantLeavesGeo() {
+  if (_plantLeavesGeo) return _plantLeavesGeo;
+  const parts = [];
+  for (let i = 0; i < 6; i++) {
+    const g = new THREE.ConeGeometry(0.09 * m2u, 0.5 * m2u, 5);
+    g.rotateX(-0.5);
+    g.rotateY((i / 6) * Math.PI * 2);
+    g.translate(0, 0.25 * m2u, 0);
+    parts.push(g);
+  }
+  _plantLeavesGeo = mergeGeometries(parts);
+  return _plantLeavesGeo;
 }
 
 function Plant({ p }) {
@@ -314,12 +337,9 @@ function Plant({ p }) {
         <meshStandardMaterial color="#33241a" roughness={1} />
       </mesh>
       <group ref={leaves} position={[0, potH / 2, 0]}>
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <mesh key={i} rotation-y={(i / 6) * Math.PI * 2} rotation-x={-0.5} position={[0, 0.25 * m2u, 0]} castShadow>
-            <coneGeometry args={[0.09 * m2u, 0.5 * m2u, 5]} />
-            <meshStandardMaterial color={i % 2 ? '#2e7d3c' : '#3c9b4e'} roughness={0.8} />
-          </mesh>
-        ))}
+        <mesh geometry={plantLeavesGeo()} castShadow>
+          <meshStandardMaterial color="#35904a" roughness={0.8} />
+        </mesh>
       </group>
     </RigidBody>
   );
@@ -331,11 +351,11 @@ function Bottle({ p }) {
     <Body p={p} mass={0.4} restitution={0.35} angularDamping={0.05}>
       <group rotation-z={Math.PI / 2}>
         <CylinderCollider args={[H / 2, R]} />
-        <mesh castShadow>
+        <mesh>
           <cylinderGeometry args={[R, R, H, 12]} />
           <meshPhysicalMaterial color="#5fb8e0" transparent opacity={0.5} roughness={0.1} />
         </mesh>
-        <mesh position={[0, H / 2 + 0.04, 0]} castShadow>
+        <mesh position={[0, H / 2 + 0.04, 0]}>
           <cylinderGeometry args={[R * 0.4, R * 0.4, 0.1, 10]} />
           <meshStandardMaterial color="#f5f5f5" roughness={0.4} />
         </mesh>
@@ -363,7 +383,7 @@ function Marble({ p }) {
   return (
     <Body p={p} mass={0.06} restitution={0.6} friction={0.15} ccd>
       <BallCollider args={[R]} />
-      <mesh castShadow>
+      <mesh>
         <sphereGeometry args={[R, 12, 12]} />
         <meshPhysicalMaterial color={color} roughness={0.05} metalness={0.1} envMapIntensity={2} />
       </mesh>
@@ -404,9 +424,8 @@ function Lamp({ p }) {
       </mesh>
       <mesh position={[0.06 * m2u, 0.2 * m2u, 0]} rotation-z={1.1} castShadow>
         <coneGeometry args={[0.07 * m2u, 0.14 * m2u, 12, 1, true]} />
-        <meshStandardMaterial color="#e0b03c" metalness={0.3} roughness={0.4} side={THREE.DoubleSide} />
+        <meshStandardMaterial color="#e0b03c" emissive="#ffd98a" emissiveIntensity={0.9} metalness={0.3} roughness={0.4} side={THREE.DoubleSide} />
       </mesh>
-      <pointLight position={[0.09 * m2u, 0.16 * m2u, 0]} intensity={2.2} distance={8} color="#ffe0a3" />
     </Body>
   );
 }
@@ -416,7 +435,7 @@ function Trash({ p }) {
   return (
     <Body p={p} mass={0.9} friction={0.6}>
       <CylinderCollider args={[H / 2, R]} />
-      <mesh castShadow>
+      <mesh>
         <cylinderGeometry args={[R, R * 0.8, H, 14, 1, true]} />
         <meshStandardMaterial color="#7d8794" metalness={0.75} roughness={0.35} side={THREE.DoubleSide} />
       </mesh>

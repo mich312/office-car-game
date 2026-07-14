@@ -1,6 +1,6 @@
 // The handcrafted office: floors, walls, glass, windows, ceiling, big
 // furniture, ramps, rain, skyline, dust and floating paper. Static physics.
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { Sparkles } from '@react-three/drei';
@@ -61,6 +61,8 @@ function Floors() {
 }
 
 // ------------------------------------------------------------------- walls
+// One static rigid body holds every wall collider; all solid walls render
+// as a single instanced mesh (glass stays individual for transparency).
 function Walls() {
   const paint = useMemo(() => new THREE.MeshStandardMaterial({ color: '#e8e4da', roughness: 0.85 }), []);
   const glassMat = useMemo(() => new THREE.MeshPhysicalMaterial({
@@ -69,28 +71,48 @@ function Walls() {
   }), []);
   const railMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#8f98a6', metalness: 0.8, roughness: 0.3 }), []);
   const smudge = useMemo(() => new THREE.MeshBasicMaterial({ map: smudgeTex(), transparent: true, opacity: 0.5, depthWrite: false }), []);
+  const solid = useMemo(() => WALLS.filter((w) => !w.glass && !w.low), []);
+  const glass = useMemo(() => WALLS.filter((w) => w.glass), []);
+  const rails = useMemo(() => WALLS.filter((w) => w.low), []);
+  const inst = useRef();
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D();
+    solid.forEach((w, i) => {
+      dummy.position.set(w.x, w.h / 2, w.z);
+      dummy.scale.set(w.w, w.h, w.d);
+      dummy.updateMatrix();
+      inst.current.setMatrixAt(i, dummy.matrix);
+    });
+    inst.current.instanceMatrix.needsUpdate = true;
+  }, [solid]);
 
   return (
     <group>
-      {WALLS.map((w, i) => (
-        <RigidBody key={i} type="fixed" colliders={false} friction={0.2}>
-          <CuboidCollider args={[w.w / 2, w.h / 2, w.d / 2]} position={[w.x, w.h / 2, w.z]} />
-          <mesh position={[w.x, w.h / 2, w.z]} castShadow={!w.glass} receiveShadow material={w.low ? railMat : w.glass ? glassMat : paint}>
+      <RigidBody type="fixed" colliders={false} friction={0.2}>
+        {WALLS.map((w, i) => (
+          <CuboidCollider key={i} args={[w.w / 2, w.h / 2, w.d / 2]} position={[w.x, w.h / 2, w.z]} />
+        ))}
+      </RigidBody>
+      <instancedMesh ref={inst} args={[null, null, solid.length]} material={paint} castShadow receiveShadow frustumCulled={false}>
+        <boxGeometry args={[1, 1, 1]} />
+      </instancedMesh>
+      {rails.map((w, i) => (
+        <mesh key={i} position={[w.x, w.h / 2, w.z]} material={railMat}>
+          <boxGeometry args={[w.w, w.h, w.d]} />
+        </mesh>
+      ))}
+      {glass.map((w, i) => (
+        <group key={i}>
+          <mesh position={[w.x, w.h / 2, w.z]} material={glassMat}>
             <boxGeometry args={[w.w, w.h, w.d]} />
           </mesh>
-          {/* fingerprints on the glass, car height */}
-          {w.glass && (
-            <mesh position={[w.x + (w.w < w.d ? 0.06 : 0), 1.2, w.z + (w.w < w.d ? 0 : 0.06)]} rotation-y={w.w < w.d ? Math.PI / 2 : 0} material={smudge}>
-              <planeGeometry args={[Math.max(w.w, w.d) * 0.9, 2.2]} />
-            </mesh>
-          )}
-          {/* glass frames */}
-          {w.glass && !w.low && (
-            <mesh position={[w.x, w.h - 0.1, w.z]} material={railMat}>
-              <boxGeometry args={[w.w + 0.05, 0.2, w.d + 0.05]} />
-            </mesh>
-          )}
-        </RigidBody>
+          <mesh position={[w.x + (w.w < w.d ? 0.06 : 0), 1.2, w.z + (w.w < w.d ? 0 : 0.06)]} rotation-y={w.w < w.d ? Math.PI / 2 : 0} material={smudge}>
+            <planeGeometry args={[Math.max(w.w, w.d) * 0.9, 2.2]} />
+          </mesh>
+          <mesh position={[w.x, w.h - 0.1, w.z]} material={railMat}>
+            <boxGeometry args={[w.w + 0.05, 0.2, w.d + 0.05]} />
+          </mesh>
+        </group>
       ))}
     </group>
   );
@@ -113,17 +135,26 @@ function Ceiling() {
     }
     return out;
   }, []);
+  const inst = useRef();
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D();
+    panels.forEach(([x, z], i) => {
+      dummy.position.set(x, WALL_HEIGHT - 0.06, z);
+      dummy.rotation.set(Math.PI / 2, 0, 0);
+      dummy.updateMatrix();
+      inst.current.setMatrixAt(i, dummy.matrix);
+    });
+    inst.current.instanceMatrix.needsUpdate = true;
+  }, [panels]);
   return (
     <group>
       <mesh rotation-x={Math.PI / 2} position={[3 * M, WALL_HEIGHT, 0]}>
         <planeGeometry args={[24.4 * M, 18.4 * M]} />
         <meshStandardMaterial color="#d5d2ca" roughness={0.9} />
       </mesh>
-      {panels.map(([x, z], i) => (
-        <mesh key={i} rotation-x={Math.PI / 2} position={[x, WALL_HEIGHT - 0.06, z]} material={panelMat}>
-          <planeGeometry args={[1.2 * M, 0.6 * M]} />
-        </mesh>
-      ))}
+      <instancedMesh ref={inst} args={[null, null, panels.length]} material={panelMat} frustumCulled={false}>
+        <planeGeometry args={[1.2 * M, 0.6 * M]} />
+      </instancedMesh>
     </group>
   );
 }
@@ -232,23 +263,12 @@ function Furniture({ f, mats }) {
           </mesh>
         </RigidBody>
       );
-    case 'bookshelf': {
-      const bookColors = ['#a33f3f', '#3f6ea3', '#3fa36a', '#a3823f', '#7a3fa3'];
+    case 'bookshelf':
       return (
         <SimpleBox x={x} z={z} w={w} d={d} h={h} mat={mats.wood}>
-          {[0.35, 0.85, 1.35, 1.85].map((sy, i) => (
-            <group key={i}>
-              {Array.from({ length: 7 }, (_, j) => (
-                <mesh key={j} position={[-w / 2 - 0.09, sy * M * 0.36 + 0.5, -d / 2 + 0.25 + j * (d - 0.5) / 6]} castShadow>
-                  <boxGeometry args={[0.14, 0.42 + (j % 3) * 0.06, 0.12]} />
-                  <meshStandardMaterial color={bookColors[(i + j) % bookColors.length]} roughness={0.8} />
-                </mesh>
-              ))}
-            </group>
-          ))}
+          <ShelfBooks w={w} d={d} />
         </SimpleBox>
       );
-    }
     default:
       return <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={type === 'recdesk' ? mats.wood : type === 'island' || type === 'counter' ? mats.grey : mats.white} />;
   }
@@ -266,33 +286,70 @@ function SimpleBox({ x, z, w, d, h, rotY = 0, mat, children }) {
   );
 }
 
-// Blinking server LEDs
+// Static instanced book rows for the CEO bookshelf (one draw call)
+const BOOK_COLORS = ['#a33f3f', '#3f6ea3', '#3fa36a', '#a3823f', '#7a3fa3'];
+function ShelfBooks({ w, d }) {
+  const ref = useRef();
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+    let n = 0;
+    [0.35, 0.85, 1.35, 1.85].forEach((sy, i) => {
+      for (let j = 0; j < 7; j++) {
+        dummy.position.set(-w / 2 - 0.09, sy * M * 0.36 + 0.5, -d / 2 + 0.25 + j * (d - 0.5) / 6);
+        dummy.scale.set(1, 1 + (j % 3) * 0.14, 1);
+        dummy.updateMatrix();
+        ref.current.setMatrixAt(n, dummy.matrix);
+        ref.current.setColorAt(n, color.set(BOOK_COLORS[(i + j) % BOOK_COLORS.length]));
+        n++;
+      }
+    });
+    ref.current.instanceMatrix.needsUpdate = true;
+    ref.current.instanceColor.needsUpdate = true;
+  }, [w, d]);
+  return (
+    <instancedMesh ref={ref} args={[null, null, 28]} frustumCulled={false}>
+      <boxGeometry args={[0.14, 0.42, 0.12]} />
+      <meshStandardMaterial roughness={0.8} />
+    </instancedMesh>
+  );
+}
+
+// Blinking server LEDs — one instanced mesh per rack, colors toggled per frame
+const _ledColor = new THREE.Color();
 function ServerLights({ w, h, d }) {
   const ref = useRef();
   const leds = useMemo(() => Array.from({ length: 14 }, (_, i) => ({
-    y: 0.4 + (i % 7) * (h * 0.55) / 7,
+    y: 0.4 + (i % 7) * (h * 0.55) / 7 + h * 0.2,
     x: -w * 0.3 + (i > 6 ? w * 0.6 : 0),
     speed: 2 + Math.random() * 9,
     phase: Math.random() * 10,
-    color: Math.random() > 0.3 ? '#37ff7c' : '#ffb347',
+    color: new THREE.Color(Math.random() > 0.3 ? '#37ff7c' : '#ffb347'),
   })), [w, h]);
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D();
+    leds.forEach((l, i) => {
+      dummy.position.set(l.x, l.y, d / 2 + 0.015);
+      dummy.updateMatrix();
+      ref.current.setMatrixAt(i, dummy.matrix);
+    });
+    ref.current.instanceMatrix.needsUpdate = true;
+  }, [leds, d]);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     const t = clock.elapsedTime;
-    ref.current.children.forEach((m, i) => {
-      const led = leds[i];
-      m.material.opacity = Math.sin(t * led.speed + led.phase) > 0 ? 1 : 0.12;
+    leds.forEach((l, i) => {
+      const on = Math.sin(t * l.speed + l.phase) > 0;
+      _ledColor.copy(l.color).multiplyScalar(on ? 1 : 0.08);
+      ref.current.setColorAt(i, _ledColor);
     });
+    ref.current.instanceColor.needsUpdate = true;
   });
   return (
-    <group ref={ref}>
-      {leds.map((l, i) => (
-        <mesh key={i} position={[l.x, l.y + h * 0.2, d / 2 + 0.015]}>
-          <planeGeometry args={[0.06, 0.06]} />
-          <meshBasicMaterial color={l.color} transparent />
-        </mesh>
-      ))}
-    </group>
+    <instancedMesh ref={ref} args={[null, null, 14]} frustumCulled={false}>
+      <planeGeometry args={[0.06, 0.06]} />
+      <meshBasicMaterial toneMapped={false} />
+    </instancedMesh>
   );
 }
 

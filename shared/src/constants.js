@@ -57,4 +57,4 @@ export const BUMP_REL_SPEED = 14; // relative speed for a "hit" bump
 export const RESPAWN_Y = -12; // fell off the balcony / out of world
 
 // Anti-teleport validation: max plausible units/second (boost + shove headroom)
-export const MAX_PLAUSIBLE_SPEED = 50;
+export const MAX_PLAUSIBLE_SPEED = 35;

@@ -326,12 +326,13 @@ export default function LocalCar() {
       const speedFactor = Math.min(1, effSpeed / 10);
       const dir = fwdSpeed < -1 ? -1 : 1;
       const yawTarget = steer * car.handling * speedFactor * dir * (drifting ? 1.45 : 1);
-      const newAngY = ang.y + (yawTarget - ang.y) * Math.min(1, dt * 8);
+      // snappy steering response — tight corners need the yaw rate NOW
+      const newAngY = ang.y + (yawTarget - ang.y) * Math.min(1, dt * 14);
       body.setAngvel({ x: ang.x, y: newAngY, z: ang.z }, true);
       // lateral grip
       const latVel = _v.dot(_right);
       const grip = car.grip * (drifting ? car.drift : 1) * gripMul;
-      const gripImpulse = -latVel * grip * CAR_MASS * Math.min(1, dt * 9);
+      const gripImpulse = -latVel * grip * CAR_MASS * Math.min(1, dt * 12);
       body.applyImpulse({ x: _right.x * gripImpulse, y: 0, z: _right.z * gripImpulse }, true);
       S.slipping = Math.abs(latVel) > 6 || (drifting && Math.abs(fwdSpeed) > 12);
       // rolling resistance

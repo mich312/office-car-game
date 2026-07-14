@@ -83,6 +83,23 @@ export const stainTex = () =>
     g.fill();
   });
 
+export const keysTex = () =>
+  canvasTex('keys', 256, 96, (g, w, h) => {
+    g.fillStyle = '#23262d';
+    g.fillRect(0, 0, w, h);
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 13; c++) {
+        const kw = c === 6 && r === 3 ? 52 : 16; // spacebar
+        const x = 6 + c * 19, y = 8 + r * 22;
+        if (c === 6 && r === 3) { if (x + kw > w - 6) continue; }
+        g.fillStyle = '#3a3f4a';
+        g.fillRect(x, y, kw, 16);
+        g.fillStyle = 'rgba(255,255,255,0.12)';
+        g.fillRect(x, y, kw, 3);
+      }
+    }
+  });
+
 export const smudgeTex = () =>
   canvasTex('smudge', 128, 128, (g, w, h) => {
     g.clearRect(0, 0, w, h);

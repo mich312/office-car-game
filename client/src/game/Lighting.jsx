@@ -18,8 +18,8 @@ export default function Lighting() {
   const ceiling = useRef();
 
   const target = useMemo(() => {
-    const day = { sun: 2.4, sunColor: '#fff4e0', amb: 0.35, hemi: 0.5, ceil: 8, bg: '#aac4e8' };
-    const nite = { sun: 0.55, sunColor: '#7f9fff', amb: 0.12, hemi: 0.18, ceil: 14, bg: '#0b0f1c' };
+    const day = { sun: 2.4, sunColor: '#fff4e0', amb: 0.35, hemi: 0.5, ceil: 13, bg: '#aac4e8' };
+    const nite = { sun: 0.55, sunColor: '#7f9fff', amb: 0.12, hemi: 0.18, ceil: 22, bg: '#0b0f1c' };
     const out = { sun: 0.02, sunColor: '#7f9fff', amb: 0.03, hemi: 0.02, ceil: 0, bg: '#05060a' };
     return lightsOut ? out : night ? nite : day;
   }, [night, lightsOut]);
@@ -60,24 +60,24 @@ export default function Lighting() {
         shadow-bias={-0.0004}
         shadow-normalBias={0.35}
       >
-        <orthographicCamera attach="shadow-camera" args={[-110, 110, 90, -90, 10, 400]} />
+        <orthographicCamera attach="shadow-camera" args={[-85, 85, 65, -65, 10, 350]} />
       </directionalLight>
-      {/* Warm office downlights — cheap points, no shadows */}
+      {/* Warm office downlights — few big points; panels/env do the rest.
+          Light count is the #1 fragment cost, so keep this list short. */}
       <group ref={ceiling}>
-        {[[-12, -4.5], [-3, -3], [6, -6], [12, -5.5], [6, -0.5], [12, 6], [0, 6], [-3, 6]].map(([x, z], i) => (
+        {[[-11, -4], [-2, -3.5], [9, -5], [2, 5.5]].map(([x, z], i) => (
           <pointLight
             key={i}
-            position={[x * M, 2.75 * M, z * M]}
-            intensity={night ? 14 : 8}
-            distance={16 * M}
-            decay={1.6}
-            color={i === 4 ? '#ffe9c4' : '#fff2dc'}
+            position={[x * M, 2.7 * M, z * M]}
+            intensity={night ? 22 : 13}
+            distance={26 * M}
+            decay={1.5}
+            color="#fff2dc"
           />
         ))}
       </group>
-      {/* Server room ominous glow + emergency strip (survives lights-out) */}
-      <pointLight position={[12 * M, 1.2 * M, 0.5 * M]} intensity={4} distance={7 * M} color="#3d7bff" />
-      <pointLight position={[-12 * M, 2.6 * M, -4.5 * M]} intensity={lightsOut ? 3 : 0.001} distance={8 * M} color="#ff3b30" />
+      {/* Server room ominous glow (doubles as the lights-out emergency light) */}
+      <pointLight position={[12 * M, 1.2 * M, 0.5 * M]} intensity={lightsOut ? 8 : 4} distance={9 * M} color={lightsOut ? '#ff5040' : '#3d7bff'} />
     </>
   );
 }
