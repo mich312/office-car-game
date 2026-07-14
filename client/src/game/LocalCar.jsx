@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import {
   CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP, BOOST_TOP_MULT,
   SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING,
-  JUMP_IMPULSE, DOUBLE_JUMP_IMPULSE, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
+  JUMP_VEL, DOUBLE_JUMP_VEL, COYOTE_TIME, UPRIGHT_ASSIST, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   TRICK_BOOST_REWARD, BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
 } from '@rc/shared';
@@ -265,7 +265,14 @@ export default function LocalCar() {
     }
     const grounded = groundedWheels >= 2;
     S.grounded = grounded;
-    if (grounded) { S.groundedTime += dt; S.canDouble = true; } else S.groundedTime = 0;
+    if (grounded) {
+      S.groundedTime += dt;
+      S.sinceGrounded = 0;
+      S.canDouble = true;
+    } else {
+      S.groundedTime = 0;
+      S.sinceGrounded = (S.sinceGrounded || 0) + dt;
+    }
 
     const stunned = nowMs < S.stunnedUntil;
     const shrunk = nowMs < S.shrinkUntil;
@@ -353,6 +360,11 @@ export default function LocalCar() {
         y: yaw * 2.2 * dt * CAR_MASS * 0.35,
         z: _right.z * pitch * 2.6 * dt * CAR_MASS * 0.35,
       }, true);
+      // gentle auto-level toward wheels-down when the player isn't
+      // steering a flip — intentional tricks still work, roof landings don't
+      if (pitch === 0 && yaw === 0 && UPRIGHT_ASSIST > 0) {
+        body.applyTorqueImpulse({ x: -_up.z * UPRIGHT_ASSIST * dt, y: 0, z: _up.x * UPRIGHT_ASSIST * dt }, true);
+      }
       S.airSpin += Math.abs(ang.x * dt) + Math.abs(ang.z * dt);
     }
     S.prevDrifting = drifting;
@@ -367,17 +379,21 @@ export default function LocalCar() {
     if (grounded) S.airSpin = 0;
 
     // ---------------- jump / double jump
-    if (k.jumpPressed && !frozen && !stunned) {
+    // Jumps SET vertical velocity: predictable height, and the double jump
+    // cancels a fall instead of being swallowed by it. Coyote time keeps
+    // jumps working when bumpy props briefly lift the wheels.
+    if (k.jumpPressed) {
       k.jumpPressed = false;
-      if (grounded) {
-        body.applyImpulse({ x: 0, y: CAR_MASS * JUMP_IMPULSE, z: 0 }, true);
-        audio.jump();
-      } else if (S.canDouble) {
-        S.canDouble = false;
-        body.applyImpulse({ x: 0, y: CAR_MASS * DOUBLE_JUMP_IMPULSE, z: 0 }, true);
-        // small forward flip for style
-        body.applyTorqueImpulse({ x: _right.x * CAR_MASS * 0.9, y: 0, z: _right.z * CAR_MASS * 0.9 }, true);
-        audio.jump();
+      if (!frozen && !stunned) {
+        if (grounded || S.sinceGrounded < COYOTE_TIME) {
+          body.setLinvel({ x: vel.x, y: Math.max(vel.y, 0) + JUMP_VEL, z: vel.z }, true);
+          S.sinceGrounded = COYOTE_TIME; // no coyote double-dip
+          audio.jump();
+        } else if (S.canDouble) {
+          S.canDouble = false;
+          body.setLinvel({ x: vel.x, y: DOUBLE_JUMP_VEL, z: vel.z }, true);
+          audio.jump();
+        }
       }
     }
 
@@ -411,8 +427,8 @@ export default function LocalCar() {
 
     // ---------------- upside-down & fall recovery
     const upDot = _up.y;
-    S.upsideDownTime = upDot < 0.1 && S.speed < 4 ? S.upsideDownTime + dt : 0;
-    if (k.respawn || pos.y < RESPAWN_Y || S.upsideDownTime > 2) {
+    S.upsideDownTime = upDot < 0.35 && S.speed < 4 ? S.upsideDownTime + dt : 0;
+    if (k.respawn || pos.y < RESPAWN_Y || S.upsideDownTime > 1.2) {
       k.respawn = false;
       S.upsideDownTime = 0;
       respawn();

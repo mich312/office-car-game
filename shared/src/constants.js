@@ -19,10 +19,13 @@ export const SUSPENSION_REST = 0.26; // ray length below chassis corners
 export const SUSPENSION_STIFFNESS = 160;
 export const SUSPENSION_DAMPING = 16;
 
-// Driving feel
-export const JUMP_IMPULSE = 13; // single jump stays below desk height…
-export const DOUBLE_JUMP_IMPULSE = 11; // …double jump just about reaches it
+// Driving feel — jumps SET vertical velocity (not additive impulses), so a
+// double jump cancels your fall and heights are predictable every time.
+export const JUMP_VEL = 13; // single jump stays below desk height…
+export const DOUBLE_JUMP_VEL = 11.5; // …double jump comfortably reaches it
+export const COYOTE_TIME = 0.12; // jump still works just after leaving ground
 export const BOOST_TOP_MULT = 1.3; // boosting may exceed top speed by this much
+export const UPRIGHT_ASSIST = 8; // gentle air auto-level torque (0 = off)
 export const AIR_PITCH_TORQUE = 1.1;
 export const AIR_YAW_TORQUE = 0.9;
 export const BOOST_MAX = 100;
@@ -54,4 +57,4 @@ export const BUMP_REL_SPEED = 14; // relative speed for a "hit" bump
 export const RESPAWN_Y = -12; // fell off the balcony / out of world
 
 // Anti-teleport validation: max plausible units/second (boost + shove headroom)
-export const MAX_PLAUSIBLE_SPEED = 60;
+export const MAX_PLAUSIBLE_SPEED = 50;

@@ -58,7 +58,7 @@ export class Bots {
     p.heading = -Math.PI / 2;
     p.speed = 0;
     p.wp = 0;
-    p.skill = 0.72 + Math.random() * 0.25;
+    p.skill = 0.62 + Math.random() * 0.26; // beatable by humans learning the map
     p.stuckT = 0;
     this.room.players.set(id, p);
   }
