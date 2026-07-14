@@ -335,9 +335,15 @@ export default function LocalCar() {
       const gripImpulse = -latVel * grip * CAR_MASS * Math.min(1, dt * 12);
       body.applyImpulse({ x: _right.x * gripImpulse, y: 0, z: _right.z * gripImpulse }, true);
       S.slipping = Math.abs(latVel) > 6 || (drifting && Math.abs(fwdSpeed) > 12);
-      // rolling resistance
+      // rolling resistance + parking brake: real deceleration off-throttle,
+      // and below walking pace the car is pinned so it never creeps on its own
       if (throttle === 0) {
-        body.applyImpulse({ x: -_v.x * CAR_MASS * 0.6 * dt, y: 0, z: -_v.z * CAR_MASS * 0.6 * dt }, true);
+        body.applyImpulse({ x: -_v.x * CAR_MASS * 2.2 * dt, y: 0, z: -_v.z * CAR_MASS * 2.2 * dt }, true);
+        const hSpeed = Math.hypot(_v.x, _v.z);
+        if (hSpeed < 1.2 && !drifting && gripMul > 0.5) {
+          const damp = hSpeed < 0.15 ? 0 : 0.7; // full stop once it's basically stopped
+          body.setLinvel({ x: _v.x * damp, y: vel.y, z: _v.z * damp }, true);
+        }
       }
       // mini-turbo on drift release
       if (!drifting && S.prevDrifting && S.driftReleaseBoost > 1.1) {
