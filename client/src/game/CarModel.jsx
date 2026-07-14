@@ -3,22 +3,23 @@
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { CARS } from '@rc/shared';
+import { CARS, SUSPENSION_REST } from '@rc/shared';
 import { useStore } from '../store.js';
 import TextSprite from './TextSprite.jsx';
 
 const WHEEL_POS = [
-  [-0.3, -0.12, 0.34], [0.3, -0.12, 0.34],
-  [-0.3, -0.12, -0.34], [0.3, -0.12, -0.34],
+  [-0.3, 0.34], [0.3, 0.34],
+  [-0.3, -0.34], [0.3, -0.34],
 ];
 
-export default function CarModel({ carId, paint, name, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, team }) {
+export default function CarModel({ carId, paint, name, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, team }) {
   const car = CARS[carId] || CARS.balanced;
   const color = paint || car.color;
   const night = useStore((s) => s.night);
   const event = useStore((s) => s.event);
   const dark = night || event?.id === 'lights_out';
   const wheels = useRef([]);
+  const wheelGroups = useRef([]);
   const bodyRef = useRef();
   const flameRef = useRef();
   const shieldRef = useRef();
@@ -43,6 +44,11 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
       if (!w) return;
       w.rotation.x = spin.current;
       if (i < 2 && w.parent) w.parent.rotation.y = steer * 0.42;
+      // wheels follow the suspension rays (local car) — touch the ground, compress, droop
+      const g = wheelGroups.current[i];
+      if (g && wheelYRef?.current) {
+        g.position.y += (wheelYRef.current[i] - g.position.y) * Math.min(1, dt * 22);
+      }
     });
     if (bodyRef.current) {
       // body roll from steering + squat from acceleration
@@ -66,8 +72,10 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
     }
   });
 
-  const wheelR = carId === 'monster' ? 0.2 : 0.14;
+  const wheelR = carId === 'monster' ? 0.18 : 0.13;
   const wheelW = carId === 'formula' ? 0.1 : 0.14;
+  // rest pose: wheels at typical suspension sag, tires kissing the floor
+  const restY = -0.05 - SUSPENSION_REST * 0.73 + wheelR;
 
   return (
     <group>
@@ -102,8 +110,8 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
         </group>
       </group>
       {/* wheels */}
-      {WHEEL_POS.map(([x, y, z], i) => (
-        <group key={i} position={[x, y + (carId === 'monster' ? 0.04 : 0), z]}>
+      {WHEEL_POS.map(([x, z], i) => (
+        <group key={i} ref={(el) => (wheelGroups.current[i] = el)} position={[x, restY, z]}>
           <group>
             <mesh ref={(el) => (wheels.current[i] = el)} rotation-z={Math.PI / 2} castShadow>
               <cylinderGeometry args={[wheelR, wheelR, wheelW, 14]} />

@@ -141,7 +141,7 @@ function MatchHUD() {
   const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
   const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, '0');
   const prog = raceProgress[myId];
-  const speedKmh = Math.round(telemetry.speed * 0.18 * 3.6 * 10); // scale speed × 10 for fun
+  const speedCms = Math.round(telemetry.speed * (100 / M)); // real-world cm/s at toy scale
 
   return (
     <>
@@ -154,7 +154,7 @@ function MatchHUD() {
       </div>
       <div className="bottom-left">
         <div className="speedo">
-          <span className="speed-num">{speedKmh}</span>
+          <span className="speed-num">{speedCms}</span>
           <span className="speed-unit">cm/s</span>
         </div>
         <div className="boost-bar">

@@ -37,7 +37,7 @@ export default function Game() {
       style={{ position: 'fixed', inset: 0 }}
     >
       <color attach="background" args={['#0b0f1c']} />
-      <fog attach="fog" args={['#141a2a', 220, 520]} />
+      <fog attach="fog" args={['#141a2a', 170, 420]} />
       <Suspense fallback={null}>
         <Lighting />
         <Physics gravity={[0, GRAVITY, 0]} timeStep={1 / 60} maxCcdSubsteps={2}>

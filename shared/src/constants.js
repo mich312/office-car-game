@@ -1,10 +1,11 @@
 // ---------------------------------------------------------------------------
 // World scale
-// The player's RC car is ~18 cm long and exactly 1.0 world units long.
-// So: 1 world unit = 0.18 m  →  M units per real-world meter.
-// A 75 cm desk is a 4.2-unit-tall mountain. A mug is taller than your roof.
+// The player's RC car is 1.0 world units long. M converts the map's
+// real-world meters into units. Tuned for gameplay rather than strict
+// realism: at 1u ≈ 22.5 cm the rooms feel tight and busy instead of empty,
+// while a desk is still a 3.3-unit mountain and a mug still tops your roof.
 // ---------------------------------------------------------------------------
-export const M = 1 / 0.18; // ≈ 5.5556 units per meter
+export const M = 1 / 0.225; // ≈ 4.444 units per meter
 
 // Physics
 export const GRAVITY = -9.81 * M; // real gravity expressed in world units
@@ -14,13 +15,14 @@ export const PHYS_TIMESTEP = 1 / 60;
 export const CAR_LENGTH = 1.0;
 export const CAR_WIDTH = 0.62;
 export const CAR_HEIGHT = 0.34;
-export const SUSPENSION_REST = 0.32; // ray length below chassis corners
-export const SUSPENSION_STIFFNESS = 130;
-export const SUSPENSION_DAMPING = 14;
+export const SUSPENSION_REST = 0.26; // ray length below chassis corners
+export const SUSPENSION_STIFFNESS = 160;
+export const SUSPENSION_DAMPING = 16;
 
 // Driving feel
-export const JUMP_IMPULSE = 15;
-export const DOUBLE_JUMP_IMPULSE = 12;
+export const JUMP_IMPULSE = 13; // single jump stays below desk height…
+export const DOUBLE_JUMP_IMPULSE = 11; // …double jump just about reaches it
+export const BOOST_TOP_MULT = 1.3; // boosting may exceed top speed by this much
 export const AIR_PITCH_TORQUE = 1.1;
 export const AIR_YAW_TORQUE = 0.9;
 export const BOOST_MAX = 100;
@@ -52,4 +54,4 @@ export const BUMP_REL_SPEED = 14; // relative speed for a "hit" bump
 export const RESPAWN_Y = -12; // fell off the balcony / out of world
 
 // Anti-teleport validation: max plausible units/second (boost + shove headroom)
-export const MAX_PLAUSIBLE_SPEED = 90;
+export const MAX_PLAUSIBLE_SPEED = 60;

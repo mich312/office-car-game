@@ -170,7 +170,7 @@ export class Bots {
       p.wp = nearestWp(px, pz);
     }
     p.v = [(px - p.p[0]) / dt, 0, (pz - p.p[2]) / dt];
-    p.p[0] = px; p.p[2] = pz; p.p[1] = 0.32;
+    p.p[0] = px; p.p[2] = pz; p.p[1] = 0.24; // matches suspension sag ride height
     p.drifting = Math.abs(dh) > 0.7 && p.speed > 20;
     p.grounded = true;
     const half = p.heading / 2;

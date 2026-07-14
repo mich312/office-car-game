@@ -6,11 +6,11 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, useRapier, useBeforePhysicsStep } from '@react-three/rapier';
 import * as THREE from 'three';
 import {
-  CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP,
+  CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP, BOOST_TOP_MULT,
   SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING,
   JUMP_IMPULSE, DOUBLE_JUMP_IMPULSE, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   TRICK_BOOST_REWARD, BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
-  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG,
+  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState } from '../net.js';
@@ -79,6 +79,9 @@ export default function LocalCar() {
   const steerRef = useRef(0);
   const boostingRef = useRef(false);
   const flagsRef = useRef(0);
+  // per-wheel visual Y (local) so the wheels follow the suspension rays
+  const wheelR = carId === 'monster' ? 0.18 : 0.13;
+  const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - SUSPENSION_REST * 0.8 + wheelR));
 
   const teleport = (x, y, z, rotY) => {
     const body = rb.current;
@@ -103,6 +106,7 @@ export default function LocalCar() {
       const sp = SPAWNS[net.spawnIndex % SPAWNS.length];
       spot = { x: sp.x, z: sp.z, rotY: sp.rotY };
     }
+    send({ t: MSG.RESPAWN }); // let the server sanction the teleport
     teleport(spot.x, 0.5, spot.z, spot.rotY);
     S.boost = Math.max(S.boost, 40);
   };
@@ -136,7 +140,7 @@ export default function LocalCar() {
               const r = body.rotation();
               _q.set(r.x, r.y, r.z, r.w);
               _fwd.set(0, 0, 1).applyQuaternion(_q);
-              body.applyImpulse({ x: _fwd.x * CAR_MASS * 14, y: 0, z: _fwd.z * CAR_MASS * 14 }, true);
+              body.applyImpulse({ x: _fwd.x * CAR_MASS * 9, y: 0, z: _fwd.z * CAR_MASS * 9 }, true);
             }
             break;
           case 'spring':
@@ -236,11 +240,14 @@ export default function LocalCar() {
     // ---------------- suspension: 4 rays along car-down
     let groundedWheels = 0;
     const rayDir = { x: -_up.x, y: -_up.y, z: -_up.z };
-    for (const [wx, wy, wz] of WHEELS) {
+    for (let wi = 0; wi < WHEELS.length; wi++) {
+      const [wx, wy, wz] = WHEELS[wi];
       _corner.set(wx, wy, wz).applyQuaternion(_q);
       _p.set(pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z);
       const ray = new rapier.Ray({ x: _p.x, y: _p.y, z: _p.z }, rayDir);
       const hit = world.castRay(ray, SUSPENSION_REST + 0.15, true, undefined, undefined, undefined, body);
+      // wheel visual sits where the ray hit (or droops at full travel in the air)
+      wheelYRef.current[wi] = wy - (hit ? Math.min(hit.timeOfImpact ?? hit.toi, SUSPENSION_REST + 0.1) : SUSPENSION_REST * 0.8) + wheelR;
       if (hit) {
         const len = hit.timeOfImpact ?? hit.toi;
         groundedWheels++;
@@ -326,7 +333,7 @@ export default function LocalCar() {
       }
       // mini-turbo on drift release
       if (!drifting && S.prevDrifting && S.driftReleaseBoost > 1.1) {
-        body.applyImpulse({ x: _fwd.x * CAR_MASS * 8, y: 0, z: _fwd.z * CAR_MASS * 8 }, true);
+        body.applyImpulse({ x: _fwd.x * CAR_MASS * 5, y: 0, z: _fwd.z * CAR_MASS * 5 }, true);
         audio.boostFire();
       }
       S.driftReleaseBoost = drifting ? S.driftTime : 0;
@@ -374,12 +381,12 @@ export default function LocalCar() {
       }
     }
 
-    // ---------------- boost
+    // ---------------- boost (capped so it can't stack speed forever)
     const wantBoost = (k.boost || (k.drift && k.fwd && !grounded)) && !frozen && !stunned;
     S.boosting = wantBoost && S.boost > 1;
     if (S.boosting) {
       S.boost = Math.max(0, S.boost - BOOST_DRAIN * dt);
-      const f = car.boost * CAR_MASS;
+      const f = fwdSpeed < car.topSpeed * BOOST_TOP_MULT ? car.boost * CAR_MASS : 0;
       body.applyImpulse({ x: _fwd.x * f * dt, y: 0, z: _fwd.z * f * dt }, true);
       if (Math.random() < 0.8) {
         _corner.set(0, 0.05, -0.55).applyQuaternion(_q);
@@ -434,17 +441,19 @@ export default function LocalCar() {
     // ---------------- camera
     if (!st.photoMode) {
       const back = _camPos.set(-_fwd.x, 0, -_fwd.z).normalize();
-      const dist = 4.6 + Math.min(2.2, S.speed * 0.03);
+      const dist = 4.0 + Math.min(1.6, S.speed * 0.03);
       _camTarget.set(
         pos.x + back.x * dist,
-        pos.y + 2.3 + (grounded ? 0 : 0.5),
+        pos.y + 2.0 + (grounded ? 0 : 0.4),
         pos.z + back.z * dist,
       );
-      const lerpK = 1 - Math.pow(0.0015, dt);
+      // framerate-independent smoothing (unclamped dt so slow frames still converge)
+      const lerpK = 1 - Math.pow(0.0015, Math.min(rawDt, 0.5));
       camera.position.lerp(_camTarget, lerpK);
       // keep the camera above the floor
       if (camera.position.y < 0.7) camera.position.y = 0.7;
-      _look.set(pos.x + _fwd.x * 2.4 + vel.x * 0.06, pos.y + 0.7, pos.z + _fwd.z * 2.4 + vel.z * 0.06);
+      // keep the car anchored in the lower third: modest look-ahead, higher aim
+      _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
       if (S.shake > 0.01) {
         _look.x += (Math.random() - 0.5) * S.shake * 1.6;
         _look.y += (Math.random() - 0.5) * S.shake * 1.2;
@@ -452,14 +461,14 @@ export default function LocalCar() {
         S.shake *= Math.pow(0.02, dt);
       }
       camera.lookAt(_look);
-      const targetFov = 60 + Math.min(1, S.speed / car.topSpeed) * 14 + (S.boosting ? 7 : 0);
+      const targetFov = 58 + Math.min(1, S.speed / car.topSpeed) * 10 + (S.boosting ? 6 : 0);
       S.fov += (targetFov - S.fov) * Math.min(1, dt * 5);
       if (Math.abs(camera.fov - S.fov) > 0.05) { camera.fov = S.fov; camera.updateProjectionMatrix(); }
     }
 
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
-    audio.setRain(pos.x < -8.5 * 5.5 && pos.z > -1 ? 0.9 : st.night ? 0.35 : 0.15);
+    audio.setRain(pos.x < -8.5 * M && pos.z > -1 ? 0.9 : st.night ? 0.35 : 0.15);
 
     // ---------------- network send
     if (nowMs - S.lastSend > 1000 / INPUT_SEND_RATE) {
@@ -516,6 +525,7 @@ export default function LocalCar() {
             steerRef={steerRef}
             boostingRef={boostingRef}
             flagsRef={flagsRef}
+            wheelYRef={wheelYRef}
           />
         </group>
       </RigidBody>

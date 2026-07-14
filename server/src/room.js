@@ -92,8 +92,15 @@ export class Room {
         const dt = Math.min(0.6, Math.max(0.02, (now() - player.lastStateAt) / 1000));
         const dx = msg.p[0] - player.p[0], dz = msg.p[2] - player.p[2];
         const speed = Math.hypot(dx, dz) / dt;
-        // Anti-teleport: ignore impossible jumps (unless we just swapped/respawned them)
-        if (speed > MAX_PLAUSIBLE_SPEED * 2 && now() > player.allowTeleportUntil) return;
+        // Anti-teleport: ignore impossible jumps (unless we just swapped/respawned
+        // them). A sustained stream of consistent "impossible" reports means we
+        // missed a legit teleport — accept after a few strikes so nobody gets
+        // permanently stuck at a stale position.
+        if (speed > MAX_PLAUSIBLE_SPEED * 2 && now() > player.allowTeleportUntil) {
+          player.rejects = (player.rejects || 0) + 1;
+          if (player.rejects <= 8) return;
+        }
+        player.rejects = 0;
         player.p = msg.p.map(Number);
         if (Array.isArray(msg.q)) player.q = msg.q.map(Number);
         if (Array.isArray(msg.v)) player.v = msg.v.map(Number);
@@ -104,6 +111,14 @@ export class Room {
       }
       case MSG.USE_POWERUP:
         if (player && this.phase === PHASE.PLAYING) this.usePowerup(player);
+        break;
+      case MSG.RESPAWN:
+        // client announces a self-respawn (fell off / R key) → sanction the jump
+        if (player && now() > (player.lastRespawnMsg || 0) + 1500) {
+          player.lastRespawnMsg = now();
+          player.allowTeleportUntil = now() + 1500;
+          this.mode?.onFall?.(player);
+        }
         break;
       case MSG.BUMP: {
         if (!player || this.phase !== PHASE.PLAYING) return;
@@ -171,7 +186,9 @@ export class Room {
       Object.assign(p, {
         score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false,
         powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
-        spawnIndex: i++,
+        spawnIndex: i++, finished: false, rejects: 0,
+        // everyone teleports to the spawn grid client-side — sanction it
+        allowTeleportUntil: now() + (COUNTDOWN_SECONDS + 2) * 1000,
       });
     }
     this.mode = createMode(this.modeId, this);

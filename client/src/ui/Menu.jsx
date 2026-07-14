@@ -73,11 +73,11 @@ export default function Menu() {
           <h2>{car.name}</h2>
           <p className="car-desc">{car.desc}</p>
           <div className="stats">
-            <Stat label="Speed" v={car.topSpeed / 58} />
-            <Stat label="Accel" v={car.accel / 52} />
+            <Stat label="Speed" v={car.topSpeed / 38} />
+            <Stat label="Accel" v={car.accel / 30} />
             <Stat label="Handling" v={car.handling / 3.2} />
             <Stat label="Drift" v={1 - car.drift / 0.6} />
-            <Stat label="Boost" v={car.boost / 40} />
+            <Stat label="Boost" v={car.boost / 27} />
           </div>
           <div className="paints">
             {paints.map((p) => (
