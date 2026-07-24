@@ -1,6 +1,8 @@
 // Drone cam for eliminated players (Last Car Standing): a slow orbit around
 // a surviving car. Click, Space or E cycles targets. LocalCar hands the
 // camera over while `spectating` is set, and takes it back on match start.
+// Also home of the photo-mode aerial: the ceiling faces down (backface-
+// culled from above), so the office reads as a dollhouse from the air.
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useStore } from '../store.js';
@@ -32,14 +34,36 @@ export default function SpectatorCam() {
     const id = ids[S.idx % ids.length];
     const s = sampleRemote(id);
     if (!s) return;
-    const r = 7;
+    // high half-orbit: enough altitude to clear walls and read the room
+    const r = 9;
     const k = Math.min(1, dt * 3);
     camera.position.x += (s.p[0] + Math.cos(S.angle) * r - camera.position.x) * k;
-    camera.position.y += ((s.p[1] || 0) + 4 - camera.position.y) * k;
+    camera.position.y += ((s.p[1] || 0) + 6 - camera.position.y) * k;
     camera.position.z += (s.p[2] + Math.sin(S.angle) * r - camera.position.z) * k;
     camera.lookAt(s.p[0], (s.p[1] || 0) + 0.5, s.p[2]);
     const name = useStore.getState().players[id]?.name || null;
     if (useStore.getState().spectateTarget !== name) useStore.setState({ spectateTarget: name });
+  });
+  return null;
+}
+
+// Photo mode (P): a slow cinematic aerial sweep over the whole office —
+// the establishing shot the chase cam can never give you. The camera
+// pendulums along the southern side (a full orbit would fly through the
+// skyline towers behind the north windows).
+export function PhotoOrbitCam() {
+  const photoMode = useStore((s) => s.photoMode);
+  const camera = useThree((s) => s.camera);
+  const S = useRef({ t: 0 }).current;
+  useFrame((_, dt) => {
+    if (!photoMode) return;
+    S.t += dt * 0.1;
+    const az = Math.sin(S.t) * 0.85; // sweep angle around south
+    const k = Math.min(1, dt * 2);
+    camera.position.x += (Math.sin(az) * 52 - camera.position.x) * k;
+    camera.position.y += (34 - camera.position.y) * k;
+    camera.position.z += ((-Math.cos(az) * 42 - 4) - camera.position.z) * k;
+    camera.lookAt(0, -2, 2);
   });
   return null;
 }

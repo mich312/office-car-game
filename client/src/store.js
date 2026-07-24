@@ -7,6 +7,8 @@ const saved = (() => {
 })();
 
 export const useStore = create((set, get) => ({
+  // (exposed below as window.__rcStore for headless testing / debugging,
+  // matching the existing window.__rcTelemetry affordance)
   screen: 'menu', // 'menu' | 'game'
   connected: false,
   connectError: null,
@@ -72,3 +74,5 @@ export const useStore = create((set, get) => ({
     setTimeout(() => set((s) => ({ feed: s.feed.slice(1) })), 6000);
   },
 }));
+
+if (typeof window !== 'undefined') window.__rcStore = useStore;
