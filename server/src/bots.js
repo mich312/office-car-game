@@ -3,7 +3,7 @@
 // doubles as a corridor graph), grab powerups and generally cause trouble.
 import {
   BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER,
-  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS,
+  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle,
 } from '@rc/shared';
 
 const BOT_NAMES = [
@@ -55,7 +55,7 @@ export class Bots {
     const id = `bot${++this.n}`;
     const name = BOT_NAMES[(this.n - 1) % BOT_NAMES.length];
     const car = CAR_IDS[Math.floor(Math.random() * CAR_IDS.length)];
-    const p = this.room.makePlayer(id, null, { name: `🤖 ${name}`, car });
+    const p = this.room.makePlayer(id, null, { name: `🤖 ${name}`, car, style: randomStyle() });
     p.bot = true;
     p.ready = true;
     // bots dress up too — hats and paints keep a bot lobby colorful

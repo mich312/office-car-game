@@ -5,7 +5,7 @@
 import {
   TICK_RATE, MAX_PLAYERS, COUNTDOWN_SECONDS, MATCH_SECONDS, PODIUM_SECONDS,
   OFFICE_EVENT_INTERVAL, BOTS_FILL_TO, MAX_PLAUSIBLE_SPEED, BUMP_RADIUS,
-  MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS,
+  MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS, sanitizeStyle,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
   SPAWNS, POWERUP_PADS, ROBOT_PATH, M, EMOTES, COSMETIC_IDS,
   PROPS, VENDING, PRINTER, ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
@@ -206,6 +206,7 @@ export class Room {
       car: CAR_IDS.includes(msg.car) ? msg.car : 'balanced',
       paint: typeof msg.paint === 'string' ? msg.paint.slice(0, 9) : null,
       cos,
+      style: sanitizeStyle(msg.style),
       ready: false,
       p: [spawn.x, 1, spawn.z], q: [0, 0, 0, 1], v: [0, 0, 0],
       drifting: false, grounded: true,
@@ -702,7 +703,7 @@ export class Room {
   }
 
   publicPlayer(p) {
-    return { id: p.id, name: p.name, car: p.car, paint: p.paint, cos: p.cos, ready: p.ready, bot: p.bot, team: p.team };
+    return { id: p.id, name: p.name, car: p.car, paint: p.paint, cos: p.cos, style: p.style, ready: p.ready, bot: p.bot, team: p.team };
   }
   publicPlayers() { return [...this.players.values()].map((p) => this.publicPlayer(p)); }
 
