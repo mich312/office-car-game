@@ -3,10 +3,11 @@
 import { useRef, memo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
+import { Detailed } from '@react-three/drei';
 import { CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, POWERUP_EFFECT } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, sampleRemote } from '../net.js';
-import CarModel from './CarModel.jsx';
+import CarModel, { CarProxy } from './CarModel.jsx';
 
 export default function RemoteCars() {
   const players = useStore((s) => s.players);
@@ -52,16 +53,20 @@ const RemoteCar = memo(function RemoteCar({ player }) {
     <RigidBody ref={rb} type="kinematicPosition" colliders={false} userData={{ playerId: player.id }} position={[0, -50, 0]}>
       <CuboidCollider args={[CAR_WIDTH / 2, CAR_HEIGHT / 2, CAR_LENGTH / 2]} />
       <group ref={group}>
-        <CarModel
-          carId={player.car}
-          paint={player.paint}
-          name={player.name}
-          team={useStore.getState().modeId === 'soccer' ? player.team : undefined}
-          speedRef={speedRef}
-          steerRef={steerRef}
-          boostingRef={boostingRef}
-          flagsRef={flagsRef}
-        />
+        {/* LOD: full model near, 3-box proxy past ~28 units */}
+        <Detailed distances={[0, 28]}>
+          <CarModel
+            carId={player.car}
+            paint={player.paint}
+            name={player.name}
+            team={useStore.getState().modeId === 'soccer' ? player.team : undefined}
+            speedRef={speedRef}
+            steerRef={steerRef}
+            boostingRef={boostingRef}
+            flagsRef={flagsRef}
+          />
+          <CarProxy carId={player.car} paint={player.paint} />
+        </Detailed>
       </group>
     </RigidBody>
   );

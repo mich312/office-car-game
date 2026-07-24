@@ -117,6 +117,12 @@ body {
 
 .hint { font-size: 12px; opacity: 0.55; text-align: center; }
 
+.assist-toggle {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; opacity: 0.8; cursor: pointer; user-select: none;
+}
+.assist-toggle input { accent-color: #7b2ff2; width: 15px; height: 15px; cursor: pointer; }
+
 .xp { margin-top: 6px; }
 .xp-row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
 .xp-bar { position: relative; height: 18px; background: rgba(255,255,255,0.07); border-radius: 9px; overflow: hidden; }
@@ -203,6 +209,32 @@ kbd {
 .event-banner b { display: block; font-size: 16px; letter-spacing: 1px; }
 .event-banner small { opacity: 0.85; font-size: 12px; }
 @keyframes bannerin { from { transform: translate(-50%, -30px) scale(0.8); opacity: 0; } }
+.event-banner.warn {
+  background: linear-gradient(92deg, rgba(242,168,47,0.9), rgba(255,92,51,0.85));
+  box-shadow: 0 10px 40px rgba(255, 140, 40, 0.5);
+  animation: bannerin 0.4s cubic-bezier(0.2, 1.4, 0.4, 1), warnpulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes warnpulse { to { filter: brightness(1.25); } }
+
+/* --------------------------------------------------- touch controls */
+.touch-controls { display: none; }
+@media (pointer: coarse) {
+  .touch-controls { display: block; position: absolute; inset: 0; pointer-events: none; }
+}
+.tc-left { position: absolute; left: 16px; bottom: 110px; display: flex; gap: 16px; }
+.tc-right {
+  position: absolute; right: 14px; bottom: 110px;
+  display: grid; grid-template-columns: repeat(2, 62px); gap: 12px;
+}
+.tc-btn {
+  pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+  width: 62px; height: 62px; border-radius: 50%;
+  background: rgba(20, 26, 44, 0.55); border: 1.5px solid rgba(255, 255, 255, 0.25);
+  color: #fff; font-size: 24px; backdrop-filter: blur(6px);
+}
+.tc-btn:active { background: rgba(123, 47, 242, 0.55); transform: scale(0.94); }
+.tc-steer { width: 84px; height: 84px; font-size: 30px; }
+.tc-wide { grid-column: span 2; width: 100%; border-radius: 31px; font-size: 14px; letter-spacing: 2px; }
 
 /* ------------------------------------------------------------- lobby */
 .lobby {

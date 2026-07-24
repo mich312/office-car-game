@@ -12,6 +12,29 @@ const WHEEL_POS = [
   [-0.3, -0.34], [0.3, -0.34],
 ];
 
+// 4-step toon ramp (shared): banded shading gives the cars a plastic-toy pop
+// against the realistic office. NearestFilter keeps the bands crisp.
+let _ramp = null;
+function toonRamp() {
+  if (_ramp) return _ramp;
+  const data = new Uint8Array([70, 135, 200, 255]);
+  _ramp = new THREE.DataTexture(data, 4, 1, THREE.RedFormat);
+  _ramp.minFilter = _ramp.magFilter = THREE.NearestFilter;
+  _ramp.needsUpdate = true;
+  return _ramp;
+}
+
+// Inverted-hull outline for a box shape — rendered backface-only so it draws
+// a clean dark rim around the painted shell.
+const OUTLINE_MAT = new THREE.MeshBasicMaterial({ color: '#0b0c12', side: THREE.BackSide });
+function Outline({ args, position, rotation }) {
+  return (
+    <mesh position={position} rotation={rotation} scale={1.08} material={OUTLINE_MAT}>
+      <boxGeometry args={args} />
+    </mesh>
+  );
+}
+
 export default function CarModel({ carId, paint, name, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, team }) {
   const car = CARS[carId] || CARS.balanced;
   const color = paint || car.color;
@@ -28,12 +51,13 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
   const spin = useRef(0);
 
   const mats = useMemo(() => ({
-    body: new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.25, envMapIntensity: 1.2 }),
-    dark: new THREE.MeshStandardMaterial({ color: '#191c22', roughness: 0.5, metalness: 0.3 }),
+    // toon-shaded shell + accents; metal rims and glass stay PBR for sparkle
+    body: new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() }),
+    dark: new THREE.MeshToonMaterial({ color: '#191c22', gradientMap: toonRamp() }),
     tire: new THREE.MeshStandardMaterial({ color: '#17181c', roughness: 0.9 }),
     rim: new THREE.MeshStandardMaterial({ color: '#c9cfd8', metalness: 0.9, roughness: 0.2 }),
     glassDark: new THREE.MeshStandardMaterial({ color: '#0e1116', roughness: 0.1, metalness: 0.6 }),
-    accent: new THREE.MeshStandardMaterial({ color: '#f5f5f5', roughness: 0.4 }),
+    accent: new THREE.MeshToonMaterial({ color: '#f5f5f5', gradientMap: toonRamp() }),
   }), [color]);
 
   useFrame((_, dt) => {
@@ -162,11 +186,34 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
   );
 }
 
+// Far-LOD stand-in: three boxes instead of ~20 meshes. Remote cars swap to
+// this beyond ~28 units so 12-player lobbies stay cheap.
+export function CarProxy({ carId, paint }) {
+  const car = CARS[carId] || CARS.balanced;
+  const color = paint || car.color;
+  const mat = useMemo(() => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() }), [color]);
+  return (
+    <group position={[0, -0.05, 0]}>
+      <mesh material={mat} position={[0, 0.02, 0]}>
+        <boxGeometry args={[0.54, 0.2, 0.95]} />
+      </mesh>
+      <mesh material={mat} position={[0, 0.16, -0.06]}>
+        <boxGeometry args={[0.44, 0.13, 0.5]} />
+      </mesh>
+      <mesh position={[0, -0.08, 0]}>
+        <boxGeometry args={[0.62, 0.14, 0.8]} />
+        <meshBasicMaterial color="#17181c" />
+      </mesh>
+    </group>
+  );
+}
+
 function Body({ carId, mats }) {
   switch (carId) {
     case 'buggy':
       return (
         <group>
+          <Outline args={[0.5, 0.16, 0.85]} position={[0, 0.02, 0]} />
           <mesh castShadow material={mats.body} position={[0, 0.02, 0]}>
             <boxGeometry args={[0.5, 0.16, 0.85]} />
           </mesh>
@@ -187,6 +234,7 @@ function Body({ carId, mats }) {
     case 'drift':
       return (
         <group>
+          <Outline args={[0.54, 0.13, 0.95]} position={[0, -0.01, 0]} />
           <mesh castShadow material={mats.body} position={[0, -0.01, 0]}>
             <boxGeometry args={[0.54, 0.13, 0.95]} />
           </mesh>
@@ -207,6 +255,7 @@ function Body({ carId, mats }) {
     case 'monster':
       return (
         <group position={[0, 0.06, 0]}>
+          <Outline args={[0.5, 0.2, 0.8]} position={[0, 0.05, 0]} />
           <mesh castShadow material={mats.body} position={[0, 0.05, 0]}>
             <boxGeometry args={[0.5, 0.2, 0.8]} />
           </mesh>
@@ -221,6 +270,7 @@ function Body({ carId, mats }) {
     case 'formula':
       return (
         <group>
+          <Outline args={[0.26, 0.12, 0.9]} position={[0, -0.02, 0.1]} />
           <mesh castShadow material={mats.body} position={[0, -0.02, 0.1]}>
             <boxGeometry args={[0.26, 0.12, 0.9]} />
           </mesh>
@@ -244,6 +294,8 @@ function Body({ carId, mats }) {
     default: // balanced hatchback
       return (
         <group>
+          <Outline args={[0.54, 0.17, 0.95]} position={[0, 0, 0]} />
+          <Outline args={[0.48, 0.14, 0.55]} position={[0, 0.14, -0.08]} />
           <mesh castShadow material={mats.body} position={[0, 0, 0]}>
             <boxGeometry args={[0.54, 0.17, 0.95]} />
           </mesh>

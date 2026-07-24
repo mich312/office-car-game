@@ -5,6 +5,7 @@ import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
 import { telemetry } from '../game/LocalCar.jsx';
+import { touchInput } from '../game/useControls.js';
 import { audio } from '../audio.js';
 
 export default function HUD() {
@@ -173,7 +174,38 @@ function MatchHUD() {
         )}
       </div>
       <Minimap />
+      <TouchControls />
     </>
+  );
+}
+
+// ------------------------------------------------- touch controls (mobile)
+// Rendered always, shown via CSS only on coarse-pointer devices. Buttons
+// write into the shared touchInput channel merged by the input poll.
+function TouchControls() {
+  const held = useRef({ L: false, R: false });
+  const steerUpd = () => { touchInput.steer = (held.current.R ? 1 : 0) - (held.current.L ? 1 : 0); };
+  const bind = (fn) => ({
+    onPointerDown: (e) => { e.preventDefault(); audio.start(); fn(true); },
+    onPointerUp: () => fn(false),
+    onPointerCancel: () => fn(false),
+    onPointerLeave: () => fn(false),
+    onContextMenu: (e) => e.preventDefault(),
+  });
+  return (
+    <div className="touch-controls">
+      <div className="tc-left">
+        <button className="tc-btn tc-steer" {...bind((d) => { held.current.L = d; steerUpd(); })}>◀</button>
+        <button className="tc-btn tc-steer" {...bind((d) => { held.current.R = d; steerUpd(); })}>▶</button>
+      </div>
+      <div className="tc-right">
+        <button className="tc-btn" {...bind((d) => { if (d) touchInput.jumpPressed = true; })}>⤒</button>
+        <button className="tc-btn" {...bind((d) => { touchInput.boost = d; })}>🔥</button>
+        <button className="tc-btn" {...bind((d) => { touchInput.drift = d; })}>💨</button>
+        <button className="tc-btn" {...bind((d) => { if (d) send({ t: MSG.USE_POWERUP }); })}>🎁</button>
+        <button className="tc-btn tc-wide" {...bind((d) => { touchInput.brake = d ? 1 : 0; })}>BRAKE</button>
+      </div>
+    </div>
   );
 }
 
@@ -316,6 +348,18 @@ function Feed() {
 
 function EventBanner() {
   const event = useStore((s) => s.event);
+  const eventWarn = useStore((s) => s.eventWarn);
+  if (!event && eventWarn) {
+    return (
+      <div className="event-banner warn">
+        <span className="ev-icon">⚠️</span>
+        <div>
+          <b>Incoming: {eventWarn.icon} {eventWarn.name}</b>
+          <small>{eventWarn.desc}</small>
+        </div>
+      </div>
+    );
+  }
   if (!event) return null;
   return (
     <div className="event-banner">

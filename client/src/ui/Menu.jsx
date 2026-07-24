@@ -106,6 +106,15 @@ export default function Menu() {
           <button className="play" onClick={play}>ENTER THE OFFICE</button>
           <p className="hint">Playing solo? Bots will fill the lobby.</p>
 
+          <label className="assist-toggle">
+            <input
+              type="checkbox"
+              checked={store.autoGas}
+              onChange={(e) => { useStore.setState({ autoGas: e.target.checked }); useStore.getState().save(); }}
+            />
+            Auto-gas assist (car accelerates on its own)
+          </label>
+
           <div className="xp">
             <div className="xp-row"><span>Career XP</span><b>{store.xp}</b></div>
             {nextUnlock && (
@@ -125,6 +134,7 @@ export default function Menu() {
             <div><kbd>E</kbd>/<kbd>CLICK</kbd> use powerup</div>
             <div><kbd>R</kbd> respawn · <kbd>N</kbd> day/night</div>
             <div><kbd>TAB</kbd> scoreboard · <kbd>M</kbd> mute</div>
+            <div><kbd>🎮</kbd> gamepads work: stick + triggers</div>
           </div>
         </section>
       </div>

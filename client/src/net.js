@@ -172,7 +172,17 @@ function handleMessage(msg) {
       emit('fx', msg);
       break;
     case MSG.OFFICE_EVENT:
-      S.setState({ event: { ...msg, until: Date.now() + msg.duration * 1000 } });
+      if (msg.warn) {
+        // 3s heads-up before the event actually starts
+        S.setState({ eventWarn: msg });
+        S.getState().pushFeed(`⚠️ Incoming: ${msg.icon} ${msg.name}`);
+        setTimeout(() => {
+          const w = S.getState().eventWarn;
+          if (w && w.id === msg.id) S.setState({ eventWarn: null });
+        }, (msg.startsIn || 3) * 1000 + 500);
+        break;
+      }
+      S.setState({ event: { ...msg, until: Date.now() + msg.duration * 1000 }, eventWarn: null });
       S.getState().pushFeed(`${msg.icon} ${msg.name} — ${msg.desc}`);
       emit('office_event', msg);
       setTimeout(() => {

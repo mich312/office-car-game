@@ -104,10 +104,12 @@ class CoffeeMode {
     }
     this.beans = this.beans.filter((b) => !b.dead);
   }
-  spill(p, cause) {
+  // Bumps spill about half your beans (min 3) — proportional loss keeps the
+  // leader a target without zeroing them out; falls still spill everything.
+  spill(p, cause, all = false) {
     if (p.beans <= 0) return;
-    const n = p.beans;
-    p.beans = 0;
+    const n = all ? p.beans : Math.min(p.beans, Math.max(3, Math.ceil(p.beans / 2)));
+    p.beans -= n;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
       this.beans.push({
@@ -119,7 +121,7 @@ class CoffeeMode {
     this.room.feed(`💥 ${p.name} spilled ${n} bean${n > 1 ? 's' : ''}${cause ? ` (${cause})` : ''}`);
   }
   onHit(attacker, victim) { this.spill(victim, attacker ? attacker.name : null); }
-  onFall(p) { this.spill(p, 'gravity'); }
+  onFall(p) { this.spill(p, 'gravity', true); }
   rocketTarget(player) {
     const order = [...this.room.players.values()].filter((p) => p !== player)
       .sort((a, b) => (b.score + b.beans * 5) - (a.score + a.beans * 5));
@@ -261,8 +263,8 @@ class SoccerMode {
         const scoringTeam = 1 - g.team;
         this.teamScores[scoringTeam] += 1;
         const scorer = this.room.players.get(b.lastTouch);
-        for (const p of this.room.players.values()) if (p.team === scoringTeam) p.score += 50;
-        if (scorer) scorer.score += 50;
+        for (const p of this.room.players.values()) if (p.team === scoringTeam) p.score += MODES.soccer.goalScore;
+        if (scorer) scorer.score += MODES.soccer.goalScore;
         this.room.feed(`⚽ GOOOAL! ${scorer ? scorer.name : 'Someone'} scores for ${scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue'}!`);
         this.room.broadcast({ t: MSG.EFFECT, type: 'goal', team: scoringTeam, scorer: scorer?.id, teamScores: this.teamScores });
         this.room.scoreChanged();
