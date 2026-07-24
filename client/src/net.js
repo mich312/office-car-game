@@ -24,6 +24,8 @@ export const net = {
   spawnIndex: 0,
   teams: {},
 };
+// debug/tooling hook (mirrors window.__rcTelemetry in LocalCar)
+if (typeof window !== 'undefined') window.__rcNet = net;
 
 // ------------------------------------------------------------ event bus
 const handlers = new Map();
