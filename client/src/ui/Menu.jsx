@@ -8,7 +8,7 @@ import { Environment, Lightformer, ContactShadows, Html } from '@react-three/dre
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import {
-  CARS, CAR_IDS, UNLOCKS, PAINT_COLORS,
+  CARS, CAR_IDS, UNLOCKS, PAINT_COLORS, ABILITIES,
   WHEEL_STYLES, WHEEL_IDS, SPOILER_STYLES, SPOILER_IDS,
   VINYL_STYLES, VINYL_IDS, VINYL_COLORS, GLOW_COLORS,
 } from '@rc/shared';
@@ -48,6 +48,7 @@ function GarageScene() {
   const carId = useStore((s) => s.car);
   const paint = useStore((s) => s.paint);
   const style = useStore((s) => s.style);
+  const cos = useStore((s) => s.cos);
   const lampTarget = useMemo(() => new THREE.Object3D(), []);
 
   return (
@@ -68,7 +69,7 @@ function GarageScene() {
 
       {/* the star of the show, on its turntable */}
       <Turntable>
-        <CarModel carId={carId} paint={paint} style={style} isLocal />
+        <CarModel carId={carId} paint={paint} style={style} cosmetics={cos} isLocal />
       </Turntable>
       <ContactShadows position={[0, 0.07, 0]} opacity={0.65} blur={2.4} scale={7} />
 
@@ -268,6 +269,7 @@ function MonitorUI() {
       <nav>
         <button className={tab === 'car' ? 'sel' : ''} onClick={() => setTab('car')}>CAR</button>
         <button className={tab === 'style' ? 'sel' : ''} onClick={() => setTab('style')}>STYLE</button>
+        <button className={tab === 'gear' ? 'sel' : ''} onClick={() => setTab('gear')}>GEAR</button>
       </nav>
 
       {tab === 'car' && (
@@ -287,6 +289,7 @@ function MonitorUI() {
             <Stat label="Drift" v={1 - car.drift / 0.6} />
             <Stat label="Boost" v={car.boost / 13} />
           </div>
+          <p className="mu-ability">{ABILITIES[carId]?.icon} <b>{ABILITIES[carId]?.name}</b> · {ABILITIES[carId]?.desc} <kbd>Q</kbd></p>
           <label className="mu-label">PAINT</label>
           <div className="mu-swatches">
             {paints.map((p) => (
@@ -351,6 +354,29 @@ function MonitorUI() {
         </div>
       )}
 
+
+      {tab === 'gear' && (
+        <div className="mu-body">
+          {[['hat', 'HAT'], ['antenna', 'ANTENNA'], ['trail', 'TRAIL']].map(([slot, label]) => {
+            const items = unlocked.filter((u) => u.type === slot);
+            return (
+              <div key={slot}>
+                <label className="mu-label">{label}</label>
+                <div className="mu-row">
+                  <button className={!store.cos[slot] ? 'sel' : ''}
+                    onClick={() => { store.equip(slot, null); audio.blip(440, 0.05); }}>none</button>
+                  {items.map((u) => (
+                    <button key={u.value} className={store.cos[slot] === u.value ? 'sel' : ''}
+                      onClick={() => { store.equip(slot, u.value); audio.blip(760, 0.05); }}>{u.name}</button>
+                  ))}
+                  {items.length === 0 && <span className="mu-hint">earn XP to unlock</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <footer>
         <input
           value={store.name}
@@ -406,6 +432,8 @@ function Clipboard({ position, rotation }) {
             <div><kbd>SHIFT</kbd> drift → sparks → mini-turbo</div>
             <div><kbd>SPACE</kbd>/<kbd>B</kbd> boost</div>
             <div><kbd>E</kbd>/<kbd>CLICK</kbd> use powerup</div>
+            <div><kbd>Q</kbd> ability · <kbd>H</kbd> horn</div>
+            <div><kbd>1-8</kbd> emotes</div>
             <div><kbd>R</kbd> respawn · <kbd>N</kbd> night</div>
             <div><kbd>TAB</kbd> scores · <kbd>M</kbd> mute</div>
             <div>🎮 gamepad: stick + triggers</div>

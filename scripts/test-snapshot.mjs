@@ -22,6 +22,7 @@ const snap = {
   zone: { x: -13.3, z: -13.3, r: 44.4, until: t + 20000 },
   it: 'bot2',
   sumo: { round: 2, out: [['p1', 43]] },
+  lcs: { locked: ['reception', 'storage'], warn: { room: 'games', until: t + 5000 }, alive: 4 },
 };
 
 const bytes = encodeSnapshot(snap);
@@ -53,6 +54,10 @@ check('teamScores', d.teamScores[0] === 3 && d.teamScores[1] === 5);
 check('zone', approx(d.zone.r, 44.4, 0.011) && approx(d.zone.until, t + 20000, 1));
 check('it', d.it === 'bot2');
 check('sumo', d.sumo.round === 2 && d.sumo.out.length === 1 && d.sumo.out[0][0] === 'p1' && d.sumo.out[0][1] === 43);
+check('lcs locked', d.lcs.locked.length === 2 && d.lcs.locked[0] === 'reception' && d.lcs.locked[1] === 'storage');
+check('lcs warn', d.lcs.warn.room === 'games' && approx(d.lcs.warn.until, t + 5000, 1));
+check('lcs alive', d.lcs.alive === 4);
+check('min no lcs', decodeSnapshot(encodeSnapshot({ t: 'ss', time: t, players: {}, puddles: [] })).lcs === undefined);
 
 // minimal snapshot (lobby phase: players only)
 const min = { t: 'ss', time: t, players: { p1: { p: [0, 1, 0], q: [0, 0, 0, 1], f: 0, c: 0 } }, puddles: [] };

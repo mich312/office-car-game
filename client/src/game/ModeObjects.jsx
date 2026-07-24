@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import TextSprite from './TextSprite.jsx';
 import {
   CHECKPOINTS, POWERUP_PADS, COFFEE_MACHINE, SOCCER, POWERUP_EFFECT, M,
+  ROOMS, WALL_HEIGHT,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, sampleRemote } from '../net.js';
@@ -30,6 +31,7 @@ export default function ModeObjects() {
       {active && modeId === 'koth' && <Zone color="#ffd166" label="📍 STANDUP" />}
       {active && modeId === 'sumo' && <Zone color="#ff5c5c" label="🥋 RING" wall />}
       {active && modeId === 'tag' && <ItCrown />}
+      {active && modeId === 'last_standing' && <LockedRooms />}
     </group>
   );
 }
@@ -106,6 +108,47 @@ function ItCrown() {
         <meshStandardMaterial color="#ffd166" emissive="#ffb703" emissiveIntensity={1.2} />
       </mesh>
       <pointLight intensity={2.5} distance={5} color="#ffd166" />
+    </group>
+  );
+}
+
+// -------------------------------------------------- last car standing
+// Locked rooms fill with a red haze, the next victim pulses amber.
+// The zone is a zap field, not a wall — you can drive through, briefly.
+function LockedRooms() {
+  const lcs = useStore((s) => s.lcs);
+  const warnRef = useRef();
+  useFrame(({ clock }) => {
+    if (warnRef.current) warnRef.current.material.opacity = 0.08 + (Math.sin(clock.elapsedTime * 6) + 1) * 0.07;
+  });
+  if (!lcs) return null;
+  const warnRoom = lcs.warn ? ROOMS.find((r) => r.id === lcs.warn.room) : null;
+  return (
+    <group>
+      {(lcs.locked || []).map((id) => {
+        const r = ROOMS.find((rm) => rm.id === id);
+        if (!r) return null;
+        return (
+          <group key={id} position={[r.x, 0, r.z]}>
+            <mesh position={[0, WALL_HEIGHT / 2, 0]}>
+              <boxGeometry args={[r.w, WALL_HEIGHT, r.d]} />
+              <meshBasicMaterial color="#ff2f3d" transparent opacity={0.14} depthWrite={false} side={THREE.DoubleSide} />
+            </mesh>
+            <group position={[0, 0, 0]}>
+              <TextSprite text="⛔ CLOSED" size={1.1} y={WALL_HEIGHT + 0.6} color="#ff5f6b" />
+            </group>
+          </group>
+        );
+      })}
+      {warnRoom && (
+        <group position={[warnRoom.x, 0, warnRoom.z]}>
+          <mesh ref={warnRef} position={[0, WALL_HEIGHT / 2, 0]}>
+            <boxGeometry args={[warnRoom.w, WALL_HEIGHT, warnRoom.d]} />
+            <meshBasicMaterial color="#ffb020" transparent opacity={0.12} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+          <TextSprite text="🚧 CLOSING" size={1.1} y={WALL_HEIGHT + 0.6} color="#ffcf6b" />
+        </group>
+      )}
     </group>
   );
 }
@@ -233,6 +276,8 @@ function Battery() {
 // ------------------------------------------------------------- soccer
 function SoccerBall() {
   const rb = useRef();
+  // Giant Ball mutator: the server dictates the radius via snapshots
+  const [radius, setRadius] = useState(SOCCER.ballRadius);
   useEffect(() => on('fx', (fx) => {
     if (fx.type === 'goal') {
       const g = SOCCER.goals[1 - fx.team];
@@ -242,24 +287,25 @@ function SoccerBall() {
   useFrame((_, dt) => {
     const b = net.ball;
     if (!b || !rb.current) return;
+    if (b.r && Math.abs(b.r - radius) > 0.01) setRadius(b.r);
     // lerp toward server ball with light extrapolation
     const cur = rb.current.translation();
     const k = Math.min(1, dt * 10);
     rb.current.setNextKinematicTranslation({
       x: cur.x + (b.p[0] + b.v[0] * 0.05 - cur.x) * k,
-      y: Math.max(SOCCER.ballRadius * 0.9, cur.y + (b.p[1] - cur.y) * k),
+      y: Math.max(radius * 0.9, cur.y + (b.p[1] - cur.y) * k),
       z: cur.z + (b.p[2] + b.v[2] * 0.05 - cur.z) * k,
     });
   });
   return (
     <RigidBody ref={rb} type="kinematicPosition" colliders={false} position={[SOCCER.ballSpawn.x, 2, SOCCER.ballSpawn.z]}>
-      <BallCollider args={[SOCCER.ballRadius]} />
+      <BallCollider key={radius} args={[radius]} />
       <mesh castShadow>
-        <sphereGeometry args={[SOCCER.ballRadius, 24, 20]} />
+        <sphereGeometry key={radius} args={[radius, 24, 20]} />
         <meshStandardMaterial color="#fff8ee" roughness={0.35} envMapIntensity={0.8} />
       </mesh>
       <mesh rotation-x={Math.PI / 2}>
-        <torusGeometry args={[SOCCER.ballRadius * 0.99, 0.012, 6, 40]} />
+        <torusGeometry key={radius} args={[radius * 0.99, 0.012, 6, 40]} />
         <meshBasicMaterial color="#e8b84a" />
       </mesh>
     </RigidBody>

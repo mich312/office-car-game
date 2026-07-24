@@ -6,6 +6,7 @@
 // (lobby, effects, feed) stays JSON. decodeSnapshot returns the exact object
 // shape the old JSON snapshot had, so the client's handler is unchanged.
 import { MSG } from './protocol.js';
+import { ROOMS } from './map.js';
 
 // Section bits
 const S_PUDDLES = 1;
@@ -19,6 +20,7 @@ const S_TEAMSCORES = 128;
 const S_ZONE = 256;
 const S_IT = 512;
 const S_SUMO = 1024;
+const S_LCS = 2048; // Last Car Standing: locked rooms, closure warning, alive count
 
 const POS = 100; // 1 cm
 const QUAT = 1000;
@@ -93,6 +95,7 @@ export function encodeSnapshot(snap) {
   if (snap.zone) sections |= S_ZONE;
   if (snap.it != null) sections |= S_IT;
   if (snap.sumo) sections |= S_SUMO;
+  if (snap.lcs) sections |= S_LCS;
 
   w.f64(t);
   w.u16(sections);
@@ -154,6 +157,19 @@ export function encodeSnapshot(snap) {
     const out = snap.sumo.out || [];
     w.u8(out.length);
     for (const [id, tenths] of out) { w.str(id); w.u8(tenths); }
+  }
+  if (sections & S_LCS) {
+    const roomIdx = (id) => Math.max(0, ROOMS.findIndex((r) => r.id === id));
+    w.u8(snap.lcs.locked.length);
+    for (const id of snap.lcs.locked) w.u8(roomIdx(id));
+    if (snap.lcs.warn) {
+      w.u8(1);
+      w.u8(roomIdx(snap.lcs.warn.room));
+      w.u32(Math.max(0, snap.lcs.warn.until - t));
+    } else {
+      w.u8(0);
+    }
+    w.u8(snap.lcs.alive || 0);
   }
   return w.bytes();
 }
@@ -226,6 +242,14 @@ export function decodeSnapshot(data) {
     snap.sumo = { round: r.u8(), out: [] };
     const c = r.u8();
     for (let i = 0; i < c; i++) snap.sumo.out.push([r.str(), r.u8()]);
+  }
+  if (sections & S_LCS) {
+    const locked = [];
+    const c = r.u8();
+    for (let i = 0; i < c; i++) locked.push(ROOMS[r.u8()]?.id);
+    let warn = null;
+    if (r.u8()) warn = { room: ROOMS[r.u8()]?.id, until: time + r.u32() };
+    snap.lcs = { locked, warn, alive: r.u8() };
   }
   return snap;
 }

@@ -71,7 +71,7 @@ export const BOTS_FILL_TO = 6; // server tops the room up to this many racers
 
 // Gameplay radii (units)
 export const PICKUP_RADIUS = 1.6;
-export const CHECKPOINT_RADIUS = 6.0;
+export const CHECKPOINT_RADIUS = 7.0;
 export const BUMP_RADIUS = 1.35;
 export const BUMP_REL_SPEED = 14; // relative speed separating a rub from a hit
 export const RESPAWN_Y = -12; // fell off the balcony / out of world
@@ -110,3 +110,7 @@ export const NUDGE_MAX_SPEED = 40; // server clamp on reported car velocity
 
 // Anti-teleport validation: max plausible units/second (boost + shove headroom)
 export const MAX_PLAUSIBLE_SPEED = 35;
+
+// Emote wheel: keys 1–8 in-game, popped as a sprite over the car for everyone.
+// Index travels over the wire; the array is the single source of truth.
+export const EMOTES = ['😂', '😡', '👋', '🏆', '😱', '🫡', '❤️', '💩'];

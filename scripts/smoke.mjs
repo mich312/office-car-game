@@ -108,14 +108,14 @@ await playMode('tag', async (a, b) => {
   await sleep(300);
   check('respawn: protected car ignores bumps', !a.all('fx').some((m) => m.type === 'bump' && m.kind === 'hit'));
 
-  // Nudge relay: A shoves prop 0 near itself → B receives it, A does not echo
+  // Prop momentum relay: A whacked prop 0 → B receives the fx, A does not
   b.msgs.length = 0;
-  const me = a.snaps[a.snaps.length - 1].players[a.id].p;
-  a.send({ t: 'nudge', i: 0, p: [me[0] + 1, 0.4, me[2]], v: [15, 0, 3] });
+  a.msgs.length = 0;
+  a.send({ t: 'pr', i: 0, im: [15, 0, 3] });
   await sleep(300);
-  const relayed = b.last('nudge');
-  check('nudge: relayed to the other client', !!relayed && relayed.i === 0);
-  check('nudge: not echoed to sender', !a.all('nudge').length);
+  const relayed = b.all('fx').find((m) => m.type === 'prop' && m.i === 0);
+  check('prop: whack relayed to the other client', !!relayed && Array.isArray(relayed.im));
+  check('prop: not echoed to sender', !a.all('fx').some((m) => m.type === 'prop'));
 });
 
 // --------------------------------------------------------------- koth mode
@@ -137,8 +137,9 @@ await playMode('sumo', async (a, b) => {
   let snap = a.snaps[a.snaps.length - 1];
   check('sumo: zone present with start radius', !!snap.zone && snap.zone.r > 40);
   check('sumo: round number in snapshot', snap.sumo?.round >= 1);
-  // A leaves the zone far away → out-timer appears, then elimination
-  state(a, [snap.zone.x + 60, 1, snap.zone.z], [0, 0, 0]);
+  // A leaves the zone far away (map corner, outside even the starting ring)
+  // → out-timer appears, then elimination
+  state(a, [90, 1, -50], [0, 0, 0]);
   state(b, [snap.zone.x, 1, snap.zone.z], [0, 0, 0]);
   await sleep(1500);
   snap = a.snaps[a.snaps.length - 1];

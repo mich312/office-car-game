@@ -12,10 +12,9 @@ import {
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
   DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
-  SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
+  SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
-  NUDGE_RATE_MS,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
@@ -56,6 +55,7 @@ export default function LocalCar() {
   const camera = useThree((s) => s.camera);
   const carId = useStore((s) => s.car);
   const paint = useStore((s) => s.paint);
+  const myCos = useStore((s) => s.cos);
   const style = useStore((s) => s.style);
   const myName = useStore((s) => s.name);
   const car = CARS[carId] || CARS.balanced;
@@ -94,8 +94,14 @@ export default function LocalCar() {
     lastSafeAt: 0,
     lastFwdSpeed: 0, // forward speed entering this physics step
     selfBump: new Map(), // other id → t of locally-applied bump impulse
-    nudgeAt: new Map(), // prop id → t of last nudge broadcast
+    fallCamUntil: 0,
+    ramUntil: 0,
+    drsUntil: 0,
+    overdriftUntil: 0,
   }).current;
+
+  // the engine sound wears the selected car's voice
+  useEffect(() => { audio.setEngineProfile(carId); }, [carId]);
 
   const speedRef = useRef(0);
   const steerRef = useRef(0);
@@ -155,6 +161,8 @@ export default function LocalCar() {
         S.pendingRespawnAt = 0;
         S.safePoses.length = 0;
         S.selfBump.clear();
+        S.fallCamUntil = 0;
+        rb.current?.setGravityScale(1, true); // back from the ghost realm
       }),
       on('respawn_at', (msg) => {
         teleport(msg.x, SPAWN_Y, msg.z, msg.rotY);
@@ -242,12 +250,20 @@ export default function LocalCar() {
               break;
             }
             if (fx.kind === 'rub') { S.shake = Math.max(S.shake, 0.1); break; }
-            S.shake = Math.max(S.shake, 0.35);
+            // Ram Mode: the rammer doesn't even feel it
+            if (fx.ram === me) { S.shake = Math.max(S.shake, 0.15); break; }
+            // shake scales with the server-computed relative speed, and a
+            // really big shunt gets an extra meaty clonk on top of the
+            // collision sound both clients already played
+            S.shake = Math.max(S.shake, Math.min(1, 0.25 + (fx.rel || 0) * 0.02));
+            if ((fx.rel || 0) > 16) audio.impact(Math.min(1, fx.rel / 30));
             const nowMs = performance.now();
             const otherId = fx.a === me ? fx.b : fx.a;
+            const ramBoost = fx.ram === otherId ? 2.2 : 1;
             // If we already applied this knockback locally at contact time,
             // the server echo is confirmation only — don't double-shove.
-            if (nowMs - (S.selfBump.get(otherId) || 0) < 900) break;
+            // Being hit by an active Ram Mode always lands in full.
+            if (ramBoost === 1 && nowMs - (S.selfBump.get(otherId) || 0) < 900) break;
             if (nowMs < S.protectUntil) break;
             // Mass-scaled knockback: getting hit by a Micro Monster hurts,
             // getting hit by a Formula barely rocks you.
@@ -258,7 +274,7 @@ export default function LocalCar() {
               const p = body.translation();
               const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
               const len = Math.hypot(dx, dz) || 1;
-              body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
+              body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio * ramBoost, y: mass * 1.1 * ramBoost, z: (dz / len) * mass * 3.2 * ratio * ramBoost }, true);
             }
             break;
           }
@@ -282,6 +298,38 @@ export default function LocalCar() {
             break;
           case 'fake':
             if (fx.id === me) audio.blip(180, 0.3, 0.2);
+            break;
+          case 'ability':
+            // my ability fired (server already checked the cooldown)
+            if (fx.id === me) {
+              const nowP = performance.now();
+              audio.boostFire();
+              switch (fx.car) {
+                case 'buggy': { // Pounce: a forward dive
+                  const r = body.rotation();
+                  _q.set(r.x, r.y, r.z, r.w);
+                  _fwd.set(0, 0, 1).applyQuaternion(_q);
+                  body.applyImpulse({ x: _fwd.x * mass * 10, y: mass * 6.5, z: _fwd.z * mass * 10 }, true);
+                  break;
+                }
+                case 'drift': S.overdriftUntil = nowP + ABILITY_FX.OVERDRIFT_S * 1000; break;
+                case 'monster': S.ramUntil = nowP + ABILITY_FX.RAM_S * 1000; S.shake = Math.max(S.shake, 0.4); break;
+                case 'formula': S.drsUntil = nowP + ABILITY_FX.DRS_S * 1000; break;
+                default: break;
+              }
+            }
+            break;
+          case 'eliminated':
+            // zap sparks where they went down; if it's me, park the car in
+            // the ghost realm — SpectatorCam takes the camera from here
+            if (fx.at) burst(fx.at, { count: 26, color: ['#ff5f6b', '#ffe27a', '#fff'], speed: 9, size: 0.14, ttl: 0.9 });
+            if (fx.id === me) {
+              audio.zap();
+              S.shake = 0;
+              S.fallCamUntil = 0;
+              body.setGravityScale(0, true);
+              teleport(0, -40, 0, 0);
+            }
             break;
           case 'bean':
             if (fx.id === me) audio.pickup();
@@ -307,6 +355,7 @@ export default function LocalCar() {
     const dt = PHYS_TIMESTEP;
     const nowMs = performance.now();
     const st = useStore.getState();
+    if (st.spectating) return; // ghosts are parked; no forces, no inputs
     const k = keys.current;
     k.poll?.(); // refresh gamepad axes/buttons once per physics step
 
@@ -390,6 +439,7 @@ export default function LocalCar() {
     if (shrunk) speedMul *= 0.85;
     if (carrying) speedMul *= BATTERY_SPEED_PENALTY;
     const ev = st.event;
+    if (ev?.id === 'sprinklers') gripMul = Math.min(gripMul, 0.45); // soaked floors
     if (ev?.id === 'ac_wind') {
       S.windPhase += dt;
       const wind = Math.sin(S.windPhase * 0.7) * 26 + 14;
@@ -417,7 +467,12 @@ export default function LocalCar() {
     steerRef.current += (steer - steerRef.current) * Math.min(1, dt * 10);
 
     if (grounded && !frozen) {
-      const top = car.topSpeed * speedMul;
+      // DRS: open rear wing, higher speed ceiling + a push while it lasts
+      const drs = nowMs < S.drsUntil;
+      const top = car.topSpeed * speedMul * (drs ? ABILITY_FX.DRS_TOP_MULT : 1);
+      if (drs && throttle > 0 && fwdSpeed < top) {
+        body.applyImpulse({ x: _fwd.x * car.boost * 0.5 * mass * dt, y: 0, z: _fwd.z * car.boost * 0.5 * mass * dt }, true);
+      }
       // brakes ≫ coast: holding back against forward motion stops you hard
       const braking = throttle < 0 && fwdSpeed > 1.5;
       if (braking) {
@@ -464,8 +519,9 @@ export default function LocalCar() {
       // snappy steering response — tight corners need the yaw rate NOW
       const newAngY = ang.y + (yawTarget - ang.y) * Math.min(1, dt * 14);
       body.setAngvel({ x: ang.x, y: newAngY, z: ang.z }, true);
-      // lateral grip
-      const grip = car.grip * (drifting ? car.drift : 1) * gripMul * (counterSteer && !drifting ? 1.25 : 1);
+      // lateral grip (Overdrift: sideways but never out of control)
+      const overdrift = nowMs < S.overdriftUntil;
+      const grip = car.grip * (drifting ? car.drift * (overdrift ? 1.6 : 1) : 1) * gripMul * (counterSteer && !drifting ? 1.25 : 1);
       const gripImpulse = -latVel * grip * mass * Math.min(1, dt * 12);
       body.applyImpulse({ x: _right.x * gripImpulse, y: 0, z: _right.z * gripImpulse }, true);
       S.slipping = Math.abs(latVel) > 6 || (drifting && Math.abs(fwdSpeed) > 12);
@@ -482,7 +538,7 @@ export default function LocalCar() {
       // drift charge — faster while actively steering the drift. Spark color
       // on the rear wheels tells you the tier you've earned.
       if (drifting) {
-        S.driftCharge += (steer !== 0 ? DRIFT_CHARGE_STEER : DRIFT_CHARGE_COAST) * dt;
+        S.driftCharge += (steer !== 0 ? DRIFT_CHARGE_STEER : DRIFT_CHARGE_COAST) * (overdrift ? 2 : 1) * dt;
         const tier = driftTier(S.driftCharge);
         if (tier > 0 && Math.random() < 0.55) {
           for (const rear of [WHEELS[2], WHEELS[3]]) {
@@ -621,14 +677,29 @@ export default function LocalCar() {
     if (stunned && Math.random() < 0.4) {
       burst([pos.x, pos.y + 0.6, pos.z], { count: 2, color: '#ffe27a', speed: 3, size: 0.06, ttl: 0.3, up: 2 });
     }
+    // Ram Mode: angry red wake
+    if (nowMs < S.ramUntil && Math.random() < 0.6) {
+      puff([pos.x, pos.y + 0.3, pos.z], [(Math.random() - 0.5) * 2, 1.2, (Math.random() - 0.5) * 2], 0.3, '#ff4d3d', 0.5);
+    }
 
     // ---------------- upside-down & fall recovery
     const upDot = _up.y;
     S.upsideDownTime = upDot < 0.35 && S.speed < 4 ? S.upsideDownTime + dt : 0;
-    if (k.respawn || pos.y < RESPAWN_Y || S.upsideDownTime > 1.2) {
+    if (k.respawn || S.upsideDownTime > 1.2) {
       k.respawn = false;
       S.upsideDownTime = 0;
+      S.fallCamUntil = 0;
       respawn();
+    } else if (pos.y < RESPAWN_Y) {
+      // going over the edge is a MOMENT: scream, hold a seagull's-eye
+      // kill-cam on the plummeting car, then respawn
+      if (!S.fallCamUntil) {
+        S.fallCamUntil = nowMs + 1500;
+        audio.scream();
+      } else if (nowMs > S.fallCamUntil) {
+        S.fallCamUntil = 0;
+        if (!st.spectating) respawn(); // eliminated ghosts stay dead
+      }
     }
   });
 
@@ -651,8 +722,17 @@ export default function LocalCar() {
     const throttle = (keys.current.fwd ? 1 : 0) - (keys.current.back ? 1 : 0);
     const drifting = S.prevDrifting;
 
-    // ---------------- camera
-    if (!st.photoMode) {
+    // ---------------- camera (SpectatorCam owns it while eliminated)
+    if (st.spectating) {
+      audio.update({ speed: 0, throttle: 0, slipping: false, boosting: false, topSpeed: car.topSpeed });
+      return;
+    }
+    if (S.fallCamUntil > nowMs && !st.photoMode) {
+      // kill-cam: hover above the drop and watch the car plummet
+      _camTarget.set(pos.x + 3.5, Math.max(pos.y + 16, 7), pos.z + 3.5);
+      camera.position.lerp(_camTarget, 1 - Math.pow(0.005, dt));
+      camera.lookAt(pos.x, pos.y, pos.z);
+    } else if (!st.photoMode) {
       const back = _camPos.set(-_fwd.x, 0, -_fwd.z).normalize();
       const dist = 4.0 + Math.min(1.6, S.speed * 0.03);
       _camTarget.set(
@@ -708,7 +788,7 @@ export default function LocalCar() {
 
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
-    audio.setRain(pos.x < -8.5 * M && pos.z > -1 ? 0.9 : st.night ? 0.35 : 0.15);
+    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
 
     // ---------------- network send
     if (nowMs - S.lastSend > 1000 / INPUT_SEND_RATE) {
@@ -792,17 +872,9 @@ export default function LocalCar() {
                 body.setLinvel({ x: v2.x + _fwd.x * add, y: v2.y, z: v2.z + _fwd.z * add }, true);
               }
             }
-          } else if (ud.propId !== undefined) {
-            // --- shared prop contact: tell peers we scattered it
-            const last = S.nudgeAt.get(ud.propId) || 0;
-            if (nowMs - last > NUDGE_RATE_MS) {
-              S.nudgeAt.set(ud.propId, nowMs);
-              const pp = other.translation();
-              const lv = body.linvel();
-              const r1 = (n) => Math.round(n * 10) / 10;
-              send({ t: MSG.NUDGE, i: ud.propId, p: [r1(pp.x), r1(pp.y), r1(pp.z)], v: [r1(lv.x), r1(lv.y), r1(lv.z)] });
-            }
           }
+          // shared prop scatter goes through Props.jsx's MSG.PROP momentum
+          // relay — the prop side of the contact queues itself there
         }}
       >
         {/* mass split: most of it rides in a low ballast box so the centre of
@@ -819,6 +891,7 @@ export default function LocalCar() {
           <CarModel
             carId={carId}
             paint={paint}
+            cosmetics={myCos}
             style={style}
             name={myName}
             isLocal

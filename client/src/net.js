@@ -59,7 +59,7 @@ export function connect() {
   net.ws = ws;
 
   ws.onopen = () => {
-    send({ t: MSG.HELLO, name: store.name || 'Intern', car: store.car, paint: store.paint, style: store.style });
+    send({ t: MSG.HELLO, name: store.name || 'Intern', car: store.car, paint: store.paint, cos: store.cos, style: store.style });
   };
   ws.onmessage = (e) => {
     let msg;
@@ -141,6 +141,9 @@ function handleMessage(msg) {
         players, scores: {}, teamScores: [0, 0], podium: null, powerup: null,
         raceProgress: {}, myBeans: 0, event: null,
         itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false,
+        spectating: false, spectateTarget: null, lcs: null, rivalry: null, nemesis: null,
+        mutator: msg.mutator || null, cup: msg.cup || null,
+        abilityReadyAt: 0, printerFlashUntil: 0,
       });
       emit('match_start', msg);
       break;
@@ -171,6 +174,15 @@ function handleMessage(msg) {
       if (msg.beans) net.beans = msg.beans;
       if (msg.battery) net.battery = msg.battery;
       if (msg.race) S.setState({ raceProgress: msg.race });
+      if (msg.lcs) {
+        // re-render only when the lockdown state actually changes
+        const cur = S.getState().lcs;
+        if (!cur || cur.alive !== msg.lcs.alive
+          || (cur.locked?.length || 0) !== (msg.lcs.locked?.length || 0)
+          || cur.warn?.room !== msg.lcs.warn?.room) {
+          S.setState({ lcs: msg.lcs });
+        }
+      }
       if (msg.teamScores) {
         const cur = S.getState().teamScores;
         if (cur[0] !== msg.teamScores[0] || cur[1] !== msg.teamScores[1]) S.setState({ teamScores: msg.teamScores });
@@ -195,15 +207,17 @@ function handleMessage(msg) {
     case MSG.RESPAWN_AT:
       emit('respawn_at', msg);
       break;
-    case MSG.NUDGE:
-      emit('nudge', msg);
-      break;
     case MSG.PICKUP:
       S.setState({ powerup: msg.powerup });
       emit('pickup', msg);
       break;
     case MSG.EFFECT:
       if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, msg.until);
+      if (msg.type === 'eliminated' && msg.id === net.myId) S.setState({ spectating: true });
+      if (msg.type === 'ability' && msg.id === net.myId) S.setState({ abilityReadyAt: msg.readyAt || 0 });
+      if (msg.type === 'printer' && msg.targets?.includes(net.myId)) {
+        S.setState({ printerFlashUntil: Date.now() + (msg.blindMs || 1400) });
+      }
       emit('fx', msg);
       break;
     case MSG.OFFICE_EVENT:
@@ -232,7 +246,11 @@ function handleMessage(msg) {
       S.setState({ scores: msg.scores });
       break;
     case MSG.MATCH_END: {
-      S.setState({ phase: PHASE.PODIUM, podium: msg.podium });
+      S.setState({
+        phase: PHASE.PODIUM, podium: msg.podium,
+        rivalry: msg.rivalries?.[net.myId] || null, nemesis: msg.nemesis || null,
+        cup: msg.cup || null,
+      });
       const gained = msg.xp?.[net.myId] || 0;
       if (gained) S.getState().addXp(gained);
       emit('match_end', msg);

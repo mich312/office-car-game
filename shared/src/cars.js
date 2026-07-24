@@ -137,7 +137,9 @@ export function randomStyle() {
   };
 }
 
-// Cosmetic unlocks earned through play (XP thresholds).
+// Cosmetic unlocks earned through play (XP thresholds). Three equip slots —
+// hat, antenna, trail — plus paints. Values are ids the client knows how to
+// render (CarModel hats/antennas, Trail ribbon kinds).
 export const UNLOCKS = [
   { xp: 0, type: 'paint', value: '#ff6b35', name: 'Safety Orange' },
   { xp: 0, type: 'paint', value: '#3498db', name: 'Corporate Blue' },
@@ -145,8 +147,20 @@ export const UNLOCKS = [
   { xp: 100, type: 'antenna', value: 'ball', name: 'Bobble Antenna' },
   { xp: 150, type: 'paint', value: '#f1c40f', name: 'Highlighter' },
   { xp: 220, type: 'hat', value: 'cone', name: 'Tiny Traffic Cone' },
+  { xp: 280, type: 'antenna', value: 'flag', name: 'Deadline Flag' },
   { xp: 300, type: 'paint', value: '#e84393', name: 'HR Pink' },
   { xp: 400, type: 'trail', value: 'rainbow', name: 'Rainbow Trail' },
+  { xp: 470, type: 'hat', value: 'propeller', name: 'Propeller Beanie' },
   { xp: 520, type: 'hat', value: 'tophat', name: 'CEO Top Hat' },
+  { xp: 600, type: 'trail', value: 'flame', name: 'Flame Trail' },
   { xp: 650, type: 'paint', value: '#2d3436', name: 'Stealth Ninja' },
+  { xp: 750, type: 'hat', value: 'plant', name: 'Emotional Support Plant' },
+  { xp: 900, type: 'paint', value: '#d4af37', name: 'Quarterly Bonus Gold' },
 ];
+
+// Wire-safe cosmetic ids per slot — the server validates HELLO against these.
+export const COSMETIC_IDS = {
+  hat: ['cone', 'tophat', 'propeller', 'plant'],
+  antenna: ['ball', 'flag'],
+  trail: ['rainbow', 'flame'],
+};
