@@ -42,6 +42,8 @@ const RemoteCar = memo(function RemoteCar({ player }) {
     }
     last.current = [...s.p];
     if (group.current) {
+      // eliminated ghosts (Last Car Standing) vanish; shrink ray shrinks
+      group.current.visible = !((s.f || 0) & 64);
       const shrunk = (s.f || 0) & 16;
       const target = shrunk ? POWERUP_EFFECT.SHRINK_SCALE : 1;
       const cur = group.current.scale.x;
@@ -58,6 +60,7 @@ const RemoteCar = memo(function RemoteCar({ player }) {
           <CarModel
             carId={player.car}
             paint={player.paint}
+            cosmetics={player.cos}
             style={player.style}
             name={player.name}
             team={useStore.getState().modeId === 'soccer' ? player.team : undefined}

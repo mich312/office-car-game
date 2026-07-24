@@ -3,7 +3,7 @@
 import {
   MSG, MODES, CHECKPOINTS, CHECKPOINT_RADIUS, PICKUP_RADIUS,
   BEAN_SPAWNS, COFFEE_MACHINE, BATTERY_SPAWN, SOCCER, WALLS, FURNITURE,
-  GRAVITY, M,
+  GRAVITY, M, LCS, ROOMS, roomAt, COUNTDOWN_SECONDS, DECOR_TYPES,
 } from '@rc/shared';
 
 const now = () => Date.now();
@@ -15,7 +15,117 @@ export function createMode(id, room) {
     case 'coffee_run': return new CoffeeMode(room);
     case 'battery': return new BatteryMode(room);
     case 'soccer': return new SoccerMode(room);
+    case 'last_standing': return new LastStandingMode(room);
+    case 'free_roam': return new FreeRoamMode(room);
     default: return new RaceMode(room);
+  }
+}
+
+// ------------------------------------------------------------ Open Office
+// Open-world sandbox: no objectives, no pressure — ten minutes of playground.
+// Style points keep the scoreboard honest: drifting, air time and mayhem.
+class FreeRoamMode {
+  constructor(room) {
+    this.room = room;
+    this.acc = 0;
+  }
+  update(dt) {
+    const cfg = MODES.free_roam;
+    for (const p of this.room.players.values()) {
+      if (p.drifting) p.score += cfg.driftPerS * dt;
+      if (!p.grounded) p.score += cfg.airPerS * dt;
+    }
+    this.acc += dt;
+    if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
+  }
+  onHit(attacker) { if (attacker) attacker.score += MODES.free_roam.bumpScore; }
+  onFall() {} // falls are free — the balcony is a diving board here
+  rocketTarget(player) {
+    return this.room.nearest(player, [...this.room.players.values()].filter((p) => p.id !== player.id));
+  }
+}
+
+// ------------------------------------------------------ Last Car Standing
+// Facilities closes the office room by room (telegraphed like office
+// events). Linger in a locked room and you're zapped; fall off the balcony
+// and you're gone. One refuge room always survives for the final showdown.
+// Eliminated players turn into spectating ghosts (flag 64 hides their car).
+class LastStandingMode {
+  constructor(room) {
+    this.room = room;
+    // Shuffled closure order — the final entry is the refuge, never locked.
+    this.order = ROOMS.map((r) => r.id);
+    for (let i = this.order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.order[i], this.order[j]] = [this.order[j], this.order[i]];
+    }
+    this.locked = [];
+    this.warn = null; // { room, until }
+    this.nextLockAt = now() + (COUNTDOWN_SECONDS + LCS.FIRST_LOCK_S) * 1000;
+    this.outCount = 0;
+    this.over = false;
+    for (const p of room.players.values()) { p.eliminated = false; p.zapT = 0; }
+  }
+  alive() { return [...this.room.players.values()].filter((p) => !p.eliminated); }
+  update(dt) {
+    const t = now();
+    const alive = this.alive();
+    for (const p of alive) p.score += LCS.SURVIVAL_SCORE_PER_S * dt;
+    // telegraph the next closure…
+    if (!this.warn && this.locked.length < ROOMS.length - 1 && t >= this.nextLockAt - LCS.WARN_S * 1000) {
+      const roomId = this.order.shift();
+      this.warn = { room: roomId, until: this.nextLockAt };
+      const r = ROOMS.find((rm) => rm.id === roomId);
+      this.room.feed(`🚧 Facilities is closing the ${r?.name ?? roomId} — clear out!`);
+    }
+    // …then lock it
+    if (this.warn && t >= this.warn.until) {
+      this.locked.push(this.warn.room);
+      this.warn = null;
+      this.nextLockAt = t + LCS.LOCK_INTERVAL_S * 1000;
+    }
+    // zap loiterers (short grace so a near-miss is escapable)
+    for (const p of alive) {
+      const rm = roomAt(p.p[0], p.p[2]);
+      if (rm && this.locked.includes(rm.id)) {
+        p.zapT = (p.zapT || 0) + dt;
+        if (p.zapT > LCS.ZAP_GRACE_S) this.eliminate(p, `lingered in the ${rm.name}`);
+      } else {
+        p.zapT = 0;
+      }
+    }
+  }
+  eliminate(p, cause) {
+    if (p.eliminated || this.over) return;
+    p.eliminated = true;
+    p.zapT = 0;
+    p.allowTeleportUntil = now() + 2500; // ghost client parks its car off-map
+    this.outCount++;
+    p.score += LCS.PLACEMENT_SCORE * this.outCount; // dying later pays more
+    const left = this.alive();
+    this.room.broadcast({ t: MSG.EFFECT, type: 'eliminated', id: p.id, at: p.p.map(r2), left: left.length });
+    this.room.feed(`💀 ${p.name} is out — ${cause}! ${left.length} car${left.length === 1 ? '' : 's'} left`);
+    this.room.scoreChanged();
+    if (left.length <= 1 && this.room.players.size > 1) {
+      this.over = true;
+      const w = left[0];
+      if (w) {
+        w.score += LCS.WINNER_SCORE;
+        this.room.feed(`👑 ${w.name} is the LAST CAR STANDING!`);
+        this.room.scoreChanged();
+      }
+      this.room.endsAt = Math.min(this.room.endsAt, now() + 4000);
+    }
+  }
+  // only a real fall eliminates — a courtesy R-key respawn shouldn't
+  onFall(p) { if (p.p[1] < -6) this.eliminate(p, 'went over the edge'); }
+  onJoin(p) { p.eliminated = false; p.zapT = 0; } // drop-ins join the fray
+  onHit() {}
+  rocketTarget(player) {
+    return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
+  }
+  snapshot() {
+    return { lcs: { locked: this.locked, warn: this.warn, alive: this.alive().length } };
   }
 }
 
@@ -194,13 +304,16 @@ class BatteryMode {
 class SoccerMode {
   constructor(room) {
     this.room = room;
+    // Giant Ball mutator inflates the ball server-side; clients scale to match
+    this.R = SOCCER.ballRadius * (room.mutator?.id === 'giant_ball' ? 1.8 : 1);
     this.resetBall();
     this.teamScores = [0, 0];
     this.freezeUntil = 0;
     // Assign teams, alternating by join order
     let i = 0;
     for (const p of room.players.values()) p.team = i++ % 2;
-    this.boxes = [...WALLS, ...FURNITURE].map((w) => ({
+    // decor (rugs, art, TVs) has no client collider — the ball skips it too
+    this.boxes = [...WALLS, ...FURNITURE.filter((f) => !DECOR_TYPES.includes(f.type))].map((w) => ({
       minX: w.x - w.w / 2, maxX: w.x + w.w / 2,
       minZ: w.z - w.d / 2, maxZ: w.z + w.d / 2, h: w.h,
     }));
@@ -214,7 +327,7 @@ class SoccerMode {
     const t = now();
     if (t < this.freezeUntil) return;
     const b = this.ball;
-    const R = SOCCER.ballRadius;
+    const R = this.R;
     // integrate (2 substeps for stability)
     for (let step = 0; step < 2; step++) {
       const h = dt / 2;
@@ -281,7 +394,7 @@ class SoccerMode {
   }
   snapshot() {
     return {
-      ball: { p: this.ball.p.map(r2), v: this.ball.v.map(r2) },
+      ball: { p: this.ball.p.map(r2), v: this.ball.v.map(r2), r: r2(this.R) },
       teamScores: this.teamScores,
     };
   }

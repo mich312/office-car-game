@@ -7,6 +7,8 @@ const saved = (() => {
 })();
 
 export const useStore = create((set, get) => ({
+  // (exposed below as window.__rcStore for headless testing / debugging,
+  // matching the existing window.__rcTelemetry affordance)
   screen: 'menu', // 'menu' | 'game'
   connected: false,
   connectError: null,
@@ -33,11 +35,21 @@ export const useStore = create((set, get) => ({
     ? !!saved.autoGas
     : (typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches),
   eventWarn: null, // { id, name, icon, startsIn } — telegraphed office event
+  spectating: false, // eliminated in Last Car Standing → drone cam
+  spectateTarget: null, // name of the car the drone cam is following
+  lcs: null, // { locked: [roomIds], warn: { room, until }, alive }
+  rivalry: null, // { name, n } — your most-bumped partner last match
+  nemesis: null, // { a, b, n } — the match's top feud
+  mutator: null, // active mutator id for this round
+  cup: null, // { round, total, standings?, final? } — Office Cup progress
+  abilityReadyAt: 0, // my special-ability cooldown (server-stamped)
+  printerFlashUntil: 0, // blinded by the printer until this timestamp
 
   // profile / progression
   name: saved.name || '',
   car: saved.car || 'balanced',
   paint: saved.paint || null,
+  cos: saved.cos || {}, // equipped cosmetics: { hat, antenna, trail }
   style: sanitizeStyle(saved.style), // wheels/spoiler/vinyl/underglow build
   xp: saved.xp || 0,
 
@@ -47,8 +59,12 @@ export const useStore = create((set, get) => ({
     get().save();
   },
   save() {
-    const { name, car, paint, style, xp, muted, autoGas } = get();
-    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, style, xp, muted, autoGas }));
+    const { name, car, paint, cos, style, xp, muted, autoGas } = get();
+    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, xp, muted, autoGas }));
+  },
+  equip(slot, value) {
+    set((s) => ({ cos: { ...s.cos, [slot]: value || undefined } }));
+    get().save();
   },
   addXp(n) {
     set((s) => ({ xp: s.xp + n }));
@@ -63,3 +79,5 @@ export const useStore = create((set, get) => ({
     setTimeout(() => set((s) => ({ feed: s.feed.slice(1) })), 6000);
   },
 }));
+
+if (typeof window !== 'undefined') window.__rcStore = useStore;

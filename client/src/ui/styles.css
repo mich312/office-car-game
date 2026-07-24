@@ -357,3 +357,83 @@ kbd {
   background: var(--panel); padding: 8px 18px; border-radius: 10px;
   font-size: 14px; z-index: 20;
 }
+
+/* ------------------------------------------------ cosmetics (garage) */
+.cos-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.cos-label { font-size: 11px; letter-spacing: 2px; opacity: 0.6; min-width: 70px; }
+.cos-item {
+  padding: 5px 10px; font-size: 12px; color: #fff; cursor: pointer;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border);
+  border-radius: 8px; transition: background 0.15s, border-color 0.15s;
+}
+.cos-item:hover { background: rgba(123, 47, 242, 0.35); }
+.cos-item.sel { border-color: #fff; background: rgba(123, 47, 242, 0.5); box-shadow: 0 0 10px rgba(180, 120, 255, 0.4); }
+
+/* ---------------------------------------------- last car standing HUD */
+.zap-warning {
+  position: absolute; top: 22%; left: 50%; transform: translateX(-50%);
+  padding: 10px 26px; border-radius: 12px; z-index: 25;
+  background: rgba(200, 20, 35, 0.85); border: 1px solid rgba(255, 120, 120, 0.7);
+  font-size: 22px; font-weight: 900; letter-spacing: 2px; color: #fff;
+  animation: zapPulse 0.5s ease-in-out infinite alternate;
+  box-shadow: 0 0 40px rgba(255, 40, 60, 0.55);
+}
+@keyframes zapPulse { from { transform: translateX(-50%) scale(1); } to { transform: translateX(-50%) scale(1.06); } }
+
+.spectate-banner {
+  position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+  padding: 8px 20px; border-radius: 10px; z-index: 25;
+  background: var(--panel); border: 1px solid var(--border);
+  font-size: 15px; font-weight: 700; letter-spacing: 1px;
+}
+.spectate-banner small { opacity: 0.6; font-weight: 400; margin-left: 8px; }
+
+/* rivalry lines on the podium */
+.pod-rivalry { margin-top: 6px; font-size: 15px; opacity: 0.95; }
+.pod-rivalry.feud { font-size: 13px; opacity: 0.7; }
+
+/* --------------------------------------------------- ability slot (Q) */
+.ability-slot {
+  position: absolute; right: 132px; bottom: 26px;
+  width: 76px; height: 92px; border-radius: 16px; overflow: hidden;
+  background: var(--panel); border: 2px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+}
+.ability-slot.ready { border-color: rgba(120, 220, 160, 0.7); box-shadow: 0 0 14px rgba(80, 220, 150, 0.25); }
+.ab-icon { font-size: 30px; }
+.ab-name { font-size: 9px; letter-spacing: 0.5px; opacity: 0.85; text-align: center; }
+.ab-cd {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: rgba(10, 14, 24, 0.75); pointer-events: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* ------------------------------------------------- cup / mutator / print */
+.mode-stat.cup { color: #ffd166; }
+.mode-stat.mutator { color: #c77bff; }
+.cup-round { font-size: 16px; letter-spacing: 3px; color: #ffd166; margin-bottom: 6px; }
+.mutator-banner {
+  margin-top: 12px; padding: 8px 18px; border-radius: 10px;
+  background: rgba(123, 47, 242, 0.3); border: 1px solid rgba(199, 123, 255, 0.5);
+  font-size: 14px; letter-spacing: 1px;
+}
+.cup-standings { margin: 10px auto 4px; width: min(340px, 80vw); }
+.cup-row {
+  display: flex; justify-content: space-between; padding: 4px 12px;
+  font-size: 15px; border-radius: 8px;
+}
+.cup-row.me { background: rgba(123, 47, 242, 0.35); }
+.printer-flash {
+  position: absolute; inset: 0; z-index: 30; pointer-events: none;
+  background: rgba(247, 245, 239, 0.88);
+  display: flex; align-items: center; justify-content: center; font-size: 64px;
+  animation: printFade 1.4s ease-out forwards;
+}
+@keyframes printFade { 0% { opacity: 1; } 55% { opacity: 0.95; } 100% { opacity: 0; } }
+.car-ability { font-size: 13px; margin: -6px 0 12px; color: #ffd166; opacity: 0.95; }
+.car-ability kbd { background: rgba(255,255,255,0.1); border-radius: 5px; padding: 1px 6px; font-size: 11px; }
+
+/* workshop additions: ability line + gear tab hint */
+.mu-ability { font-size: 12px; color: #ffd166; margin: 6px 0 2px; }
+.mu-ability kbd { background: rgba(255,255,255,0.12); border-radius: 4px; padding: 0 5px; font-size: 10px; }
+.mu-hint { font-size: 11px; opacity: 0.5; align-self: center; }

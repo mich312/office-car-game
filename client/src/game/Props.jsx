@@ -1,17 +1,48 @@
 // Every small object in the office is a live physics body. Nothing is
 // decoration: mugs tip, chairs spin, papers scatter, glasses shatter,
 // plants dump soil, monitors face-plant off desks.
+//
+// Shared chaos: when the LOCAL car whacks a prop, its resulting momentum is
+// relayed (throttled) through the server, and every other client applies the
+// same impulse to its copy of that prop — so the mug you punted crosses your
+// friend's racing line too. Exact resting spots may differ; props settle, so
+// divergence self-heals.
 import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PROPS, M } from '@rc/shared';
+import { PROPS, M, MSG, VENDING } from '@rc/shared';
 import { makeScreen, keysTex } from './textures.js';
 import { burst } from './particles.jsx';
 import { audio } from '../audio.js';
+import { send, on } from '../net.js';
 
 const m2u = M; // meters → units shorthand
+
+// ---------------------------------------------- shared prop chaos plumbing
+const propRefs = new Map(); // PROPS index → rigid body ref
+const pendingHits = new Map(); // index → ref; latest hit wins until flushed
+let lastFlush = 0;
+
+function flushPropHits() {
+  const nowMs = performance.now();
+  if (nowMs - lastFlush < 200 || pendingHits.size === 0) return;
+  lastFlush = nowMs;
+  let n = 0;
+  for (const [i, ref] of pendingHits) {
+    pendingHits.delete(i);
+    const b = ref?.current;
+    if (!b) continue;
+    // momentum ≈ what the hit gave the prop — enough for remotes to mirror it
+    const v = b.linvel();
+    const m = b.mass ? b.mass() : 1;
+    const im = [v.x * m, v.y * m, v.z * m];
+    if (Math.hypot(...im) < 1) continue;
+    send({ t: MSG.PROP, i, im: im.map((x) => Math.round(x * 100) / 100) });
+    if (++n >= 8) break;
+  }
+}
 
 export default function Props() {
   const screens = useMemo(() => [makeScreen('code'), makeScreen('chart'), makeScreen('code')], []);
@@ -19,10 +50,21 @@ export default function Props() {
     const iv = setInterval(() => screens.forEach((s) => Math.random() > 0.4 && s.tick()), 300);
     return () => clearInterval(iv);
   }, [screens]);
+  // apply relayed whacks from other players to our local copies
+  useEffect(() => on('fx', (fx) => {
+    if (fx.type !== 'prop' || !Array.isArray(fx.im)) return;
+    const b = propRefs.get(fx.i)?.current;
+    if (!b) return;
+    b.wakeUp?.();
+    b.applyImpulse({ x: fx.im[0], y: fx.im[1], z: fx.im[2] }, true);
+  }), []);
+  useFrame(flushPropHits);
   let monitorIdx = 0;
   return (
     <group>
-      {PROPS.map((p, i) => {
+      <SpawnedProps />
+      {PROPS.map((base, i) => {
+        const p = base.i === undefined ? Object.assign(base, { i }) : base;
         const key = `${p.type}${i}`;
         switch (p.type) {
           case 'mug': return <Mug key={key} p={p} />;
@@ -40,10 +82,59 @@ export default function Props() {
           case 'box': return <CardboardBox key={key} p={p} />;
           case 'lamp': return <Lamp key={key} p={p} />;
           case 'trash': return <Trash key={key} p={p} />;
+          case 'roll': return <Roll key={key} p={p} />;
           default: return null;
         }
       })}
     </group>
+  );
+}
+
+// -------------------------------------------- server-spawned ephemera
+// Mug Rain drops mugs from the ceiling, the vending machine ejects cans
+// (golden = the rammer got a free powerup), the printer blasts paper.
+// All clients get the same events, so everyone sees the same debris.
+function SpawnedProps() {
+  const [items, setItems] = useState([]);
+  useEffect(() => on('fx', (fx) => {
+    if (fx.type === 'mug_drop' && Array.isArray(fx.at)) {
+      setItems((l) => [...l.slice(-17), { kind: 'mug', at: fx.at, key: Math.random() }]);
+    } else if (fx.type === 'vending') {
+      audio.blip(fx.golden ? 990 : 520, 0.12, 0.16);
+      burst([VENDING.x, 2.5, VENDING.z + 1], { count: fx.golden ? 26 : 10, color: fx.golden ? ['#ffd700', '#fff2b0'] : ['#e8332a', '#dfe4ea'], speed: 6, size: 0.09, ttl: 0.8 });
+      setItems((l) => [...l.slice(-17), { kind: 'can', golden: fx.golden, key: Math.random() }]);
+    } else if (fx.type === 'printer' && Array.isArray(fx.at)) {
+      burst([fx.at[0], 3.2, fx.at[2]], { count: 46, color: ['#f7f5ef', '#ffffff', '#e8e4da'], speed: 11, size: 0.16, ttl: 1.4, up: 3 });
+      audio.blip(220, 0.25, 0.12);
+    }
+  }), []);
+  return items.map((it) => (it.kind === 'mug'
+    ? <Mug key={it.key} p={{ x: it.at[0], y: it.at[1], z: it.at[2] }} />
+    : <Can key={it.key} golden={it.golden} />));
+}
+
+const canMat = new THREE.MeshStandardMaterial({ color: '#e8332a', metalness: 0.7, roughness: 0.25 });
+const goldCanMat = new THREE.MeshStandardMaterial({ color: '#ffd700', metalness: 0.9, roughness: 0.15, emissive: '#8a6d00', emissiveIntensity: 0.5 });
+function Can({ golden }) {
+  const R = 0.033 * m2u, H = 0.115 * m2u;
+  const spawn = useMemo(() => ({
+    x: VENDING.x + (Math.random() - 0.5) * 0.6, y: 1.4, z: VENDING.z + 1.1,
+    rotY: Math.random() * Math.PI,
+  }), []);
+  return (
+    <Body p={spawn} mass={0.35} restitution={0.4} angularDamping={0.05}>
+      <group rotation-z={Math.PI / 2}>
+        <CylinderCollider args={[H / 2, R]} />
+        <mesh castShadow material={golden ? goldCanMat : canMat}>
+          <cylinderGeometry args={[R, R, H, 12]} />
+        </mesh>
+        {[-1, 1].map((s) => (
+          <mesh key={s} position={[0, s * H / 2, 0]} material={golden ? goldCanMat : canMat}>
+            <cylinderGeometry args={[R * 0.9, R * 0.9, 0.01, 12]} />
+          </mesh>
+        ))}
+      </group>
+    </Body>
   );
 }
 
@@ -58,8 +149,15 @@ const impactSound = (() => {
 })();
 
 function Body({ p, mass, children, colliders = null, angularDamping = 0.15, restitution = 0.25, friction = 0.7, ccd = false, onForce }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (p.i === undefined) return undefined;
+    propRefs.set(p.i, ref);
+    return () => propRefs.delete(p.i);
+  }, [p.i]);
   return (
     <RigidBody
+      ref={ref}
       position={[p.x, p.y + 0.4, p.z]}
       rotation-y={p.rotY || 0}
       colliders={colliders}
@@ -71,6 +169,8 @@ function Body({ p, mass, children, colliders = null, angularDamping = 0.15, rest
       ccd={ccd}
       onContactForce={(e) => {
         impactSound(e.totalForceMagnitude);
+        // my car whacked this prop → queue its momentum for the relay
+        if (p.i !== undefined && e.other.rigidBody?.userData?.playerId === 'me') pendingHits.set(p.i, ref);
         onForce?.(e);
       }}
     >
@@ -217,29 +317,54 @@ function Keyboard({ p }) {
 
 function Monitor({ p, screen }) {
   const W = 0.55 * m2u, H = 0.33 * m2u;
+  // Origin at the FOOT of the stand: spawned on a desk it settles flat
+  // instead of depenetrating downward through the desktop (the old
+  // screen-center origin buried the base inside the slab on spawn). The
+  // wide, heavy base also keeps desks looking tidy until someone hits them.
+  const panelY = 0.45 + H / 2;
   return (
-    <Body p={p} mass={1.4} angularDamping={0.3}>
+    <Body p={p} mass={1.4} angularDamping={0.6}>
       {/* stand */}
-      <CuboidCollider args={[0.35, 0.03, 0.25]} position={[0, -H / 2 - 0.3, 0]} />
-      <CuboidCollider args={[0.06, 0.18, 0.06]} position={[0, -H / 2 - 0.12, 0]} />
+      <CuboidCollider args={[0.35, 0.03, 0.25]} position={[0, 0.03, 0]} />
+      <CuboidCollider args={[0.06, 0.2, 0.06]} position={[0, 0.26, 0]} />
       {/* panel */}
-      <CuboidCollider args={[W / 2, H / 2, 0.05]} />
-      <mesh position={[0, -H / 2 - 0.3, 0]} castShadow>
+      <CuboidCollider args={[W / 2, H / 2, 0.05]} position={[0, panelY, 0]} />
+      <mesh position={[0, 0.03, 0]} castShadow>
         <boxGeometry args={[0.7, 0.06, 0.5]} />
         <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.4} />
       </mesh>
-      <mesh position={[0, -H / 2 - 0.12, 0]} castShadow>
-        <boxGeometry args={[0.12, 0.36, 0.12]} />
+      <mesh position={[0, 0.26, 0]} castShadow>
+        <boxGeometry args={[0.12, 0.4, 0.12]} />
         <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.4} />
       </mesh>
-      <mesh castShadow>
+      <mesh position={[0, panelY, 0]} castShadow>
         <boxGeometry args={[W, H, 0.1]} />
         <meshStandardMaterial color="#14161a" roughness={0.3} />
       </mesh>
-      <mesh position={[0, 0, 0.055]}>
+      <mesh position={[0, panelY, 0.055]}>
         <planeGeometry args={[W * 0.92, H * 0.88]} />
         <meshBasicMaterial map={screen.tex} toneMapped={false} />
       </mesh>
+    </Body>
+  );
+}
+
+// Toilet paper — rolls beautifully, weighs nothing, matters deeply.
+function Roll({ p }) {
+  const R = 0.055 * m2u, W2 = 0.05 * m2u;
+  return (
+    <Body p={p} mass={0.15} friction={0.5} angularDamping={0.04}>
+      <group rotation-z={Math.PI / 2}>
+        <CylinderCollider args={[W2, R]} />
+        <mesh castShadow>
+          <cylinderGeometry args={[R, R, W2 * 2, 14]} />
+          <meshStandardMaterial color="#f7f5f0" roughness={0.85} />
+        </mesh>
+        <mesh>
+          <cylinderGeometry args={[R * 0.42, R * 0.42, W2 * 2 + 0.02, 10]} />
+          <meshStandardMaterial color="#c9b89a" roughness={0.9} />
+        </mesh>
+      </group>
     </Body>
   );
 }
