@@ -35,8 +35,7 @@ post-processing on weak GPUs.
 | --- | --- |
 | `WASD` / arrows | drive (`S` is a real brake at speed) |
 | `Shift` | drift — hold to charge blue → orange → pink sparks, release for a mini-turbo scaled to the tier |
-| `B` / `Ctrl` | boost |
-| `Space` | jump / double jump (+air control with WASD, flips give boost) |
+| `Space` / `B` / `Ctrl` | boost |
 | `E` / click | use powerup |
 | `R` | respawn |
 | `Tab` | scoreboard |
@@ -45,12 +44,25 @@ post-processing on weak GPUs.
 | `M` | mute |
 
 Gamepads work out of the box (standard mapping): left stick / d-pad steers,
-triggers are gas and brake, `A` jump, `B` boost, `X`/bumpers drift, `Y` item.
+triggers are gas and brake, `A`/`B` boost, `X`/bumpers drift, `Y` item.
 On phones and tablets, on-screen touch controls appear automatically and
-auto-gas defaults on. An **auto-gas assist** toggle in the menu keeps the car
+auto-gas defaults on. An **auto-gas assist** toggle in the garage keeps the car
 accelerating on its own for one-handed play. Tuck in behind a rival for ~2 seconds to charge a
 **slipstream** burst, and watch the banner: office events telegraph
-themselves 3 seconds before they hit.
+themselves 3 seconds before they hit. There is no jump button — air time
+comes from ramps, springs and furniture, and the car self-levels so you land
+on your wheels. Climbing assist keeps ramps drivable at full grade.
+
+## The garage
+
+The main menu is a 3D workshop: your car sits on a turntable on someone's
+desk, lit by the desk lamp. The **bench monitor** runs the tuning software —
+car pick, stats, paint, and the full NFS-style visual catalog: six wheel
+styles, three bolt-on spoilers, five vinyl wraps with eight wrap colors, and
+underglow in six colors (brightest after dark). A **clipboard** propped
+against a coffee mug holds the controls cheat-sheet, and the big red button
+on the desk starts the game. Your build is saved locally and synced to every
+player in the lobby — the bots roll their own builds too.
 
 ## Game modes (lobby votes)
 

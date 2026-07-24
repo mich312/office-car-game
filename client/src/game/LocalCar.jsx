@@ -1,5 +1,5 @@
 // The player's car: rigid body + 4-ray suspension, arcade forces tuned for
-// drift/boost/jump feel, chase camera, particles, sound, network reporting,
+// drift/boost feel, chase camera, particles, sound, network reporting,
 // and application of every server-side effect that touches "me".
 import { useRef, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
@@ -7,10 +7,9 @@ import { RigidBody, CuboidCollider, useRapier, useBeforePhysicsStep } from '@rea
 import * as THREE from 'three';
 import {
   CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP, BOOST_TOP_MULT,
-  SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING,
-  JUMP_VEL, DOUBLE_JUMP_VEL, COYOTE_TIME, UPRIGHT_ASSIST, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
-  TRICK_BOOST_REWARD, BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
-  AIR_PITCH_TORQUE, AIR_YAW_TORQUE,
+  SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, SUSPENSION_SETTLE, SPAWN_Y,
+  UPRIGHT_ASSIST, SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
+  BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
   DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
   SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
@@ -54,6 +53,7 @@ export default function LocalCar() {
   const camera = useThree((s) => s.camera);
   const carId = useStore((s) => s.car);
   const paint = useStore((s) => s.paint);
+  const style = useStore((s) => s.style);
   const myName = useStore((s) => s.name);
   const car = CARS[carId] || CARS.balanced;
   // Per-car mass is real physics now: heavy cars shove light ones in bumps.
@@ -63,8 +63,6 @@ export default function LocalCar() {
   const S = useRef({
     boost: BOOST_MAX,
     boosting: false,
-    canDouble: true,
-    airSpin: 0,
     grounded: false,
     groundedTime: 0,
     stunnedUntil: 0,
@@ -94,7 +92,7 @@ export default function LocalCar() {
   const flagsRef = useRef(0);
   // per-wheel visual Y (local) so the wheels follow the suspension rays
   const wheelR = carId === 'monster' ? 0.18 : 0.13;
-  const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - SUSPENSION_REST * 0.8 + wheelR));
+  const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - SUSPENSION_SETTLE + wheelR));
 
   const teleport = (x, y, z, rotY) => {
     const body = rb.current;
@@ -120,7 +118,7 @@ export default function LocalCar() {
       spot = { x: sp.x, z: sp.z, rotY: sp.rotY };
     }
     send({ t: MSG.RESPAWN }); // let the server sanction the teleport
-    teleport(spot.x, 0.5, spot.z, spot.rotY);
+    teleport(spot.x, SPAWN_Y, spot.z, spot.rotY);
     S.boost = Math.max(S.boost, 40);
   };
 
@@ -133,10 +131,10 @@ export default function LocalCar() {
           const team = net.teams[net.myId] || 0;
           const spots = SOCCER.kickoff.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
           const sp = spots[net.spawnIndex % spots.length] || SOCCER.kickoff[0];
-          teleport(sp.x, 0.5, sp.z, sp.rotY);
+          teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         } else {
           const sp = SPAWNS[net.spawnIndex % SPAWNS.length];
-          teleport(sp.x, 0.5, sp.z, sp.rotY);
+          teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         }
         S.boost = BOOST_MAX;
         S.stunnedUntil = 0;
@@ -297,7 +295,6 @@ export default function LocalCar() {
     if (grounded) {
       S.groundedTime += dt;
       S.sinceGrounded = 0;
-      S.canDouble = true;
     } else {
       S.groundedTime = 0;
       S.sinceGrounded = (S.sinceGrounded || 0) + dt;
@@ -357,8 +354,22 @@ export default function LocalCar() {
         const overspeed = throttle > 0 ? fwdSpeed > top : fwdSpeed < -top * 0.5;
         if (!overspeed) {
           const f = car.accel * mass * throttle * (drifting ? 0.85 : 1);
-          body.applyImpulse({ x: _fwd.x * f * dt, y: 0, z: _fwd.z * f * dt }, true);
+          // full 3D forward: on a ramp the car pushes UP the slope instead of
+          // grinding horizontally into it
+          body.applyImpulse({ x: _fwd.x * f * dt, y: _fwd.y * f * dt, z: _fwd.z * f * dt }, true);
         }
+      }
+      // slope assist: while on throttle, cancel most of the gravity component
+      // that acts along the surface — ramps stay climbable at any grade
+      if (throttle > 0 && _up.y < 0.985) {
+        const gAlongX = -GRAVITY * _up.y * _up.x;
+        const gAlongY = GRAVITY - GRAVITY * _up.y * _up.y;
+        const gAlongZ = -GRAVITY * _up.y * _up.z;
+        body.applyImpulse({
+          x: -gAlongX * SLOPE_ASSIST * mass * dt,
+          y: -gAlongY * SLOPE_ASSIST * mass * dt,
+          z: -gAlongZ * SLOPE_ASSIST * mass * dt,
+        }, true);
       }
       // steering: bias angular velocity toward target yaw rate.
       // throttle guarantees a minimum turn rate so you can pivot from rest.
@@ -433,53 +444,18 @@ export default function LocalCar() {
         skid(1, null, 0);
       }
     } else if (!grounded && !frozen && !stunned) {
-      // air control
-      const pitch = Math.max(-1, Math.min(1, (k.fwd ? 1 : 0) - (k.back ? 1 : 0) + (k.gpThrottle || 0) - (k.gpBrake || 0)));
-      const yaw = Math.max(-1, Math.min(1, (k.left ? 1 : 0) - (k.right ? 1 : 0) + gpSteer));
-      body.applyTorqueImpulse({
-        x: _right.x * pitch * AIR_PITCH_TORQUE * dt * mass * 0.35,
-        y: yaw * AIR_YAW_TORQUE * dt * mass * 0.35,
-        z: _right.z * pitch * AIR_PITCH_TORQUE * dt * mass * 0.35,
-      }, true);
-      // gentle auto-level toward wheels-down when the player isn't
-      // steering a flip — intentional tricks still work, roof landings don't
-      if (pitch === 0 && yaw === 0 && UPRIGHT_ASSIST > 0) {
-        body.applyTorqueImpulse({ x: -_up.z * UPRIGHT_ASSIST * dt, y: 0, z: _up.x * UPRIGHT_ASSIST * dt }, true);
-      }
-      S.airSpin += Math.abs(ang.x * dt) + Math.abs(ang.z * dt);
+      // airborne (off a ramp or a spring pad): no player spin — just level
+      // the car toward wheels-down so every launch ends in a clean landing
+      body.applyTorqueImpulse({ x: -_up.z * UPRIGHT_ASSIST * dt, y: 0, z: _up.x * UPRIGHT_ASSIST * dt }, true);
+    } else if (frozen && grounded) {
+      // countdown: pin the car in place so it can't creep or slide off grid
+      body.setLinvel({ x: _v.x * 0.6, y: vel.y, z: _v.z * 0.6 }, true);
+      body.setAngvel({ x: ang.x, y: 0, z: ang.z }, true);
     }
     S.prevDrifting = drifting;
-    // charge survives drift-hops (shift held over a jump, MK style) but is
-    // forfeit if you let go of drift while airborne
+    // drift charge survives ramp hops (shift held through the air, MK style)
+    // but is forfeit if you let go of drift while airborne
     if (!driftHeld && !grounded) S.driftCharge = 0;
-
-    // trick landing reward
-    if (grounded && S.airSpin > 4.5) {
-      S.boost = Math.min(BOOST_MAX, S.boost + TRICK_BOOST_REWARD);
-      burst([pos.x, pos.y + 0.5, pos.z], { count: 16, color: ['#ffe27a', '#7affc4', '#7ab8ff'], speed: 6, size: 0.1, ttl: 0.8 });
-      useStore.getState().pushFeed('🌀 Sick flip! +boost');
-      audio.deliver();
-    }
-    if (grounded) S.airSpin = 0;
-
-    // ---------------- jump / double jump
-    // Jumps SET vertical velocity: predictable height, and the double jump
-    // cancels a fall instead of being swallowed by it. Coyote time keeps
-    // jumps working when bumpy props briefly lift the wheels.
-    if (k.jumpPressed) {
-      k.jumpPressed = false;
-      if (!frozen && !stunned) {
-        if (grounded || S.sinceGrounded < COYOTE_TIME) {
-          body.setLinvel({ x: vel.x, y: Math.max(vel.y, 0) + JUMP_VEL, z: vel.z }, true);
-          S.sinceGrounded = COYOTE_TIME; // no coyote double-dip
-          audio.jump();
-        } else if (S.canDouble) {
-          S.canDouble = false;
-          body.setLinvel({ x: vel.x, y: DOUBLE_JUMP_VEL, z: vel.z }, true);
-          audio.jump();
-        }
-      }
-    }
 
     // ---------------- slipstream: hold a rival's wake to earn a free burst
     if (grounded && !frozen && !stunned && S.speed > car.topSpeed * SLIPSTREAM.MIN_SPEED_FRAC) {
@@ -518,7 +494,7 @@ export default function LocalCar() {
 
     // ---------------- boost (capped so it can't stack speed forever).
     // Mini-turbo and slipstream bursts use the same engine, free of the meter.
-    const wantBoost = (k.boost || k.gpBoost || (driftHeld && k.fwd && !grounded)) && !frozen && !stunned;
+    const wantBoost = (k.boost || k.gpBoost) && !frozen && !stunned;
     S.boosting = wantBoost && S.boost > 1;
     const freeBoost = !frozen && !stunned && (nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil);
     if (S.boosting || freeBoost) {
@@ -639,7 +615,7 @@ export default function LocalCar() {
     <>
       <RigidBody
         ref={rb}
-        position={[startSpawn.x, 0.5, startSpawn.z]}
+        position={[startSpawn.x, SPAWN_Y, startSpawn.z]}
         rotation={[0, startSpawn.rotY, 0]}
         colliders={false}
         canSleep={false}
@@ -663,6 +639,7 @@ export default function LocalCar() {
           <CarModel
             carId={carId}
             paint={paint}
+            style={style}
             name={myName}
             isLocal
             speedRef={speedRef}

@@ -199,7 +199,6 @@ function TouchControls() {
         <button className="tc-btn tc-steer" {...bind((d) => { held.current.R = d; steerUpd(); })}>▶</button>
       </div>
       <div className="tc-right">
-        <button className="tc-btn" {...bind((d) => { if (d) touchInput.jumpPressed = true; })}>⤒</button>
         <button className="tc-btn" {...bind((d) => { touchInput.boost = d; })}>🔥</button>
         <button className="tc-btn" {...bind((d) => { touchInput.drift = d; })}>💨</button>
         <button className="tc-btn" {...bind((d) => { if (d) send({ t: MSG.USE_POWERUP }); })}>🎁</button>

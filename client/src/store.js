@@ -1,6 +1,6 @@
 // UI-level state (React re-renders). High-frequency net data lives in net.js.
 import { create } from 'zustand';
-import { UNLOCKS } from '@rc/shared';
+import { UNLOCKS, sanitizeStyle } from '@rc/shared';
 
 const saved = (() => {
   try { return JSON.parse(localStorage.getItem('rc-mayhem') || '{}'); } catch { return {}; }
@@ -38,12 +38,17 @@ export const useStore = create((set, get) => ({
   name: saved.name || '',
   car: saved.car || 'balanced',
   paint: saved.paint || null,
+  style: sanitizeStyle(saved.style), // wheels/spoiler/vinyl/underglow build
   xp: saved.xp || 0,
 
   set,
+  setStyle(patch) {
+    set((s) => ({ style: sanitizeStyle({ ...s.style, ...patch }) }));
+    get().save();
+  },
   save() {
-    const { name, car, paint, xp, muted, autoGas } = get();
-    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, xp, muted, autoGas }));
+    const { name, car, paint, style, xp, muted, autoGas } = get();
+    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, style, xp, muted, autoGas }));
   },
   addXp(n) {
     set((s) => ({ xp: s.xp + n }));

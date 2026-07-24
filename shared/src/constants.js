@@ -16,22 +16,21 @@ export const CAR_LENGTH = 1.0;
 export const CAR_WIDTH = 0.62;
 export const CAR_HEIGHT = 0.34;
 export const SUSPENSION_REST = 0.26; // ray length below chassis corners
-export const SUSPENSION_STIFFNESS = 160;
-export const SUSPENSION_DAMPING = 16;
+export const SUSPENSION_STIFFNESS = 320; // sag ≈ 14% of travel at rest
+export const SUSPENSION_DAMPING = 24;
+// Where a car sits when the suspension has settled: ray length at equilibrium
+// (rest · (1 − |GRAVITY|/stiffness)) plus the chassis-corner offset. Spawning
+// here means no drop-bounce and no scraping before the start.
+export const SUSPENSION_SETTLE = SUSPENSION_REST * (1 - (9.81 * M) / SUSPENSION_STIFFNESS);
+export const SPAWN_Y = SUSPENSION_SETTLE + 0.05 + 0.02; // corner offset + a hair
 
-// Driving feel — jumps SET vertical velocity (not additive impulses), so a
-// double jump cancels your fall and heights are predictable every time.
-export const JUMP_VEL = 13; // single jump stays below desk height…
-export const DOUBLE_JUMP_VEL = 11.5; // …double jump comfortably reaches it
-export const COYOTE_TIME = 0.12; // jump still works just after leaving ground
+// Driving feel
 export const BOOST_TOP_MULT = 1.3; // boosting may exceed top speed by this much
-export const UPRIGHT_ASSIST = 8; // gentle air auto-level torque (0 = off)
-export const AIR_PITCH_TORQUE = 2.6;
-export const AIR_YAW_TORQUE = 2.2;
+export const UPRIGHT_ASSIST = 14; // air auto-level torque toward wheels-down
+export const SLOPE_ASSIST = 0.8; // fraction of along-slope gravity cancelled on throttle
 export const BOOST_MAX = 100;
 export const BOOST_REGEN = 12; // per second while grounded
 export const BOOST_DRAIN = 38; // per second while boosting
-export const TRICK_BOOST_REWARD = 25; // clean flip landing
 export const BATTERY_SPEED_PENALTY = 0.72; // top-speed multiplier while carrying
 
 // Tiered drift mini-turbo (Mario Kart style). Charge accumulates while

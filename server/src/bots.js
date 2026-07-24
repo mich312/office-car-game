@@ -1,7 +1,7 @@
 // Server-side bots so the office is never empty. They lap the racing line,
 // chase beans/batteries/balls with a poor-man's navmesh (the racing line
 // doubles as a corridor graph), grab powerups and generally cause trouble.
-import { BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER } from '@rc/shared';
+import { BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER, randomStyle } from '@rc/shared';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -52,7 +52,7 @@ export class Bots {
     const id = `bot${++this.n}`;
     const name = BOT_NAMES[(this.n - 1) % BOT_NAMES.length];
     const car = CAR_IDS[Math.floor(Math.random() * CAR_IDS.length)];
-    const p = this.room.makePlayer(id, null, { name: `🤖 ${name}`, car });
+    const p = this.room.makePlayer(id, null, { name: `🤖 ${name}`, car, style: randomStyle() });
     p.bot = true;
     p.ready = true;
     p.heading = -Math.PI / 2;
