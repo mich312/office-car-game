@@ -33,8 +33,8 @@ post-processing on weak GPUs.
 
 | Key | Action |
 | --- | --- |
-| `WASD` / arrows | drive |
-| `Shift` | drift (release for mini-turbo) |
+| `WASD` / arrows | drive (`S` is a real brake at speed) |
+| `Shift` | drift — hold to charge blue → orange → pink sparks, release for a mini-turbo scaled to the tier |
 | `B` / `Ctrl` | boost |
 | `Space` | jump / double jump (+air control with WASD, flips give boost) |
 | `E` / click | use powerup |
@@ -43,6 +43,13 @@ post-processing on weak GPUs.
 | `N` | day / night |
 | `P` | photo mode |
 | `M` | mute |
+
+Gamepads work out of the box (standard mapping): left stick / d-pad steers,
+triggers are gas and brake, `A` jump, `B` boost, `X`/bumpers drift, `Y` item.
+An **auto-gas assist** toggle in the menu keeps the car accelerating on its
+own for one-handed play. Tuck in behind a rival for ~2 seconds to charge a
+**slipstream** burst, and watch the banner: office events telegraph
+themselves 3 seconds before they hit.
 
 ## Game modes (lobby votes)
 
@@ -54,7 +61,9 @@ post-processing on weak GPUs.
 Every minute an **office event** hits: lights out, earthquake, printer paper
 storm, AC hurricane, server overload, or the cleaning robot on patrol.
 Powerup pads hand out EMPs, rockets, oil spills, shrink rays, bubble shields,
-position swaps, spring jumps… and the occasional fake powerup.
+position swaps, spring jumps… and the occasional fake powerup. The odds are
+Mario-Kart-honest: the leader draws from a weak defensive pool while the back
+of the pack draws catch-up tools.
 
 ## The office
 
