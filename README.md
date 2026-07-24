@@ -153,3 +153,4 @@ client/   React 19 + Vite + react-three-fiber + drei + Rapier + zustand
 (join → vote → ready → countdown → checkpoints, pickups, bumps, teleport
 rejection, disconnects) plus headless-browser runs of the real client.
 Useful envs: `PORT` (default 8080), `RC_MATCH_SECONDS` (shorten matches).
+
