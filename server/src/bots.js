@@ -60,6 +60,7 @@ export class Bots {
     p.wp = 0;
     p.skill = 0.62 + Math.random() * 0.26; // beatable by humans learning the map
     p.stuckT = 0;
+    p.kick = { x: 0, z: 0 }; // knockback velocity from bumps/rockets
     this.room.players.set(id, p);
   }
 
@@ -67,10 +68,30 @@ export class Bots {
     for (const [id, p] of this.room.players) if (p.bot) this.room.players.delete(id);
   }
 
+  // Knockback makes bots feel physical: bumps and rockets shove them off
+  // their line, wall pushout still applies, and it decays like friction.
+  applyKick(p, dt) {
+    const k = p.kick;
+    if (!k || (Math.abs(k.x) < 0.05 && Math.abs(k.z) < 0.05)) return;
+    let px = p.p[0] + k.x * dt, pz = p.p[2] + k.z * dt;
+    for (const b of wallBoxes) {
+      if (px > b.minX && px < b.maxX && pz > b.minZ && pz < b.maxZ) {
+        const dl = px - b.minX, drr = b.maxX - px, dtp = pz - b.minZ, dbt = b.maxZ - pz;
+        const m = Math.min(dl, drr, dtp, dbt);
+        if (m === dl) px = b.minX; else if (m === drr) px = b.maxX;
+        else if (m === dtp) pz = b.minZ; else pz = b.maxZ;
+      }
+    }
+    p.p[0] = px; p.p[2] = pz;
+    const decay = Math.max(0, 1 - dt * 2.6);
+    k.x *= decay; k.z *= decay;
+  }
+
   update(dt) {
     const t = now();
     for (const p of this.room.players.values()) {
       if (!p.bot) continue;
+      this.applyKick(p, dt);
       if (p.stunUntil > t) { p.speed *= 0.9; continue; }
       const target = this.pickTarget(p);
       this.drive(p, target, dt);

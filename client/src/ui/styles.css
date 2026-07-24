@@ -216,6 +216,26 @@ kbd {
 }
 @keyframes warnpulse { to { filter: brightness(1.25); } }
 
+/* --------------------------------------------------- touch controls */
+.touch-controls { display: none; }
+@media (pointer: coarse) {
+  .touch-controls { display: block; position: absolute; inset: 0; pointer-events: none; }
+}
+.tc-left { position: absolute; left: 16px; bottom: 110px; display: flex; gap: 16px; }
+.tc-right {
+  position: absolute; right: 14px; bottom: 110px;
+  display: grid; grid-template-columns: repeat(2, 62px); gap: 12px;
+}
+.tc-btn {
+  pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none;
+  width: 62px; height: 62px; border-radius: 50%;
+  background: rgba(20, 26, 44, 0.55); border: 1.5px solid rgba(255, 255, 255, 0.25);
+  color: #fff; font-size: 24px; backdrop-filter: blur(6px);
+}
+.tc-btn:active { background: rgba(123, 47, 242, 0.55); transform: scale(0.94); }
+.tc-steer { width: 84px; height: 84px; font-size: 30px; }
+.tc-wide { grid-column: span 2; width: 100%; border-radius: 31px; font-size: 14px; letter-spacing: 2px; }
+
 /* ------------------------------------------------------------- lobby */
 .lobby {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);

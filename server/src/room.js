@@ -5,7 +5,7 @@
 import {
   TICK_RATE, MAX_PLAYERS, COUNTDOWN_SECONDS, MATCH_SECONDS, PODIUM_SECONDS,
   OFFICE_EVENT_INTERVAL, BOTS_FILL_TO, MAX_PLAUSIBLE_SPEED, BUMP_RADIUS,
-  MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS,
+  MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
   SPAWNS, POWERUP_PADS, ROBOT_PATH, M,
 } from '@rc/shared';
@@ -385,6 +385,11 @@ export class Room {
           this.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: target.id });
         } else {
           target.stunUntil = t + FX.ROCKET_STUN_S * 1000;
+          if (target.bot && target.kick) {
+            const a = Math.random() * Math.PI * 2;
+            target.kick.x += Math.cos(a) * 14;
+            target.kick.z += Math.sin(a) * 14;
+          }
           const owner = this.players.get(r.owner);
           if (owner) this.mode?.onHit?.(owner, target);
           this.broadcast({ t: MSG.EFFECT, type: 'rocket_hit', target: target.id, at: target.p, stunMs: FX.ROCKET_STUN_S * 1000 });
@@ -407,6 +412,18 @@ export class Room {
       return;
     }
     this.mode?.onHit?.(a, b, rel);
+    // Bots have no client-side physics, so the server shoves them: knockback
+    // away from the bumper, scaled by relative speed and mass ratio.
+    const shove = (victim, attacker) => {
+      if (!victim.bot || !victim.kick) return;
+      const mR = ((CARS[attacker.car]?.mass) || 1) / ((CARS[victim.car]?.mass) || 1);
+      const dx = victim.p[0] - attacker.p[0], dz = victim.p[2] - attacker.p[2];
+      const len = Math.hypot(dx, dz) || 1;
+      const mag = Math.min(20, 5 + rel * 0.6) * Math.min(1.8, Math.max(0.55, mR));
+      victim.kick.x += (dx / len) * mag;
+      victim.kick.z += (dz / len) * mag;
+    };
+    shove(a, b); shove(b, a);
     // pa/pb let clients compute mass-scaled knockback direction
     this.broadcast({ t: MSG.EFFECT, type: 'bump', a: a.id, b: b.id, at: a.p, pa: a.p.map(r2), pb: b.p.map(r2) });
   }

@@ -5,6 +5,10 @@ import { send } from '../net.js';
 import { MSG } from '@rc/shared';
 import { audio } from '../audio.js';
 
+// On-screen touch buttons write here (gamepad axis conventions: steer -1 =
+// left). Read and merged by poll() below.
+export const touchInput = { steer: 0, throttle: 0, brake: 0, drift: false, boost: false, jumpPressed: false };
+
 const KEYMAP = {
   KeyW: 'fwd', ArrowUp: 'fwd',
   KeyS: 'back', ArrowDown: 'back',
@@ -23,26 +27,35 @@ export function useControls() {
   useEffect(() => {
     // Gamepad: standard mapping — left stick / d-pad steer, RT gas, LT brake,
     // A jump, B boost, X/LB/RB drift, Y item, Start respawn. Polled per
-    // physics step from LocalCar via keys.current.poll().
+    // physics step from LocalCar via keys.current.poll(). The on-screen
+    // touch controls merge into the same channels.
     let prevJump = false, prevUse = false, prevRespawn = false;
     keys.current.poll = () => {
       const k = keys.current;
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       let gp = null;
       for (const p of pads) if (p && p.connected) { gp = p; break; }
-      if (!gp) { k.gpSteer = 0; k.gpThrottle = 0; k.gpBrake = 0; k.gpDrift = false; k.gpBoost = false; return; }
-      const btn = (i) => !!gp.buttons[i]?.pressed;
-      k.gpSteer = (gp.axes[0] || 0) + (btn(14) ? -1 : 0) + (btn(15) ? 1 : 0);
-      k.gpThrottle = Math.max(gp.buttons[7]?.value || 0, btn(12) ? 1 : 0);
-      k.gpBrake = Math.max(gp.buttons[6]?.value || 0, btn(13) ? 1 : 0);
-      k.gpDrift = btn(2) || btn(4) || btn(5);
-      k.gpBoost = btn(1);
-      if (btn(0) && !prevJump) k.jumpPressed = true;
-      prevJump = btn(0);
-      if (btn(3) && !prevUse) send({ t: MSG.USE_POWERUP });
-      prevUse = btn(3);
-      if (btn(9) && !prevRespawn) k.respawn = true;
-      prevRespawn = btn(9);
+      let steer = 0, thr = 0, brk = 0, drift = false, boost = false;
+      if (gp) {
+        const btn = (i) => !!gp.buttons[i]?.pressed;
+        steer = (gp.axes[0] || 0) + (btn(14) ? -1 : 0) + (btn(15) ? 1 : 0);
+        thr = Math.max(gp.buttons[7]?.value || 0, btn(12) ? 1 : 0);
+        brk = Math.max(gp.buttons[6]?.value || 0, btn(13) ? 1 : 0);
+        drift = btn(2) || btn(4) || btn(5);
+        boost = btn(1);
+        if (btn(0) && !prevJump) k.jumpPressed = true;
+        prevJump = btn(0);
+        if (btn(3) && !prevUse) send({ t: MSG.USE_POWERUP });
+        prevUse = btn(3);
+        if (btn(9) && !prevRespawn) k.respawn = true;
+        prevRespawn = btn(9);
+      }
+      k.gpSteer = Math.max(-1, Math.min(1, steer + touchInput.steer));
+      k.gpThrottle = Math.max(thr, touchInput.throttle);
+      k.gpBrake = Math.max(brk, touchInput.brake);
+      k.gpDrift = drift || touchInput.drift;
+      k.gpBoost = boost || touchInput.boost;
+      if (touchInput.jumpPressed) { k.jumpPressed = true; touchInput.jumpPressed = false; }
     };
     const down = (e) => {
       if (e.repeat) return;

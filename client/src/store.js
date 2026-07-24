@@ -28,7 +28,10 @@ export const useStore = create((set, get) => ({
   night: false,
   photoMode: false,
   muted: !!saved.muted,
-  autoGas: !!saved.autoGas, // assist: throttle defaults to full when idle
+  // assist: throttle defaults to full when idle — defaults ON for touch
+  autoGas: saved.autoGas !== undefined
+    ? !!saved.autoGas
+    : (typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches),
   eventWarn: null, // { id, name, icon, startsIn } — telegraphed office event
 
   // profile / progression

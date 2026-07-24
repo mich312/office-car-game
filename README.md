@@ -46,8 +46,9 @@ post-processing on weak GPUs.
 
 Gamepads work out of the box (standard mapping): left stick / d-pad steers,
 triggers are gas and brake, `A` jump, `B` boost, `X`/bumpers drift, `Y` item.
-An **auto-gas assist** toggle in the menu keeps the car accelerating on its
-own for one-handed play. Tuck in behind a rival for ~2 seconds to charge a
+On phones and tablets, on-screen touch controls appear automatically and
+auto-gas defaults on. An **auto-gas assist** toggle in the menu keeps the car
+accelerating on its own for one-handed play. Tuck in behind a rival for ~2 seconds to charge a
 **slipstream** burst, and watch the banner: office events telegraph
 themselves 3 seconds before they hit.
 
