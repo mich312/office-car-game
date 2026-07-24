@@ -1,7 +1,7 @@
 // WebSocket client: connection, snapshot interpolation buffers, event bus.
 // Everything a useFrame loop reads lives on the mutable `net` object —
 // zustand only gets things React actually renders.
-import { MSG, INTERP_DELAY_MS, PHASE } from '@rc/shared';
+import { MSG, INTERP_DELAY_MS, PHASE, decodeSnapshot } from '@rc/shared';
 import { useStore } from './store.js';
 
 export const net = {
@@ -17,10 +17,15 @@ export const net = {
   puddles: [],
   rockets: [],
   robot: null,
+  zone: null, // { x, z, r, until? } — koth/sumo zone
+  it: null, // player id currently It (tag mode)
+  sumo: null, // { round, out: [[id, tenths]] }
   padCooldowns: new Map(),
   spawnIndex: 0,
   teams: {},
 };
+// debug/tooling hook (mirrors window.__rcTelemetry in LocalCar)
+if (typeof window !== 'undefined') window.__rcNet = net;
 
 // ------------------------------------------------------------ event bus
 const handlers = new Map();
@@ -50,6 +55,7 @@ export function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}/ws`;
   const ws = new WebSocket(url);
+  ws.binaryType = 'arraybuffer'; // snapshots arrive as binary frames
   net.ws = ws;
 
   ws.onopen = () => {
@@ -57,7 +63,11 @@ export function connect() {
   };
   ws.onmessage = (e) => {
     let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
+    if (e.data instanceof ArrayBuffer) {
+      try { msg = decodeSnapshot(e.data); } catch { return; }
+    } else {
+      try { msg = JSON.parse(e.data); } catch { return; }
+    }
     handleMessage(msg);
   };
   ws.onclose = () => {
@@ -130,6 +140,7 @@ function handleMessage(msg) {
         countdownEnd: Date.now() + msg.countdown * 1000,
         players, scores: {}, teamScores: [0, 0], podium: null, powerup: null,
         raceProgress: {}, myBeans: 0, event: null,
+        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false,
         spectating: false, spectateTarget: null, lcs: null, rivalry: null, nemesis: null,
         mutator: msg.mutator || null, cup: msg.cup || null,
         abilityReadyAt: 0, printerFlashUntil: 0,
@@ -156,6 +167,9 @@ function handleMessage(msg) {
       net.puddles = msg.puddles || [];
       net.rockets = msg.rockets || [];
       net.robot = msg.robot || null;
+      net.zone = msg.zone || null;
+      net.it = msg.it || null;
+      net.sumo = msg.sumo || null;
       if (msg.ball) { net.ballPrev = net.ball; net.ball = { t: msg.time, ...msg.ball }; }
       if (msg.beans) net.beans = msg.beans;
       if (msg.battery) net.battery = msg.battery;
@@ -173,8 +187,26 @@ function handleMessage(msg) {
         const cur = S.getState().teamScores;
         if (cur[0] !== msg.teamScores[0] || cur[1] !== msg.teamScores[1]) S.setState({ teamScores: msg.teamScores });
       }
+      // Coarse HUD state — written only on change so React isn't re-rendered
+      // at snapshot rate.
+      {
+        const st = S.getState();
+        const itId = msg.it || null;
+        if (st.itId !== itId) S.setState({ itId });
+        const myF = msg.players[net.myId]?.f || 0;
+        const dead = !!(myF & 128);
+        if (st.sumoDead !== dead) S.setState({ sumoDead: dead });
+        const round = msg.sumo?.round || 0;
+        if (st.sumoRound !== round) S.setState({ sumoRound: round });
+        const mine = msg.sumo?.out?.find((o) => o[0] === net.myId);
+        const outLeft = mine ? mine[1] / 10 : null;
+        if (st.sumoOutLeft !== outLeft) S.setState({ sumoOutLeft: outLeft });
+      }
       break;
     }
+    case MSG.RESPAWN_AT:
+      emit('respawn_at', msg);
+      break;
     case MSG.PICKUP:
       S.setState({ powerup: msg.powerup });
       emit('pickup', msg);
@@ -260,4 +292,17 @@ export function sampleRemote(id) {
   }
   const s = buf[buf.length - 1];
   return { p: s.p, q: s.q, f: s.f, c: s.c };
+}
+
+// Finite-difference velocity of a remote car from its two newest snapshots.
+// Used to classify local contacts as rub vs hit without waiting for the server.
+const vtmp = [0, 0, 0];
+export function remoteVelocity(id) {
+  const buf = net.remotes.get(id);
+  if (!buf || buf.length < 2) return null;
+  const a = buf[buf.length - 2], b = buf[buf.length - 1];
+  const dt = (b.t - a.t) / 1000;
+  if (dt <= 0) return null;
+  for (let k = 0; k < 3; k++) vtmp[k] = (b.p[k] - a.p[k]) / dt;
+  return vtmp;
 }

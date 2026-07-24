@@ -117,7 +117,7 @@ function Driver({ mats, y, z, s = 1, refGroup }) {
 // Roof height per body style — where hats sit.
 const ROOF_Y = { buggy: 0.3, drift: 0.22, monster: 0.4, formula: 0.21, balanced: 0.29 };
 
-export default function CarModel({ carId, paint, style, name, cosmetics, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, team }) {
+export default function CarModel({ carId, paint, style, name, cosmetics, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, leanRef, team }) {
   const car = CARS[carId] || CARS.balanced;
   const color = paint || car.color;
   const st = useMemo(() => (style ? sanitizeStyle(style) : DEFAULT_STYLE), [style]);
@@ -167,9 +167,15 @@ export default function CarModel({ carId, paint, style, name, cosmetics, isLocal
       }
     });
     if (bodyRef.current) {
-      // body roll from steering + squat from acceleration
-      const roll = steer * Math.min(1, Math.abs(speed) / 25) * 0.09;
-      bodyRef.current.rotation.z += (roll - bodyRef.current.rotation.z) * Math.min(1, dt * 8);
+      // Weight transfer on the visual shell. With a leanRef (in-game cars,
+      // local & remote) roll/pitch come from measured acceleration: outward
+      // roll in curves, squat under throttle, dive under braking, easing back
+      // to neutral. Without one (garage preview) fall back to steer-based roll.
+      const lean = leanRef?.current;
+      const tRoll = lean ? lean.roll : steer * Math.min(1, Math.abs(speed) / 25) * 0.09;
+      const tPitch = lean ? lean.pitch : 0;
+      bodyRef.current.rotation.z += (tRoll - bodyRef.current.rotation.z) * Math.min(1, dt * 8);
+      bodyRef.current.rotation.x += (tPitch - bodyRef.current.rotation.x) * Math.min(1, dt * 8);
     }
     if (flameRef.current) {
       const on = boostingRef?.current;
@@ -178,8 +184,14 @@ export default function CarModel({ carId, paint, style, name, cosmetics, isLocal
     }
     const flags = flagsRef?.current ?? 0;
     if (shieldRef.current) {
-      shieldRef.current.visible = !!(flags & 8);
-      if (shieldRef.current.visible) shieldRef.current.rotation.y += dt * 2;
+      // bit 8 = shield item (blue), bit 64 = spawn protection (green pulse)
+      const prot = !!(flags & 64) && !(flags & 8);
+      shieldRef.current.visible = !!(flags & 8) || !!(flags & 64);
+      if (shieldRef.current.visible) {
+        shieldRef.current.rotation.y += dt * 2;
+        shieldRef.current.material.color.set(prot ? '#7dffb0' : '#7ad8ff');
+        shieldRef.current.material.opacity = prot ? 0.14 + Math.abs(Math.sin(performance.now() / 180)) * 0.1 : 0.22;
+      }
     }
     if (batteryRef.current) batteryRef.current.visible = !!(flags & 32);
     if (stunRef.current) {
