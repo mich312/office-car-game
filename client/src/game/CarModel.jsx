@@ -56,7 +56,7 @@ function Outline({ args, position, rotation }) {
   );
 }
 
-export default function CarModel({ carId, paint, style, name, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, team }) {
+export default function CarModel({ carId, paint, style, name, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, leanRef, team }) {
   const car = CARS[carId] || CARS.balanced;
   const color = paint || car.color;
   const st = useMemo(() => (style ? sanitizeStyle(style) : DEFAULT_STYLE), [style]);
@@ -101,9 +101,15 @@ export default function CarModel({ carId, paint, style, name, isLocal = false, s
       }
     });
     if (bodyRef.current) {
-      // body roll from steering + squat from acceleration
-      const roll = steer * Math.min(1, Math.abs(speed) / 25) * 0.09;
-      bodyRef.current.rotation.z += (roll - bodyRef.current.rotation.z) * Math.min(1, dt * 8);
+      // Weight transfer on the visual shell. With a leanRef (in-game cars,
+      // local & remote) roll/pitch come from measured acceleration: outward
+      // roll in curves, squat under throttle, dive under braking, easing back
+      // to neutral. Without one (garage preview) fall back to steer-based roll.
+      const lean = leanRef?.current;
+      const tRoll = lean ? lean.roll : steer * Math.min(1, Math.abs(speed) / 25) * 0.09;
+      const tPitch = lean ? lean.pitch : 0;
+      bodyRef.current.rotation.z += (tRoll - bodyRef.current.rotation.z) * Math.min(1, dt * 8);
+      bodyRef.current.rotation.x += (tPitch - bodyRef.current.rotation.x) * Math.min(1, dt * 8);
     }
     if (flameRef.current) {
       const on = boostingRef?.current;

@@ -100,6 +100,37 @@ export class Bots {
         this.room.usePowerup(p);
       }
     }
+    this.separate();
+  }
+
+  // Bots have no collision shapes, so without this they drive through each
+  // other and stack on shared targets (zone centres, the ball). Push each bot
+  // out of every other car's personal space — full strength against humans
+  // (whose physics the server never moves), half against fellow bots.
+  separate() {
+    const all = [...this.room.players.values()];
+    for (const b of all) {
+      if (!b.bot) continue;
+      for (const o of all) {
+        if (o === b) continue;
+        const dx = b.p[0] - o.p[0], dz = b.p[2] - o.p[2];
+        const d = Math.hypot(dx, dz);
+        const minD = 1.05;
+        if (d >= minD) continue;
+        if (d < 1e-4) { b.p[0] += 0.1; continue; }
+        const push = (minD - d) * (o.bot ? 0.5 : 1);
+        let px = b.p[0] + (dx / d) * push, pz = b.p[2] + (dz / d) * push;
+        for (const w of wallBoxes) {
+          if (px > w.minX && px < w.maxX && pz > w.minZ && pz < w.maxZ) {
+            const dl = px - w.minX, drr = w.maxX - px, dtp = pz - w.minZ, dbt = w.maxZ - pz;
+            const m = Math.min(dl, drr, dtp, dbt);
+            if (m === dl) px = w.minX; else if (m === drr) px = w.maxX;
+            else if (m === dtp) pz = w.minZ; else pz = w.maxZ;
+          }
+        }
+        b.p[0] = px; b.p[2] = pz;
+      }
+    }
   }
 
   // Where does this bot want to go, given the mode?

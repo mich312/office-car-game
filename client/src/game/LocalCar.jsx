@@ -45,7 +45,7 @@ const _camTarget = new THREE.Vector3();
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 
-export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0 }; // read by HUD/minimap
+export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, roll: 0, pitch: 0 }; // read by HUD/minimap
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
 
 export default function LocalCar() {
@@ -101,6 +101,8 @@ export default function LocalCar() {
   const steerRef = useRef(0);
   const boostingRef = useRef(false);
   const flagsRef = useRef(0);
+  // measured weight transfer (rad): roll from lateral G, pitch from accel/brake
+  const leanRef = useRef({ roll: 0, pitch: 0 });
   // per-wheel visual Y (local) so the wheels follow the suspension rays
   const wheelR = carId === 'monster' ? 0.18 : 0.13;
   const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - SUSPENSION_SETTLE + wheelR));
@@ -229,7 +231,16 @@ export default function LocalCar() {
             audio.goal();
             break;
           case 'bump': {
-            if (fx.a !== me && fx.b !== me) break;
+            if (fx.a !== me && fx.b !== me) {
+              // spectator view of someone else's collision: sparks at impact
+              if (fx.kind === 'hit' && fx.at) {
+                burst([fx.at[0], (fx.at[1] || 0) + 0.3, fx.at[2]], { count: 10, color: ['#ffe27a', '#ffb347', '#ffffff'], speed: 6, size: 0.07, ttl: 0.4, up: 2 });
+                const p = body.translation();
+                const d = Math.hypot(p.x - fx.at[0], p.z - fx.at[2]);
+                if (d < 25) audio.impact(Math.max(0.1, 0.4 - d * 0.015));
+              }
+              break;
+            }
             if (fx.kind === 'rub') { S.shake = Math.max(S.shake, 0.1); break; }
             S.shake = Math.max(S.shake, 0.35);
             const nowMs = performance.now();
@@ -673,6 +684,28 @@ export default function LocalCar() {
       if (Math.abs(camera.fov - S.fov) > 0.05) { camera.fov = S.fov; camera.updateProjectionMatrix(); }
     }
 
+    // ---------------- body lean from measured acceleration
+    // Weight transfer the suspension can't produce (every force is applied at
+    // the centre of mass): derive lateral/longitudinal G from the velocity
+    // delta and tilt the visual shell — outward roll in curves, squat on
+    // throttle, dive on the brakes. Decays to neutral on its own.
+    if (dt > 0.001) {
+      _right.set(1, 0, 0).applyQuaternion(_q);
+      const ax = (vel.x - (S.pvx ?? vel.x)) / dt;
+      const az = (vel.z - (S.pvz ?? vel.z)) / dt;
+      S.pvx = vel.x; S.pvz = vel.z;
+      const clampA = (n) => Math.max(-60, Math.min(60, n));
+      const aLat = clampA(ax * _right.x + az * _right.z);
+      const aLong = clampA(ax * _fwd.x + az * _fwd.z);
+      const tRoll = grounded ? Math.max(-0.14, Math.min(0.14, aLat * 0.0032)) : 0;
+      const tPitch = grounded ? Math.max(-0.09, Math.min(0.09, -aLong * 0.0035)) : 0;
+      const k = Math.min(1, dt * 7);
+      leanRef.current.roll += (tRoll - leanRef.current.roll) * k;
+      leanRef.current.pitch += (tPitch - leanRef.current.pitch) * k;
+      telemetry.roll = leanRef.current.roll;
+      telemetry.pitch = leanRef.current.pitch;
+    }
+
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
     audio.setRain(pos.x < -8.5 * M && pos.z > -1 ? 0.9 : st.night ? 0.35 : 0.15);
@@ -794,6 +827,7 @@ export default function LocalCar() {
             boostingRef={boostingRef}
             flagsRef={flagsRef}
             wheelYRef={wheelYRef}
+            leanRef={leanRef}
           />
         </group>
       </RigidBody>
