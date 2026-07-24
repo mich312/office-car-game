@@ -7,7 +7,7 @@ import {
   OFFICE_EVENT_INTERVAL, BOTS_FILL_TO, MAX_PLAUSIBLE_SPEED, BUMP_RADIUS,
   MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
-  SPAWNS, POWERUP_PADS, ROBOT_PATH, M,
+  SPAWNS, POWERUP_PADS, ROBOT_PATH, M, EMOTES, COSMETIC_IDS,
 } from '@rc/shared';
 import { createMode } from './modes.js';
 import { Bots } from './bots.js';
@@ -37,6 +37,7 @@ export class Room {
     this.bots = new Bots(this);
     this.fxId = 1;
     this.lastBump = new Map(); // "a|b" → t
+    this.bumpCounts = new Map(); // "a|b" → validated bumps this match (rivalries)
     setInterval(() => this.tick(1 / TICK_RATE), 1000 / TICK_RATE);
   }
 
@@ -117,6 +118,10 @@ export class Room {
         if (player && now() > (player.lastRespawnMsg || 0) + 1500) {
           player.lastRespawnMsg = now();
           player.allowTeleportUntil = now() + 1500;
+          if (player.p[1] < -6 && this.phase === PHASE.PLAYING) {
+            const drama = ['took the express elevator', 'discovered gravity', 'is checking on the ground floor', 'left the building'];
+            this.feed(`🕳️ ${player.name} ${drama[Math.floor(Math.random() * drama.length)]}`);
+          }
           this.mode?.onFall?.(player);
         }
         break;
@@ -124,6 +129,7 @@ export class Room {
         if (!player || this.phase !== PHASE.PLAYING) return;
         const target = this.players.get(msg.target);
         if (!target || target.id === player.id) return;
+        if (player.eliminated || target.eliminated) return; // ghosts don't hit
         if (dist2d(player, target) > BUMP_RADIUS * 2.5) return; // validate
         const key = [player.id, target.id].sort().join('|');
         if (now() - (this.lastBump.get(key) || 0) < 900) return;
@@ -131,16 +137,33 @@ export class Room {
         this.onBump(player, target);
         break;
       }
+      case MSG.EMOTE: {
+        if (!player) return;
+        if (now() - (player.lastEmoteAt || 0) < 600) return; // no honk spam
+        player.lastEmoteAt = now();
+        if (msg.h) this.broadcast({ t: MSG.EFFECT, type: 'emote', id: player.id, horn: true });
+        else {
+          const i = msg.e | 0;
+          if (i >= 0 && i < EMOTES.length) this.broadcast({ t: MSG.EFFECT, type: 'emote', id: player.id, e: i });
+        }
+        break;
+      }
     }
   }
 
   makePlayer(id, ws, msg = {}) {
     const spawn = SPAWNS[this.players.size % SPAWNS.length];
+    // cosmetics: validated per slot so only known ids travel to other clients
+    const cos = {};
+    for (const slot of Object.keys(COSMETIC_IDS)) {
+      if (COSMETIC_IDS[slot].includes(msg.cos?.[slot])) cos[slot] = msg.cos[slot];
+    }
     return {
       id, ws, bot: false,
       name: String(msg.name || 'Intern').slice(0, 16) || 'Intern',
       car: CAR_IDS.includes(msg.car) ? msg.car : 'balanced',
       paint: typeof msg.paint === 'string' ? msg.paint.slice(0, 9) : null,
+      cos,
       ready: false,
       p: [spawn.x, 1, spawn.z], q: [0, 0, 0, 1], v: [0, 0, 0],
       drifting: false, grounded: true,
@@ -186,7 +209,7 @@ export class Room {
       Object.assign(p, {
         score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false,
         powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
-        spawnIndex: i++, finished: false, rejects: 0,
+        spawnIndex: i++, finished: false, rejects: 0, eliminated: false, zapT: 0,
         // everyone teleports to the spawn grid client-side — sanction it
         allowTeleportUntil: now() + (COUNTDOWN_SECONDS + 2) * 1000,
       });
@@ -195,6 +218,7 @@ export class Room {
     this.endsAt = now() + (COUNTDOWN_SECONDS + MATCH_LEN) * 1000;
     this.puddles = [];
     this.rockets = [];
+    this.bumpCounts.clear();
     this.event = null;
     this.pendingEvent = null;
     this.robot = null;
@@ -216,7 +240,23 @@ export class Room {
       .map((p, i) => ({ id: p.id, name: p.name, car: p.car, paint: p.paint, score: Math.round(p.score), place: i + 1, bot: p.bot }));
     const xp = {};
     standings.forEach((s, i) => { xp[s.id] = Math.max(10, Math.round(s.score / 10) + (3 - Math.min(i, 3)) * 15); });
-    this.broadcast({ t: MSG.MATCH_END, podium: standings, xp });
+    // Rivalries: per-player most-bumped partner, plus the match's top feud.
+    const rivalry = {};
+    let top = null;
+    for (const [key, n] of this.bumpCounts) {
+      const [a, b] = key.split('|');
+      if (!top || n > top.n) top = { a, b, n };
+      for (const [x, y] of [[a, b], [b, a]]) {
+        if (!rivalry[x] || n > rivalry[x].n) rivalry[x] = { with: y, n };
+      }
+    }
+    const rivalries = Object.fromEntries(Object.entries(rivalry).map(([id, r]) => (
+      [id, { name: this.players.get(r.with)?.name || '???', n: r.n }]
+    )));
+    const nemesis = top && top.n >= 3
+      ? { a: this.players.get(top.a)?.name || '???', b: this.players.get(top.b)?.name || '???', n: top.n }
+      : null;
+    this.broadcast({ t: MSG.MATCH_END, podium: standings, xp, rivalries, nemesis });
     this.mode = null;
   }
 
@@ -256,9 +296,11 @@ export class Room {
     this.updateEvents(t, dt);
     this.puddles = this.puddles.filter((pu) => pu.until > t);
 
-    // Slow puddle / oil effects are client-side; battery drop on fall is here:
+    // Slow puddle / oil effects are client-side; falls that matter (dropped
+    // battery, spilled beans, Last Car Standing eliminations) resolve here
+    // without waiting for the client's respawn message:
     for (const p of this.players.values()) {
-      if (p.p[1] < -10 && (p.hasBattery || p.beans > 0)) this.mode?.onFall?.(p);
+      if (p.p[1] < -10 && (p.hasBattery || p.beans > 0 || this.modeId === 'last_standing')) this.mode?.onFall?.(p);
     }
 
     this.broadcastSnapshot(t);
@@ -268,7 +310,7 @@ export class Room {
     for (const pad of this.pads) {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
-        if (p.powerup || p.bot && Math.random() < 0.5) continue;
+        if (p.eliminated || p.powerup || p.bot && Math.random() < 0.5) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < 1.6) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
@@ -308,10 +350,10 @@ export class Room {
 
   usePowerup(player) {
     const pw = player.powerup;
-    if (!pw) return;
+    if (!pw || player.eliminated) return; // ghosts don't meddle (yet)
     player.powerup = null;
     const t = now();
-    const others = [...this.players.values()].filter((p) => p.id !== player.id);
+    const others = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated);
     switch (pw) {
       case 'turbo':
         this.broadcast({ t: MSG.EFFECT, type: 'turbo', id: player.id });
@@ -348,7 +390,7 @@ export class Room {
         break;
       }
       case 'shrink': {
-        const leader = [...this.players.values()].filter((p) => p.id !== player.id)
+        const leader = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated)
           .sort((a, b) => b.score - a.score)[0];
         if (!leader) break;
         leader.shrinkUntil = t + FX.SHRINK_S * 1000;
@@ -406,12 +448,23 @@ export class Room {
   onBump(a, b) {
     const t = now();
     const rel = Math.hypot(a.v[0] - b.v[0], a.v[2] - b.v[2]);
+    // Rivalry ledger: every validated collision feeds the nemesis stats.
+    const key = [a.id, b.id].sort().join('|');
+    this.bumpCounts.set(key, (this.bumpCounts.get(key) || 0) + 1);
     if (b.shieldUntil > t || a.shieldUntil > t) {
       this.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: b.shieldUntil > t ? b.id : a.id });
       if (b.shieldUntil > t) b.shieldUntil = 0; else a.shieldUntil = 0;
       return;
     }
     this.mode?.onHit?.(a, b, rel);
+    // Big shunts make the feed (sparingly), and bumped bots talk back.
+    if (rel > 18 && Math.random() < 0.35) {
+      const verbs = ['body-checked', 'flattened', 'T-boned', 'yeeted', 'audited'];
+      this.feed(`💥 ${a.name} ${verbs[Math.floor(Math.random() * verbs.length)]} ${b.name}`);
+    }
+    if (b.bot && Math.random() < 0.25) {
+      setTimeout(() => this.broadcast({ t: MSG.EFFECT, type: 'emote', id: b.id, e: 1 }), 400);
+    }
     // Bots have no client-side physics, so the server shoves them: knockback
     // away from the bumper, scaled by relative speed and mass ratio.
     const shove = (victim, attacker) => {
@@ -424,8 +477,9 @@ export class Room {
       victim.kick.z += (dz / len) * mag;
     };
     shove(a, b); shove(b, a);
-    // pa/pb let clients compute mass-scaled knockback direction
-    this.broadcast({ t: MSG.EFFECT, type: 'bump', a: a.id, b: b.id, at: a.p, pa: a.p.map(r2), pb: b.p.map(r2) });
+    // pa/pb let clients compute mass-scaled knockback direction; rel scales
+    // the victim's shake/clonk feedback
+    this.broadcast({ t: MSG.EFFECT, type: 'bump', a: a.id, b: b.id, at: a.p, pa: a.p.map(r2), pb: b.p.map(r2), rel: r2(rel) });
   }
 
   // ------------------------------------------------------- office events
@@ -447,7 +501,9 @@ export class Room {
       this.pendingEvent = null;
       this.lastEventId = ev.id;
       this.event = { id: ev.id, until: t + ev.duration * 1000 };
-      this.nextEventAt = t + OFFICE_EVENT_INTERVAL * 1000;
+      // Last Car Standing doubles the chaos cadence — the office fights back
+      const interval = this.modeId === 'last_standing' ? OFFICE_EVENT_INTERVAL / 2 : OFFICE_EVENT_INTERVAL;
+      this.nextEventAt = t + interval * 1000;
       if (ev.id === 'cleaning_robot') this.robot = { x: ROBOT_PATH[0].x, z: ROBOT_PATH[0].z, wp: 1 };
       this.broadcast({ t: MSG.OFFICE_EVENT, id: ev.id, duration: ev.duration, name: ev.name, icon: ev.icon, desc: ev.desc });
     }
@@ -459,7 +515,7 @@ export class Room {
       if (len < 1) this.robot.wp++;
       else { this.robot.x += (dx / len) * speed; this.robot.z += (dz / len) * speed; }
       for (const p of this.players.values()) {
-        if (p.stunUntil > t || p.shieldUntil > t) continue;
+        if (p.eliminated || p.stunUntil > t || p.shieldUntil > t) continue;
         if (Math.hypot(p.p[0] - this.robot.x, p.p[2] - this.robot.z) < 2.2) {
           p.stunUntil = t + 1500;
           this.mode?.onHit?.(null, p);
@@ -488,7 +544,7 @@ export class Room {
   }
 
   publicPlayer(p) {
-    return { id: p.id, name: p.name, car: p.car, paint: p.paint, ready: p.ready, bot: p.bot, team: p.team };
+    return { id: p.id, name: p.name, car: p.car, paint: p.paint, cos: p.cos, ready: p.ready, bot: p.bot, team: p.team };
   }
   publicPlayers() { return [...this.players.values()].map((p) => this.publicPlayer(p)); }
 
@@ -506,7 +562,7 @@ export class Room {
         p: p.p.map(r2), q: p.q.map((n) => Math.round(n * 1000) / 1000),
         f: (p.drifting ? 1 : 0) | (p.grounded ? 2 : 0) | (p.stunUntil > t ? 4 : 0) |
            (p.shieldUntil > t ? 8 : 0) | (p.shrinkUntil > t ? 16 : 0) |
-           (p.hasBattery ? 32 : 0),
+           (p.hasBattery ? 32 : 0) | (p.eliminated ? 64 : 0),
         c: p.beans,
       };
     }

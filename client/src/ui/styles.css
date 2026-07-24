@@ -317,3 +317,37 @@ kbd {
   background: var(--panel); padding: 8px 18px; border-radius: 10px;
   font-size: 14px; z-index: 20;
 }
+
+/* ------------------------------------------------ cosmetics (garage) */
+.cos-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.cos-label { font-size: 11px; letter-spacing: 2px; opacity: 0.6; min-width: 70px; }
+.cos-item {
+  padding: 5px 10px; font-size: 12px; color: #fff; cursor: pointer;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--border);
+  border-radius: 8px; transition: background 0.15s, border-color 0.15s;
+}
+.cos-item:hover { background: rgba(123, 47, 242, 0.35); }
+.cos-item.sel { border-color: #fff; background: rgba(123, 47, 242, 0.5); box-shadow: 0 0 10px rgba(180, 120, 255, 0.4); }
+
+/* ---------------------------------------------- last car standing HUD */
+.zap-warning {
+  position: absolute; top: 22%; left: 50%; transform: translateX(-50%);
+  padding: 10px 26px; border-radius: 12px; z-index: 25;
+  background: rgba(200, 20, 35, 0.85); border: 1px solid rgba(255, 120, 120, 0.7);
+  font-size: 22px; font-weight: 900; letter-spacing: 2px; color: #fff;
+  animation: zapPulse 0.5s ease-in-out infinite alternate;
+  box-shadow: 0 0 40px rgba(255, 40, 60, 0.55);
+}
+@keyframes zapPulse { from { transform: translateX(-50%) scale(1); } to { transform: translateX(-50%) scale(1.06); } }
+
+.spectate-banner {
+  position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+  padding: 8px 20px; border-radius: 10px; z-index: 25;
+  background: var(--panel); border: 1px solid var(--border);
+  font-size: 15px; font-weight: 700; letter-spacing: 1px;
+}
+.spectate-banner small { opacity: 0.6; font-weight: 400; margin-left: 8px; }
+
+/* rivalry lines on the podium */
+.pod-rivalry { margin-top: 6px; font-size: 15px; opacity: 0.95; }
+.pod-rivalry.feud { font-size: 13px; opacity: 0.7; }

@@ -54,6 +54,7 @@ export default function LocalCar() {
   const camera = useThree((s) => s.camera);
   const carId = useStore((s) => s.car);
   const paint = useStore((s) => s.paint);
+  const myCos = useStore((s) => s.cos);
   const myName = useStore((s) => s.name);
   const car = CARS[carId] || CARS.balanced;
   // Per-car mass is real physics now: heavy cars shove light ones in bumps.
@@ -87,6 +88,9 @@ export default function LocalCar() {
     windPhase: 0,
     lastCp: 0,
   }).current;
+
+  // the engine sound wears the selected car's voice
+  useEffect(() => { audio.setEngineProfile(carId); }, [carId]);
 
   const speedRef = useRef(0);
   const steerRef = useRef(0);
@@ -140,6 +144,8 @@ export default function LocalCar() {
         }
         S.boost = BOOST_MAX;
         S.stunnedUntil = 0;
+        S.fallCamUntil = 0;
+        rb.current?.setGravityScale(1, true); // back from the ghost realm
       }),
       on('fx', (fx) => {
         const me = net.myId;
@@ -207,7 +213,11 @@ export default function LocalCar() {
             break;
           case 'bump':
             if (fx.a === me || fx.b === me) {
-              S.shake = Math.max(S.shake, 0.35);
+              // shake scales with the server-computed relative speed, and a
+              // really big shunt gets an extra meaty clonk on top of the
+              // collision sound both clients already played
+              S.shake = Math.max(S.shake, Math.min(1, 0.25 + (fx.rel || 0) * 0.02));
+              if ((fx.rel || 0) > 16) audio.impact(Math.min(1, fx.rel / 30));
               // Mass-scaled knockback: getting hit by a Micro Monster hurts,
               // getting hit by a Formula barely rocks you.
               const otherId = fx.a === me ? fx.b : fx.a;
@@ -224,6 +234,18 @@ export default function LocalCar() {
             break;
           case 'fake':
             if (fx.id === me) audio.blip(180, 0.3, 0.2);
+            break;
+          case 'eliminated':
+            // zap sparks where they went down; if it's me, park the car in
+            // the ghost realm — SpectatorCam takes the camera from here
+            if (fx.at) burst(fx.at, { count: 26, color: ['#ff5f6b', '#ffe27a', '#fff'], speed: 9, size: 0.14, ttl: 0.9 });
+            if (fx.id === me) {
+              audio.zap();
+              S.shake = 0;
+              S.fallCamUntil = 0;
+              body.setGravityScale(0, true);
+              teleport(0, -40, 0, 0);
+            }
             break;
           case 'bean':
             if (fx.id === me) audio.pickup();
@@ -249,6 +271,7 @@ export default function LocalCar() {
     const dt = PHYS_TIMESTEP;
     const nowMs = performance.now();
     const st = useStore.getState();
+    if (st.spectating) return; // ghosts are parked; no forces, no inputs
     const k = keys.current;
     k.poll?.(); // refresh gamepad axes/buttons once per physics step
 
@@ -551,10 +574,21 @@ export default function LocalCar() {
     // ---------------- upside-down & fall recovery
     const upDot = _up.y;
     S.upsideDownTime = upDot < 0.35 && S.speed < 4 ? S.upsideDownTime + dt : 0;
-    if (k.respawn || pos.y < RESPAWN_Y || S.upsideDownTime > 1.2) {
+    if (k.respawn || S.upsideDownTime > 1.2) {
       k.respawn = false;
       S.upsideDownTime = 0;
+      S.fallCamUntil = 0;
       respawn();
+    } else if (pos.y < RESPAWN_Y) {
+      // going over the edge is a MOMENT: scream, hold a seagull's-eye
+      // kill-cam on the plummeting car, then respawn
+      if (!S.fallCamUntil) {
+        S.fallCamUntil = nowMs + 1500;
+        audio.scream();
+      } else if (nowMs > S.fallCamUntil) {
+        S.fallCamUntil = 0;
+        if (!st.spectating) respawn(); // eliminated ghosts stay dead
+      }
     }
   });
 
@@ -577,8 +611,17 @@ export default function LocalCar() {
     const throttle = (keys.current.fwd ? 1 : 0) - (keys.current.back ? 1 : 0);
     const drifting = S.prevDrifting;
 
-    // ---------------- camera
-    if (!st.photoMode) {
+    // ---------------- camera (SpectatorCam owns it while eliminated)
+    if (st.spectating) {
+      audio.update({ speed: 0, throttle: 0, slipping: false, boosting: false, topSpeed: car.topSpeed });
+      return;
+    }
+    if (S.fallCamUntil > nowMs && !st.photoMode) {
+      // kill-cam: hover above the drop and watch the car plummet
+      _camTarget.set(pos.x + 3.5, Math.max(pos.y + 16, 7), pos.z + 3.5);
+      camera.position.lerp(_camTarget, 1 - Math.pow(0.005, dt));
+      camera.lookAt(pos.x, pos.y, pos.z);
+    } else if (!st.photoMode) {
       const back = _camPos.set(-_fwd.x, 0, -_fwd.z).normalize();
       const dist = 4.0 + Math.min(1.6, S.speed * 0.03);
       _camTarget.set(
@@ -663,6 +706,7 @@ export default function LocalCar() {
           <CarModel
             carId={carId}
             paint={paint}
+            cosmetics={myCos}
             name={myName}
             isLocal
             speedRef={speedRef}

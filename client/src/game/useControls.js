@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store.js';
 import { send } from '../net.js';
-import { MSG } from '@rc/shared';
+import { MSG, EMOTES } from '@rc/shared';
 import { audio } from '../audio.js';
 
 // On-screen touch buttons write here (gamepad axis conventions: steer -1 =
@@ -77,7 +77,14 @@ export function useControls() {
         }
         case 'KeyP': useStore.setState((s) => ({ photoMode: !s.photoMode })); break;
         case 'KeyR': keys.current.respawn = true; break;
-        default: break;
+        case 'KeyH': send({ t: MSG.EMOTE, h: 1 }); audio.horn(); break; // sound now; echo draws the bubble
+        default:
+          // 1–8 → emote wheel (the bubble comes back via the server echo)
+          if (e.code.startsWith('Digit')) {
+            const i = Number(e.code.slice(5)) - 1;
+            if (i >= 0 && i < EMOTES.length) send({ t: MSG.EMOTE, e: i });
+          }
+          break;
       }
     };
     const up = (e) => {

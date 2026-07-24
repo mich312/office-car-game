@@ -17,6 +17,12 @@ export default function Menu() {
   const unlocked = store.unlocked();
   const paints = unlocked.filter((u) => u.type === 'paint');
   const nextUnlock = UNLOCKS.find((u) => u.xp > store.xp);
+  const cosmeticSlots = [
+    { slot: 'hat', label: 'HAT' },
+    { slot: 'antenna', label: 'ANTENNA' },
+    { slot: 'trail', label: 'TRAIL' },
+  ].map((s) => ({ ...s, items: unlocked.filter((u) => u.type === s.slot) }))
+    .filter((s) => s.items.length > 0);
 
   const pick = (d) => {
     const i = (carIdx + d + CAR_IDS.length) % CAR_IDS.length;
@@ -57,7 +63,7 @@ export default function Menu() {
                 <directionalLight position={[4, 6, 3]} intensity={2.4} color="#fff2dd" />
                 <pointLight position={[-3, 2, -2]} intensity={12} color="#6a8bff" />
                 <Turntable>
-                  <CarModel carId={carId} paint={store.paint} isLocal />
+                  <CarModel carId={carId} paint={store.paint} cosmetics={store.cos} isLocal />
                 </Turntable>
                 <ContactShadows position={[0, -0.28, 0]} opacity={0.7} blur={2.2} scale={6} />
                 <EffectComposer>
@@ -92,6 +98,22 @@ export default function Menu() {
             <button className={`swatch none ${!store.paint ? 'sel' : ''}`} title="Stock paint"
               onClick={() => useStore.setState({ paint: null })}>✕</button>
           </div>
+          {cosmeticSlots.map(({ slot, label, items }) => (
+            <div key={slot} className="cos-row">
+              <span className="cos-label">{label}</span>
+              <button
+                className={`cos-item ${!store.cos[slot] ? 'sel' : ''}`}
+                onClick={() => { store.equip(slot, null); audio.blip(440, 0.05); }}
+              >none</button>
+              {items.map((u) => (
+                <button
+                  key={u.value}
+                  className={`cos-item ${store.cos[slot] === u.value ? 'sel' : ''}`}
+                  onClick={() => { store.equip(slot, u.value); audio.blip(760, 0.05); }}
+                >{u.name}</button>
+              ))}
+            </div>
+          ))}
         </section>
 
         <section className="panel join">
@@ -132,6 +154,7 @@ export default function Menu() {
             <div><kbd>B/CTRL</kbd> boost</div>
             <div><kbd>SPACE</kbd> jump / double jump</div>
             <div><kbd>E</kbd>/<kbd>CLICK</kbd> use powerup</div>
+            <div><kbd>H</kbd> horn · <kbd>1-8</kbd> emotes</div>
             <div><kbd>R</kbd> respawn · <kbd>N</kbd> day/night</div>
             <div><kbd>TAB</kbd> scoreboard · <kbd>M</kbd> mute</div>
             <div><kbd>🎮</kbd> gamepads work: stick + triggers</div>

@@ -235,15 +235,15 @@ around them plus a standings screen.
 Ordered so every phase ships player-visible value, and quick wins fund the
 big rocks. Rough effort in focused dev-days.
 
-### Phase 1 — "Pay off what exists" (~1 week)
-| Item | Ws | Effort |
+### Phase 1 — "Pay off what exists" — ✅ SHIPPED
+| Item | Ws | Status |
 |------|----|--------|
-| Render hats/antenna/trail + equip UI | A2 | 1.5 d |
-| Horn + emote wheel | C2 | 1 d |
-| Bump feedback + rivalry/nemesis stat | C2 | 1 d |
-| Last Car Standing mode + spectator cam | E1 | 2 d |
-| Balcony kill-cam & fall drama | C3 | 0.5 d |
-| Per-car engine voices | D3 | 0.5 d |
+| Render hats/antenna/trail + equip UI | A2 | ✅ + 5 new unlocks, bots dress up too |
+| Horn + emote wheel | C2 | ✅ `H` + `1–8`, touch button, bots honk back |
+| Bump feedback + rivalry/nemesis stat | C2 | ✅ rel-scaled shake/clonk, podium nemesis lines |
+| Last Car Standing mode + spectator cam | E1 | ✅ room lockdowns, zap grace, drone cam, 2× events |
+| Balcony kill-cam & fall drama | C3 | ✅ scream + seagull's-eye cam + feed drama |
+| Per-car engine voices | D3 | ✅ five synth profiles |
 
 ### Phase 2 — "Shared world & identity" (~2 weeks)
 | Item | Ws | Effort |

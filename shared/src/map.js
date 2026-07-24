@@ -36,6 +36,16 @@ export const ROOMS = [
   { id: 'balcony', name: 'Balcony', x: u(-12), z: u(4.5), w: u(6), d: u(9), floor: 'concrete', outdoor: true },
 ];
 
+// Which room contains a world point? Rooms tile the floor plan, so this is a
+// rect lookup; doorway centerlines resolve to whichever room lists first.
+// Used by Last Car Standing (server zaps, bots flee, client tints) and HUD.
+export function roomAt(x, z) {
+  for (const r of ROOMS) {
+    if (Math.abs(x - r.x) <= r.w / 2 && Math.abs(z - r.z) <= r.d / 2) return r;
+  }
+  return null;
+}
+
 // Walls: axis-aligned boxes {x, z, w, d, h, glass?}. Centers + full sizes, units.
 const wall = (x, z, w, d, opts = {}) => ({
   x: u(x), z: u(z), w: u(w), d: u(d), h: u(opts.h ?? 3), glass: !!opts.glass, low: !!opts.low,

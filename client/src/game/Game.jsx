@@ -12,6 +12,8 @@ import LocalCar from './LocalCar.jsx';
 import RemoteCars from './RemoteCars.jsx';
 import ModeObjects from './ModeObjects.jsx';
 import OfficeEvents from './OfficeEvents.jsx';
+import Emotes from './Emotes.jsx';
+import SpectatorCam from './SpectatorCam.jsx';
 import Effects from './Effects.jsx';
 
 // Low-effects mode for weak GPUs (and CI): ?lowfx disables shadows + post.
@@ -66,6 +68,8 @@ export default function Game() {
           <ModeObjects />
         </Physics>
         <OfficeEvents />
+        <Emotes />
+        <SpectatorCam />
         {!LOWFX && <Effects />}
       </Suspense>
     </Canvas>

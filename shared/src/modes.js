@@ -28,6 +28,25 @@ export const MODES = {
     desc: 'Smash the giant ping pong ball into the other team’s goal.',
     goalScore: 50, // per team member; the scorer gets it twice
   },
+  last_standing: {
+    id: 'last_standing',
+    name: 'Last Car Standing',
+    icon: '👑',
+    desc: 'Facilities locks the office down room by room. Escape closing rooms, dodge the robot, outlive everyone.',
+  },
+};
+
+// Last Car Standing tuning. Rooms lock on an interval (warned ahead of time);
+// lingering in a locked room zaps you after a short grace so near-misses are
+// escapable. One refuge room always survives for the final showdown.
+export const LCS = {
+  FIRST_LOCK_S: 15, // breathing room after GO before the first closure
+  LOCK_INTERVAL_S: 16,
+  WARN_S: 5, // "closing in 5…" telegraph, mirrors office-event warnings
+  ZAP_GRACE_S: 2.5, // seconds inside a locked room before elimination
+  SURVIVAL_SCORE_PER_S: 1.5,
+  PLACEMENT_SCORE: 40, // × elimination order (dying later pays more)
+  WINNER_SCORE: 500,
 };
 
 export const MODE_IDS = Object.keys(MODES);

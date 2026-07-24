@@ -1,11 +1,13 @@
 // Procedural RC car visuals — five body styles, spinning/steering wheels,
-// body roll, boost flame, headlights, shield bubble, battery pack, name tag.
+// body roll, boost flame, headlights, shield bubble, battery pack, name tag,
+// and equipped cosmetics (hats, antenna variants, trails).
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CARS, SUSPENSION_REST } from '@rc/shared';
 import { useStore } from '../store.js';
 import TextSprite from './TextSprite.jsx';
+import Trail from './Trail.jsx';
 
 const WHEEL_POS = [
   [-0.3, 0.34], [0.3, 0.34],
@@ -35,7 +37,10 @@ function Outline({ args, position, rotation }) {
   );
 }
 
-export default function CarModel({ carId, paint, name, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, team }) {
+// Roof height per body style — where hats sit.
+const ROOF_Y = { buggy: 0.3, drift: 0.22, monster: 0.4, formula: 0.21, balanced: 0.29 };
+
+export default function CarModel({ carId, paint, name, cosmetics, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, team }) {
   const car = CARS[carId] || CARS.balanced;
   const color = paint || car.color;
   const night = useStore((s) => s.night);
@@ -48,6 +53,9 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
   const shieldRef = useRef();
   const batteryRef = useRef();
   const stunRef = useRef();
+  const antennaRef = useRef();
+  const propellerRef = useRef();
+  const trailAnchor = useRef();
   const spin = useRef(0);
 
   const mats = useMemo(() => ({
@@ -60,9 +68,10 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
     accent: new THREE.MeshToonMaterial({ color: '#f5f5f5', gradientMap: toonRamp() }),
   }), [color]);
 
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     const speed = speedRef?.current ?? 0;
     const steer = steerRef?.current ?? 0;
+    const t = state.clock.elapsedTime;
     spin.current += (speed / 0.14) * dt;
     wheels.current.forEach((w, i) => {
       if (!w) return;
@@ -94,6 +103,13 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
       stunRef.current.visible = !!(flags & 4);
       if (stunRef.current.visible) stunRef.current.rotation.y += dt * 8;
     }
+    // antenna sway: whips back with speed, bobbles with time, leans in turns
+    if (antennaRef.current) {
+      const sway = Math.min(1, Math.abs(speed) / 12);
+      antennaRef.current.rotation.x = Math.sin(t * 6) * 0.14 * sway - Math.min(0.35, Math.abs(speed) * 0.014);
+      antennaRef.current.rotation.z = steer * 0.18 * sway;
+    }
+    if (propellerRef.current) propellerRef.current.rotation.y += dt * (3 + Math.abs(speed) * 0.8);
   });
 
   const wheelR = carId === 'monster' ? 0.18 : 0.13;
@@ -121,17 +137,16 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
         {isLocal && dark && (
           <spotLight position={[0, 0.15, 0.5]} target-position={[0, -0.4, 6]} angle={0.55} intensity={30} distance={30} penumbra={0.5} color="#fff3cf" />
         )}
-        {/* antenna */}
-        <group position={[-0.2, 0.14, -0.4]}>
-          <mesh position={[0, 0.22, 0]}>
-            <cylinderGeometry args={[0.008, 0.012, 0.45, 6]} />
-            <meshStandardMaterial color="#222" />
-          </mesh>
-          <mesh position={[0, 0.46, 0]}>
-            <sphereGeometry args={[0.035, 8, 8]} />
-            <meshStandardMaterial color="#ff3333" />
-          </mesh>
+        {/* antenna (equipped variant or the stock whip) */}
+        <group ref={antennaRef} position={[-0.2, 0.14, -0.4]}>
+          <Antenna kind={cosmetics?.antenna} />
         </group>
+        {/* hat, socketed to the roof */}
+        {cosmetics?.hat && (
+          <group position={[0, ROOF_Y[carId] ?? 0.28, -0.05]}>
+            <Hat kind={cosmetics.hat} propellerRef={propellerRef} />
+          </group>
+        )}
       </group>
       {/* wheels */}
       {WHEEL_POS.map(([x, z], i) => (
@@ -178,12 +193,123 @@ export default function CarModel({ carId, paint, name, isLocal = false, speedRef
           </mesh>
         ))}
       </group>
+      {/* trail anchor + ribbon (world-space, portaled to the scene root) */}
+      <group ref={trailAnchor} position={[0, 0.06, -0.55]} />
+      {cosmetics?.trail && <Trail kind={cosmetics.trail} anchorRef={trailAnchor} speedRef={speedRef} />}
       {/* name tag */}
       {!isLocal && name && (
         <TextSprite text={name} size={0.34} y={1.2} color={team === 1 ? '#7ab8ff' : team === 0 ? '#ffb37a' : 'white'} />
       )}
     </group>
   );
+}
+
+// ------------------------------------------------------------- cosmetics
+const FLAG_SHAPE = new THREE.Shape();
+FLAG_SHAPE.moveTo(0, 0); FLAG_SHAPE.lineTo(0.22, 0.06); FLAG_SHAPE.lineTo(0, 0.12);
+
+function Antenna({ kind }) {
+  return (
+    <group>
+      <mesh position={[0, 0.22, 0]}>
+        <cylinderGeometry args={[0.008, 0.012, 0.45, 6]} />
+        <meshStandardMaterial color="#222" />
+      </mesh>
+      {kind === 'ball' ? (
+        <mesh position={[0, 0.48, 0]}>
+          <sphereGeometry args={[0.07, 10, 10]} />
+          <meshStandardMaterial color="#ffb347" emissive="#ff8c00" emissiveIntensity={0.35} roughness={0.3} />
+        </mesh>
+      ) : kind === 'flag' ? (
+        <mesh position={[0.005, 0.34, 0]} rotation-y={Math.PI / 2}>
+          <shapeGeometry args={[FLAG_SHAPE]} />
+          <meshStandardMaterial color="#e8332a" side={THREE.DoubleSide} roughness={0.8} />
+        </mesh>
+      ) : (
+        <mesh position={[0, 0.46, 0]}>
+          <sphereGeometry args={[0.035, 8, 8]} />
+          <meshStandardMaterial color="#ff3333" />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+function Hat({ kind, propellerRef }) {
+  switch (kind) {
+    case 'cone':
+      return (
+        <group>
+          <mesh castShadow position={[0, 0.01, 0]}>
+            <cylinderGeometry args={[0.13, 0.15, 0.025, 10]} />
+            <meshStandardMaterial color="#ff6b1a" roughness={0.7} />
+          </mesh>
+          <mesh castShadow position={[0, 0.11, 0]}>
+            <coneGeometry args={[0.1, 0.2, 10]} />
+            <meshStandardMaterial color="#ff6b1a" roughness={0.7} />
+          </mesh>
+          <mesh position={[0, 0.11, 0]}>
+            <cylinderGeometry args={[0.075, 0.085, 0.045, 10]} />
+            <meshStandardMaterial color="#f5f5f5" roughness={0.7} />
+          </mesh>
+        </group>
+      );
+    case 'tophat':
+      return (
+        <group>
+          <mesh castShadow position={[0, 0.01, 0]}>
+            <cylinderGeometry args={[0.16, 0.16, 0.02, 14]} />
+            <meshStandardMaterial color="#15161c" roughness={0.4} />
+          </mesh>
+          <mesh castShadow position={[0, 0.12, 0]}>
+            <cylinderGeometry args={[0.1, 0.11, 0.2, 14]} />
+            <meshStandardMaterial color="#15161c" roughness={0.4} />
+          </mesh>
+          <mesh position={[0, 0.035, 0]}>
+            <cylinderGeometry args={[0.112, 0.112, 0.03, 14]} />
+            <meshStandardMaterial color="#c0392b" roughness={0.6} />
+          </mesh>
+        </group>
+      );
+    case 'propeller':
+      return (
+        <group>
+          <mesh castShadow position={[0, 0.035, 0]}>
+            <sphereGeometry args={[0.11, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
+            <meshStandardMaterial color="#3498db" roughness={0.6} />
+          </mesh>
+          <mesh position={[0, 0.11, 0]}>
+            <cylinderGeometry args={[0.012, 0.012, 0.06, 6]} />
+            <meshStandardMaterial color="#f1c40f" />
+          </mesh>
+          <group ref={propellerRef} position={[0, 0.15, 0]}>
+            {[0, Math.PI / 2].map((r) => (
+              <mesh key={r} rotation-y={r}>
+                <boxGeometry args={[0.3, 0.012, 0.045]} />
+                <meshStandardMaterial color="#e8332a" roughness={0.5} />
+              </mesh>
+            ))}
+          </group>
+        </group>
+      );
+    case 'plant':
+      return (
+        <group>
+          <mesh castShadow position={[0, 0.045, 0]}>
+            <cylinderGeometry args={[0.07, 0.055, 0.09, 10]} />
+            <meshStandardMaterial color="#b5651d" roughness={0.85} />
+          </mesh>
+          {[[0, 0.14, 0, 0.06], [-0.045, 0.12, 0.02, 0.045], [0.04, 0.125, -0.03, 0.05]].map(([x, y, z, r], i) => (
+            <mesh key={i} castShadow position={[x, y, z]}>
+              <sphereGeometry args={[r, 8, 6]} />
+              <meshStandardMaterial color="#2ecc71" roughness={0.8} />
+            </mesh>
+          ))}
+        </group>
+      );
+    default:
+      return null;
+  }
 }
 
 // Far-LOD stand-in: three boxes instead of ~20 meshes. Remote cars swap to

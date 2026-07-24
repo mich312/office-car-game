@@ -1,7 +1,10 @@
 // Server-side bots so the office is never empty. They lap the racing line,
 // chase beans/batteries/balls with a poor-man's navmesh (the racing line
 // doubles as a corridor graph), grab powerups and generally cause trouble.
-import { BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER } from '@rc/shared';
+import {
+  BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER,
+  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS,
+} from '@rc/shared';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -55,6 +58,9 @@ export class Bots {
     const p = this.room.makePlayer(id, null, { name: `🤖 ${name}`, car });
     p.bot = true;
     p.ready = true;
+    // bots dress up too — hats and paints keep a bot lobby colorful
+    if (Math.random() < 0.5) p.paint = PAINT_COLORS[Math.floor(Math.random() * PAINT_COLORS.length)];
+    if (Math.random() < 0.35) p.cos = { hat: COSMETIC_IDS.hat[Math.floor(Math.random() * COSMETIC_IDS.hat.length)] };
     p.heading = -Math.PI / 2;
     p.speed = 0;
     p.wp = 0;
@@ -90,7 +96,7 @@ export class Bots {
   update(dt) {
     const t = now();
     for (const p of this.room.players.values()) {
-      if (!p.bot) continue;
+      if (!p.bot || p.eliminated) continue;
       this.applyKick(p, dt);
       if (p.stunUntil > t) { p.speed *= 0.9; continue; }
       const target = this.pickTarget(p);
@@ -122,6 +128,27 @@ export class Bots {
       const b = mode.battery;
       if (b.carrier === p.id) goal = null; // run the lap while holding it
       else goal = { x: b.x, z: b.z };
+    } else if (modeId === 'last_standing' && mode) {
+      const bad = (id) => mode.locked.includes(id) || mode.warn?.room === id;
+      const myRoom = roomAt(p.p[0], p.p[2]);
+      if (myRoom && bad(myRoom.id)) {
+        // flee to the nearest room that's still open
+        let best = null, bd = Infinity;
+        for (const r of ROOMS) {
+          if (bad(r.id)) continue;
+          const d = Math.hypot(r.x - p.p[0], r.z - p.p[2]);
+          if (d < bd) { bd = d; best = r; }
+        }
+        if (best) goal = { x: best.x, z: best.z };
+      } else {
+        // cruise the racing line, skipping waypoints inside closed rooms
+        for (let k = 0; k < BOT_PATH.length; k++) {
+          const wp = BOT_PATH[p.wp % BOT_PATH.length];
+          const rm = roomAt(wp.x, wp.z);
+          if (!rm || !bad(rm.id)) break;
+          p.wp = (p.wp + 1) % BOT_PATH.length;
+        }
+      }
     } else if (modeId === 'soccer' && mode) {
       const ball = mode.ball;
       // Aim slightly behind the ball relative to the opposing goal

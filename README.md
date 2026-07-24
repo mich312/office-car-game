@@ -38,6 +38,8 @@ post-processing on weak GPUs.
 | `B` / `Ctrl` | boost |
 | `Space` | jump / double jump (+air control with WASD, flips give boost) |
 | `E` / click | use powerup |
+| `H` | horn (bumped bots honk back) |
+| `1`–`8` | emote wheel |
 | `R` | respawn |
 | `Tab` | scoreboard |
 | `N` | day / night |
@@ -58,6 +60,10 @@ themselves 3 seconds before they hit.
 - ☕ **Coffee Run** — collect beans, deliver to the kitchen machine, bump rivals to make them spill
 - 🔋 **Capture the Battery** — hold it to score, carrying slows you down, get hit and you drop it
 - ⚽ **RC Soccer** — a huge ping pong ball and two doorway goals
+- 👑 **Last Car Standing** — Facilities locks the office down room by room
+  (telegraphed, then a red zap field). Escape the closures, survive the
+  double-rate office events, outlive everyone. Eliminated players get a
+  drone spectator cam (click/space to switch targets).
 
 Every minute an **office event** hits: lights out, earthquake, printer paper
 storm, AC hurricane, server overload, or the cleaning robot on patrol.
@@ -65,6 +71,12 @@ Powerup pads hand out EMPs, rockets, oil spills, shrink rays, bubble shields,
 position swaps, spring jumps… and the occasional fake powerup. The odds are
 Mario-Kart-honest: the leader draws from a weak defensive pool while the back
 of the pack draws catch-up tools.
+
+Progression pays out in gear: hats, antennas and trails unlock with XP and
+are equipped in the garage — everyone in the lobby sees them (bots dress up
+too). Each car has its own synthesized engine voice. Collisions feed a
+rivalry tracker and the podium calls out your nemesis, and going over the
+balcony railing earns you a scream and a seagull's-eye kill-cam.
 
 ## The office
 

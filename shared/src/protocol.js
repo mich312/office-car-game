@@ -7,6 +7,7 @@ export const MSG = {
   STATE: 's', // { p:[x,y,z], q:[x,y,z,w], v:[x,y,z], b:boost, d:drifting, g:grounded }
   USE_POWERUP: 'use', // {}
   BUMP: 'bump', // { target } — client-detected car↔car hit, server validates by distance
+  EMOTE: 'em', // { e: index } or { h: 1 } for the horn — rate-limited server-side
 
   // server → client
   WELCOME: 'welcome', // { id, room }
@@ -18,7 +19,7 @@ export const MSG = {
   OFFICE_EVENT: 'event', // { id, duration }
   FEED: 'feed', // { text, icon }
   SCORE: 'score', // { scores: {id: n}, detail }
-  MATCH_END: 'end', // { podium:[{id,name,score}], xp }
+  MATCH_END: 'end', // { podium:[{id,name,score}], xp, rivalries, nemesis }
   PLAYER_JOIN: 'join',
   PLAYER_LEAVE: 'leave',
   RESPAWN: 'respawn', // { p, rotY } — server tells you where to respawn

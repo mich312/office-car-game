@@ -33,17 +33,27 @@ export const useStore = create((set, get) => ({
     ? !!saved.autoGas
     : (typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches),
   eventWarn: null, // { id, name, icon, startsIn } — telegraphed office event
+  spectating: false, // eliminated in Last Car Standing → drone cam
+  spectateTarget: null, // name of the car the drone cam is following
+  lcs: null, // { locked: [roomIds], warn: { room, until }, alive }
+  rivalry: null, // { name, n } — your most-bumped partner last match
+  nemesis: null, // { a, b, n } — the match's top feud
 
   // profile / progression
   name: saved.name || '',
   car: saved.car || 'balanced',
   paint: saved.paint || null,
+  cos: saved.cos || {}, // equipped cosmetics: { hat, antenna, trail }
   xp: saved.xp || 0,
 
   set,
   save() {
-    const { name, car, paint, xp, muted, autoGas } = get();
-    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, xp, muted, autoGas }));
+    const { name, car, paint, cos, xp, muted, autoGas } = get();
+    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, xp, muted, autoGas }));
+  },
+  equip(slot, value) {
+    set((s) => ({ cos: { ...s.cos, [slot]: value || undefined } }));
+    get().save();
   },
   addXp(n) {
     set((s) => ({ xp: s.xp + n }));

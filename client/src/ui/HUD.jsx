@@ -1,7 +1,7 @@
 // In-game overlay: lobby, countdown, speed/boost, powerup slot, timer,
 // kill feed, minimap, scoreboard, event banner, podium.
 import { useEffect, useRef, useState } from 'react';
-import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE, MSG, M } from '@rc/shared';
+import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE, MSG, M, roomAt } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
 import { telemetry } from '../game/LocalCar.jsx';
@@ -133,6 +133,9 @@ function MatchHUD() {
   const raceProgress = useStore((s) => s.raceProgress);
   const myId = useStore((s) => s.myId);
   const endsAt = useStore((s) => s.endsAt);
+  const lcs = useStore((s) => s.lcs);
+  const spectating = useStore((s) => s.spectating);
+  const spectateTarget = useStore((s) => s.spectateTarget);
   const [, force] = useState(0);
   useEffect(() => {
     const iv = setInterval(() => force((n) => n + 1), 100);
@@ -143,6 +146,11 @@ function MatchHUD() {
   const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, '0');
   const prog = raceProgress[myId];
   const speedCms = Math.round(telemetry.speed * (100 / M)); // real-world cm/s at toy scale
+  // Last Car Standing: closing-room countdown + get-out alarm
+  const warnRoom = lcs?.warn ? ROOMS.find((r) => r.id === lcs.warn.room) : null;
+  const warnLeft = lcs?.warn ? Math.max(0, Math.ceil((lcs.warn.until - Date.now()) / 1000)) : 0;
+  const myRoom = modeId === 'last_standing' && !spectating ? roomAt(telemetry.x, telemetry.z) : null;
+  const inLockedRoom = !!(myRoom && lcs?.locked?.includes(myRoom.id));
 
   return (
     <>
@@ -152,7 +160,14 @@ function MatchHUD() {
         {modeId === 'coffee_run' && <div className="mode-stat">☕ carrying {myBeans}/{MODES.coffee_run.maxCarry}</div>}
         {modeId === 'soccer' && <div className="mode-stat soccer">🟠 {teamScores[0]} — {teamScores[1]} 🔵</div>}
         {modeId === 'battery' && <div className="mode-stat">🔋 hold the battery to score</div>}
+        {modeId === 'last_standing' && <div className="mode-stat">👑 {lcs?.alive ?? '…'} cars left{warnRoom ? ` · ${warnRoom.name} closes in ${warnLeft}s` : ''}</div>}
       </div>
+      {inLockedRoom && <div className="zap-warning">⚠️ ROOM CLOSED — GET OUT!</div>}
+      {spectating && (
+        <div className="spectate-banner">
+          💀 ELIMINATED — spectating {spectateTarget || '…'} <small>click / space to switch</small>
+        </div>
+      )}
       <div className="bottom-left">
         <div className="speedo">
           <span className="speed-num">{speedCms}</span>
@@ -203,6 +218,7 @@ function TouchControls() {
         <button className="tc-btn" {...bind((d) => { touchInput.boost = d; })}>🔥</button>
         <button className="tc-btn" {...bind((d) => { touchInput.drift = d; })}>💨</button>
         <button className="tc-btn" {...bind((d) => { if (d) send({ t: MSG.USE_POWERUP }); })}>🎁</button>
+        <button className="tc-btn" {...bind((d) => { if (d) { send({ t: MSG.EMOTE, h: 1 }); audio.horn(); } })}>📣</button>
         <button className="tc-btn tc-wide" {...bind((d) => { touchInput.brake = d ? 1 : 0; })}>BRAKE</button>
       </div>
     </div>
@@ -226,9 +242,14 @@ function Minimap() {
       g.clearRect(0, 0, W, H);
       g.fillStyle = 'rgba(10,14,24,0.75)';
       g.fillRect(0, 0, W, H);
-      // rooms
+      // rooms (Last Car Standing tints closed red / closing amber)
+      const st0 = useStore.getState();
       for (const r of ROOMS) {
-        g.fillStyle = r.outdoor ? 'rgba(70,90,120,0.35)' : 'rgba(120,140,170,0.18)';
+        const locked = st0.modeId === 'last_standing' && st0.lcs?.locked?.includes(r.id);
+        const closing = st0.modeId === 'last_standing' && st0.lcs?.warn?.room === r.id;
+        g.fillStyle = locked ? 'rgba(255,47,61,0.4)'
+          : closing ? 'rgba(255,176,32,0.4)'
+            : r.outdoor ? 'rgba(70,90,120,0.35)' : 'rgba(120,140,170,0.18)';
         g.fillRect(px(r.x - r.w / 2), pz(r.z + r.d / 2), r.w * sx, r.d * sz);
       }
       // walls
@@ -311,6 +332,8 @@ function Scoreboard() {
 function Podium() {
   const podium = useStore((s) => s.podium);
   const myId = useStore((s) => s.myId);
+  const rivalry = useStore((s) => s.rivalry);
+  const nemesis = useStore((s) => s.nemesis);
   if (!podium) return null;
   const top3 = podium.slice(0, 3);
   const mine = podium.find((p) => p.id === myId);
@@ -331,6 +354,8 @@ function Podium() {
         })}
       </div>
       {mine && <p className="pod-mine">You placed {mine.place}{['st', 'nd', 'rd'][mine.place - 1] || 'th'} · +XP earned</p>}
+      {rivalry && rivalry.n >= 2 && <p className="pod-rivalry">🤜 Your nemesis: <b>{rivalry.name}</b> — {rivalry.n} collisions</p>}
+      {nemesis && <p className="pod-rivalry feud">💥 Feud of the match: {nemesis.a} vs {nemesis.b} ({nemesis.n} hits)</p>}
       <p className="hint">Back to the lobby in a few seconds…</p>
     </div>
   );
