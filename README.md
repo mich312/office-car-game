@@ -69,7 +69,16 @@ player in the lobby — the bots roll their own builds too.
 - 🏁 **Desk Dash** — 3 laps through all eight rooms, shortcuts everywhere
 - ☕ **Coffee Run** — collect beans, deliver to the kitchen machine, bump rivals to make them spill
 - 🔋 **Capture the Battery** — hold it to score, carrying slows you down, get hit and you drop it
-- ⚽ **RC Soccer** — a huge ping pong ball and two doorway goals
+- ⚽ **RC Soccer** — a huge ping pong ball and two doorway goals, first to 5 wins
+- 📍 **Standup Standoff** — the meeting zone hops between rooms every 20 s; hold it to score
+- 🎯 **You're It** — the crowned car scores while It; bump them to steal the crown
+- 🥋 **Meeting Room Sumo** — the ring shrinks over the round; shove rivals out, last car rolling wins
+
+Contact is honest about physics: light rubs are cosmetic, real hits (above a
+relative-speed threshold) knock cars back scaled by mass and trigger mode
+effects. Respawning asks the server for a safe slot (scored by distance to
+enemies), grants a ~2 s green protection bubble that pops if you attack, and
+races put you back at your last safe pose instead of three rooms away.
 
 Every minute an **office event** hits: lights out, earthquake, printer paper
 storm, AC hurricane, server overload, or the cleaning robot on patrol.
@@ -99,13 +108,22 @@ client/   React 19 + Vite + react-three-fiber + drei + Rapier + zustand
 
 - Clients simulate their own car (raycast suspension over a rigid body,
   forces applied per **physics step** so handling is framerate-independent)
-  and stream transforms at 20 Hz.
+  and stream transforms at 20 Hz. Speed and spin are hard-capped, downforce
+  scales with speed, and most of the mass rides in a low ballast collider so
+  cars slide before they roll.
 - The server is authoritative for everything that matters: match flow, all
   scoring, powerup pads and effects, the soccer ball (integrated server-side
-  against the shared map geometry), bots, bump validation and anti-teleport
-  checks on reported positions.
+  against the shared map geometry), bots, rub-vs-hit bump classification,
+  respawn placement + spawn protection, and anti-teleport checks on reported
+  positions.
 - Remote cars render through a 120 ms interpolation buffer and are kinematic
-  colliders locally, so you physically bounce off your friends.
+  colliders locally, so you physically bounce off your friends — and your own
+  knockback applies at the moment of contact instead of a round-trip later.
+- Snapshots go over the wire as quantized **binary frames** (~4× smaller than
+  the old JSON): 1 cm positions, 0.001 quaternions, per-mode sections.
+- Chairs, boxes, basketballs and marbles broadcast best-effort **nudge
+  events** when you plow through them, so everyone sees roughly the same
+  office chaos; the rest of the clutter stays local set dressing.
 - Everything is procedural — materials, textures, the skyline, the audio
   (synthesized motors, skids, glass and rain via WebAudio). Zero asset files,
   zero external requests.

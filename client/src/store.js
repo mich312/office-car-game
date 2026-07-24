@@ -21,6 +21,10 @@ export const useStore = create((set, get) => ({
   teamScores: [0, 0],
   raceProgress: {}, // id → [lap, cp]
   myBeans: 0,
+  itId: null, // tag mode: who is It
+  sumoRound: 0,
+  sumoOutLeft: null, // seconds until elimination while outside the sumo zone
+  sumoDead: false, // eliminated for the current sumo round
   feed: [], // [{ key, text }]
   event: null, // { id, name, icon, desc, until }
   podium: null,

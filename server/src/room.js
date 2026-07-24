@@ -5,15 +5,19 @@
 import {
   TICK_RATE, MAX_PLAYERS, COUNTDOWN_SECONDS, MATCH_SECONDS, PODIUM_SECONDS,
   OFFICE_EVENT_INTERVAL, BOTS_FILL_TO, MAX_PLAUSIBLE_SPEED, BUMP_RADIUS,
+  BUMP_REL_SPEED, BUMP_RUB_COOLDOWN_MS, BUMP_HIT_COOLDOWN_MS,
+  SPAWN_PROTECT_MS, RESPAWN_FREEZE_MS, NUDGE_MAX_SPEED,
   MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS, sanitizeStyle,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
-  SPAWNS, POWERUP_PADS, ROBOT_PATH, M,
+  SPAWNS, POWERUP_PADS, ROBOT_PATH, MAP_BOUNDS, PROPS, M,
+  encodeSnapshot,
 } from '@rc/shared';
 import { createMode } from './modes.js';
 import { Bots } from './bots.js';
 
 const now = () => Date.now();
-const MATCH_LEN = Number(process.env.RC_MATCH_SECONDS || MATCH_SECONDS);
+// env override wins (testing); otherwise per-mode length, then the default
+const MATCH_LEN_OVERRIDE = Number(process.env.RC_MATCH_SECONDS) || 0;
 const dist2d = (a, b) => Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]);
 const r2 = (n) => Math.round(n * 100) / 100;
 
@@ -36,7 +40,9 @@ export class Room {
     this.robot = null; // { x, z, wp } cleaning robot when active
     this.bots = new Bots(this);
     this.fxId = 1;
-    this.lastBump = new Map(); // "a|b" → t
+    this.lastBump = new Map(); // "a|b" → t of last real hit
+    this.lastRub = new Map(); // "a|b" → t of last cosmetic rub
+    this.lastSpawnUse = {}; // spawn index → t, for the recently-used penalty
     setInterval(() => this.tick(1 / TICK_RATE), 1000 / TICK_RATE);
   }
 
@@ -113,21 +119,36 @@ export class Room {
         if (player && this.phase === PHASE.PLAYING) this.usePowerup(player);
         break;
       case MSG.RESPAWN:
-        // client announces a self-respawn (fell off / R key) → sanction the jump
-        if (player && now() > (player.lastRespawnMsg || 0) + 1500) {
+        // client asks to respawn (fell off / R key) → server picks the spot,
+        // sanctions the teleport and grants freeze + spawn protection
+        if (player && now() > (player.lastRespawnMsg || 0) + 1200) {
           player.lastRespawnMsg = now();
-          player.allowTeleportUntil = now() + 1500;
-          this.mode?.onFall?.(player);
+          this.respawnPlayer(player, msg.safe);
         }
         break;
+      case MSG.NUDGE: {
+        // best-effort prop scatter sync: relay "I shoved prop i" to peers
+        if (!player) return;
+        const i = msg.i | 0;
+        if (i < 0 || i >= PROPS.length) return;
+        if (!Array.isArray(msg.p) || msg.p.length !== 3 || !Array.isArray(msg.v) || msg.v.length !== 3) return;
+        const t = now();
+        if (t - (player.nudgeWindowAt || 0) > 1000) { player.nudgeWindowAt = t; player.nudgeCount = 0; }
+        if (++player.nudgeCount > 12) return;
+        const p = msg.p.map(Number), v = msg.v.map(Number);
+        if (!p.every(Number.isFinite) || !v.every(Number.isFinite)) return;
+        if (Math.hypot(p[0] - player.p[0], p[2] - player.p[2]) > 6) return; // must be near the car
+        const sp = Math.hypot(v[0], v[1], v[2]);
+        if (sp > NUDGE_MAX_SPEED) for (let k = 0; k < 3; k++) v[k] *= NUDGE_MAX_SPEED / sp;
+        this.broadcast({ t: MSG.NUDGE, i, p: p.map(r2), v: v.map((n) => Math.round(n * 10) / 10) }, player.id);
+        break;
+      }
       case MSG.BUMP: {
         if (!player || this.phase !== PHASE.PLAYING) return;
         const target = this.players.get(msg.target);
         if (!target || target.id === player.id) return;
         if (dist2d(player, target) > BUMP_RADIUS * 2.5) return; // validate
-        const key = [player.id, target.id].sort().join('|');
-        if (now() - (this.lastBump.get(key) || 0) < 900) return;
-        this.lastBump.set(key, now());
+        // rub/hit classification and per-pair cooldowns live in onBump
         this.onBump(player, target);
         break;
       }
@@ -148,6 +169,7 @@ export class Room {
       lastStateAt: now(), allowTeleportUntil: 0,
       score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false, team: 0,
       powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
+      spawnProtectUntil: 0, sumoDead: false,
     };
   }
 
@@ -187,13 +209,15 @@ export class Room {
       Object.assign(p, {
         score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false,
         powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
+        spawnProtectUntil: 0, sumoDead: false,
         spawnIndex: i++, finished: false, rejects: 0,
         // everyone teleports to the spawn grid client-side — sanction it
         allowTeleportUntil: now() + (COUNTDOWN_SECONDS + 2) * 1000,
       });
     }
     this.mode = createMode(this.modeId, this);
-    this.endsAt = now() + (COUNTDOWN_SECONDS + MATCH_LEN) * 1000;
+    const matchLen = MATCH_LEN_OVERRIDE || MODES[this.modeId]?.seconds || MATCH_SECONDS;
+    this.endsAt = now() + (COUNTDOWN_SECONDS + matchLen) * 1000;
     this.puddles = [];
     this.rockets = [];
     this.event = null;
@@ -312,6 +336,8 @@ export class Room {
     if (!pw) return;
     player.powerup = null;
     const t = now();
+    // attacking forfeits spawn protection
+    player.spawnProtectUntil = 0;
     const others = [...this.players.values()].filter((p) => p.id !== player.id);
     switch (pw) {
       case 'turbo':
@@ -325,7 +351,7 @@ export class Room {
         this.broadcast({ t: MSG.EFFECT, type: 'shield', id: player.id, until: player.shieldUntil });
         break;
       case 'emp': {
-        const targets = others.filter((p) => dist2d(p, player) < FX.EMP_RADIUS && p.shieldUntil < t);
+        const targets = others.filter((p) => dist2d(p, player) < FX.EMP_RADIUS && p.shieldUntil < t && p.spawnProtectUntil < t);
         for (const v of targets) { v.stunUntil = t + FX.EMP_STUN_S * 1000; this.mode?.onHit?.(player, v); }
         this.broadcast({
           t: MSG.EFFECT, type: 'emp', id: player.id, at: player.p,
@@ -381,7 +407,10 @@ export class Room {
       const len = Math.hypot(...dir) || 1;
       if (len < 1.0) {
         r.dead = true;
-        if (target.shieldUntil > t) {
+        if (target.spawnProtectUntil > t) {
+          // fizzle on a freshly-spawned car: no stun, no score
+          this.broadcast({ t: MSG.EFFECT, type: 'rocket_hit', target: target.id, at: target.p, blocked: true });
+        } else if (target.shieldUntil > t) {
           target.shieldUntil = 0;
           this.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: target.id });
         } else {
@@ -406,7 +435,24 @@ export class Room {
 
   onBump(a, b) {
     const t = now();
+    // Spawn protection: a protected car can't be hit; a protected car that
+    // rams someone forfeits the protection and the contact proceeds.
+    if (b.spawnProtectUntil > t) return;
+    if (a.spawnProtectUntil > t) a.spawnProtectUntil = 0;
     const rel = Math.hypot(a.v[0] - b.v[0], a.v[2] - b.v[2]);
+    // Rub vs hit: below BUMP_REL_SPEED contact is cosmetic — cheap cooldown,
+    // no knockback, no mode effects — so cornering traffic can't eat the
+    // budget for real hits.
+    const isHit = rel >= BUMP_REL_SPEED;
+    const key = [a.id, b.id].sort().join('|');
+    const cdMap = isHit ? this.lastBump : this.lastRub;
+    if (t - (cdMap.get(key) || 0) < (isHit ? BUMP_HIT_COOLDOWN_MS : BUMP_RUB_COOLDOWN_MS)) return;
+    cdMap.set(key, t);
+    if (!isHit) {
+      this.mode?.onRub?.(a, b); // tag transfers on any contact
+      this.broadcast({ t: MSG.EFFECT, type: 'bump', kind: 'rub', a: a.id, b: b.id });
+      return;
+    }
     if (b.shieldUntil > t || a.shieldUntil > t) {
       this.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: b.shieldUntil > t ? b.id : a.id });
       if (b.shieldUntil > t) b.shieldUntil = 0; else a.shieldUntil = 0;
@@ -426,7 +472,55 @@ export class Room {
     };
     shove(a, b); shove(b, a);
     // pa/pb let clients compute mass-scaled knockback direction
-    this.broadcast({ t: MSG.EFFECT, type: 'bump', a: a.id, b: b.id, at: a.p, pa: a.p.map(r2), pb: b.p.map(r2) });
+    this.broadcast({ t: MSG.EFFECT, type: 'bump', kind: 'hit', a: a.id, b: b.id, at: a.p, pa: a.p.map(r2), pb: b.p.map(r2) });
+  }
+
+  // ------------------------------------------------------------- respawning
+  respawnPlayer(player, safe) {
+    const t = now();
+    // consequences of leaving the field fire first (spill beans, drop battery,
+    // sumo elimination)
+    this.mode?.onFall?.(player);
+    let spot = null;
+    // Races respawn at the client's safe-pose proposal (last pose that was
+    // grounded on valid floor) so nobody walks back three rooms. Validate it.
+    if (this.modeId === 'desk_dash' && Array.isArray(safe) && safe.length === 3
+        && safe.every(Number.isFinite)
+        && safe[0] > MAP_BOUNDS.minX && safe[0] < MAP_BOUNDS.maxX
+        && safe[1] > MAP_BOUNDS.minZ && safe[1] < MAP_BOUNDS.maxZ) {
+      spot = { x: safe[0], z: safe[1], rotY: safe[2] };
+    }
+    if (!spot) spot = this.pickSpawn(player);
+    player.p = [spot.x, 1, spot.z];
+    player.v = [0, 0, 0];
+    const half = (spot.rotY || 0) / 2;
+    player.q = [0, Math.sin(half), 0, Math.cos(half)];
+    player.rejects = 0;
+    player.allowTeleportUntil = t + 2000;
+    player.spawnProtectUntil = t + RESPAWN_FREEZE_MS + SPAWN_PROTECT_MS;
+    this.sendTo(player, {
+      t: MSG.RESPAWN_AT, x: r2(spot.x), z: r2(spot.z), rotY: r2(spot.rotY || 0),
+      freeze: RESPAWN_FREEZE_MS, protect: SPAWN_PROTECT_MS,
+    });
+  }
+
+  // Halo-style spawn scoring: the free slot farthest from the nearest
+  // opponent wins, with penalties for occupied and recently-used slots.
+  pickSpawn(player) {
+    const t = now();
+    const others = [...this.players.values()].filter((p) => p.id !== player.id);
+    let best = null, bestScore = -Infinity;
+    SPAWNS.forEach((sp, i) => {
+      let nearest = Infinity;
+      for (const o of others) nearest = Math.min(nearest, Math.hypot(o.p[0] - sp.x, o.p[2] - sp.z));
+      let score = Math.min(nearest, 25);
+      if (nearest < 2.5) score -= 30; // someone is parked on it
+      if (t - (this.lastSpawnUse[i] || 0) < 4000) score -= 15;
+      score += Math.random(); // tiebreak
+      if (score > bestScore) { bestScore = score; best = { ...sp, i }; }
+    });
+    this.lastSpawnUse[best.i] = t;
+    return best;
   }
 
   // ------------------------------------------------------- office events
@@ -460,7 +554,7 @@ export class Room {
       if (len < 1) this.robot.wp++;
       else { this.robot.x += (dx / len) * speed; this.robot.z += (dz / len) * speed; }
       for (const p of this.players.values()) {
-        if (p.stunUntil > t || p.shieldUntil > t) continue;
+        if (p.stunUntil > t || p.shieldUntil > t || p.spawnProtectUntil > t) continue;
         if (Math.hypot(p.p[0] - this.robot.x, p.p[2] - this.robot.z) < 2.2) {
           p.stunUntil = t + 1500;
           this.mode?.onHit?.(null, p);
@@ -500,22 +594,29 @@ export class Room {
     });
   }
 
+  // The snapshot is the hot path: it goes out as a quantized binary frame
+  // (shared/src/snapshot.js) instead of JSON — the codec does the rounding.
   broadcastSnapshot(t) {
     const players = {};
     for (const p of this.players.values()) {
       players[p.id] = {
-        p: p.p.map(r2), q: p.q.map((n) => Math.round(n * 1000) / 1000),
+        p: p.p, q: p.q,
         f: (p.drifting ? 1 : 0) | (p.grounded ? 2 : 0) | (p.stunUntil > t ? 4 : 0) |
            (p.shieldUntil > t ? 8 : 0) | (p.shrinkUntil > t ? 16 : 0) |
-           (p.hasBattery ? 32 : 0),
+           (p.hasBattery ? 32 : 0) | (p.spawnProtectUntil > t ? 64 : 0) |
+           (p.sumoDead ? 128 : 0),
         c: p.beans,
       };
     }
-    const snap = { t: MSG.SNAPSHOT, time: t, players, puddles: this.puddles };
-    if (this.rockets.length) snap.rockets = this.rockets.map((r) => ({ id: r.id, p: r.p.map(r2) }));
-    if (this.robot) snap.robot = { x: r2(this.robot.x), z: r2(this.robot.z) };
+    const snap = { time: t, players, puddles: this.puddles };
+    if (this.rockets.length) snap.rockets = this.rockets;
+    if (this.robot) snap.robot = this.robot;
     if (this.mode?.snapshot) Object.assign(snap, this.mode.snapshot());
-    this.broadcast(snap);
+    const data = encodeSnapshot(snap);
+    for (const p of this.players.values()) {
+      if (p.bot) continue;
+      if (p.ws && p.ws.readyState === 1) p.ws.send(data);
+    }
   }
 
   sendTo(player, obj) {

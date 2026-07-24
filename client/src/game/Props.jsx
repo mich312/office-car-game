@@ -6,12 +6,20 @@ import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PROPS, M } from '@rc/shared';
+import { PROPS, M, NUDGE_SNAP_DIST } from '@rc/shared';
 import { makeScreen, keysTex } from './textures.js';
 import { burst } from './particles.jsx';
 import { audio } from '../audio.js';
+import { on } from '../net.js';
 
 const m2u = M; // meters → units shorthand
+
+// Movement-relevant props (chairs, balls, marbles, boxes) broadcast "nudge"
+// events when the local car hits them, so every client sees roughly the same
+// scatter. The rest stay purely local set dressing. Registry: PROPS index →
+// rigid-body ref.
+const propBodies = new Map();
+const NUDGEABLE = new Set(['chair', 'basketball', 'marble', 'box']);
 
 export default function Props() {
   const screens = useMemo(() => [makeScreen('code'), makeScreen('chart'), makeScreen('code')], []);
@@ -19,11 +27,26 @@ export default function Props() {
     const iv = setInterval(() => screens.forEach((s) => Math.random() > 0.4 && s.tick()), 300);
     return () => clearInterval(iv);
   }, [screens]);
+  // A peer shoved prop i at p with car velocity v: replay the shove on our
+  // copy — soft position snap when far off, then a mass-scaled impulse.
+  // Best-effort only; nobody reconciles.
+  useEffect(() => on('nudge', ({ i, p, v }) => {
+    const body = propBodies.get(i)?.current;
+    if (!body) return;
+    const cur = body.translation();
+    if (Math.hypot(cur.x - p[0], cur.z - p[2]) > NUDGE_SNAP_DIST) {
+      body.setTranslation({ x: p[0], y: Math.max(p[1], cur.y), z: p[2] }, true);
+    }
+    const m = body.mass() || 0.5;
+    const k = 0.6; // fraction of the car's velocity the prop inherits
+    body.applyImpulse({ x: v[0] * m * k, y: m * 0.6 + Math.abs(v[1]) * m * 0.2, z: v[2] * m * k }, true);
+  }), []);
   let monitorIdx = 0;
   return (
     <group>
       {PROPS.map((p, i) => {
         const key = `${p.type}${i}`;
+        const nudgeId = NUDGEABLE.has(p.type) ? i : undefined;
         switch (p.type) {
           case 'mug': return <Mug key={key} p={p} />;
           case 'glass': return <GlassCup key={key} p={p} />;
@@ -32,12 +55,12 @@ export default function Props() {
           case 'book': return <Book key={key} p={p} i={i} />;
           case 'keyboard': return <Keyboard key={key} p={p} />;
           case 'monitor': return <Monitor key={key} p={p} screen={screens[monitorIdx++ % screens.length]} />;
-          case 'chair': return <Chair key={key} p={p} />;
+          case 'chair': return <Chair key={key} p={p} nudgeId={nudgeId} />;
           case 'plant': return <Plant key={key} p={p} />;
           case 'bottle': return <Bottle key={key} p={p} />;
-          case 'basketball': return <Basketball key={key} p={p} />;
-          case 'marble': return <Marble key={key} p={p} />;
-          case 'box': return <CardboardBox key={key} p={p} />;
+          case 'basketball': return <Basketball key={key} p={p} nudgeId={nudgeId} />;
+          case 'marble': return <Marble key={key} p={p} nudgeId={nudgeId} />;
+          case 'box': return <CardboardBox key={key} p={p} nudgeId={nudgeId} />;
           case 'lamp': return <Lamp key={key} p={p} />;
           case 'trash': return <Trash key={key} p={p} />;
           default: return null;
@@ -57,9 +80,16 @@ const impactSound = (() => {
   };
 })();
 
-function Body({ p, mass, children, colliders = null, angularDamping = 0.15, restitution = 0.25, friction = 0.7, ccd = false, onForce }) {
+function Body({ p, mass, children, colliders = null, angularDamping = 0.15, restitution = 0.25, friction = 0.7, ccd = false, onForce, nudgeId }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (nudgeId === undefined) return undefined;
+    propBodies.set(nudgeId, ref);
+    return () => { if (propBodies.get(nudgeId) === ref) propBodies.delete(nudgeId); };
+  }, [nudgeId]);
   return (
     <RigidBody
+      ref={ref}
       position={[p.x, p.y + 0.4, p.z]}
       rotation-y={p.rotY || 0}
       colliders={colliders}
@@ -69,6 +99,7 @@ function Body({ p, mass, children, colliders = null, angularDamping = 0.15, rest
       restitution={restitution}
       friction={friction}
       ccd={ccd}
+      userData={nudgeId !== undefined ? { propId: nudgeId } : undefined}
       onContactForce={(e) => {
         impactSound(e.totalForceMagnitude);
         onForce?.(e);
@@ -258,10 +289,10 @@ function chairBaseGeo() {
   return _chairBaseGeo;
 }
 
-function Chair({ p }) {
+function Chair({ p, nudgeId }) {
   const seatH = 0.45 * m2u;
   return (
-    <Body p={p} mass={3.5} angularDamping={0.08} friction={0.3}>
+    <Body p={p} nudgeId={nudgeId} mass={3.5} angularDamping={0.08} friction={0.3}>
       {/* star base + column + seat: colliders */}
       <CylinderCollider args={[0.04, 0.32 * m2u]} position={[0, -seatH + 0.08, 0]} />
       <CylinderCollider args={[seatH / 2, 0.045 * m2u]} position={[0, -seatH / 2 + 0.1, 0]} />
@@ -364,10 +395,10 @@ function Bottle({ p }) {
   );
 }
 
-function Basketball({ p }) {
+function Basketball({ p, nudgeId }) {
   const R = 0.121 * m2u;
   return (
-    <Body p={p} mass={0.62} restitution={0.82} friction={0.9} angularDamping={0.1}>
+    <Body p={p} nudgeId={nudgeId} mass={0.62} restitution={0.82} friction={0.9} angularDamping={0.1}>
       <BallCollider args={[R]} />
       <mesh castShadow>
         <sphereGeometry args={[R, 20, 20]} />
@@ -377,11 +408,11 @@ function Basketball({ p }) {
   );
 }
 
-function Marble({ p }) {
+function Marble({ p, nudgeId }) {
   const R = 0.016 * m2u;
   const color = useMemo(() => new THREE.Color().setHSL(Math.random(), 0.7, 0.55), []);
   return (
-    <Body p={p} mass={0.06} restitution={0.6} friction={0.15} ccd>
+    <Body p={p} nudgeId={nudgeId} mass={0.06} restitution={0.6} friction={0.15} ccd>
       <BallCollider args={[R]} />
       <mesh>
         <sphereGeometry args={[R, 12, 12]} />
@@ -391,10 +422,10 @@ function Marble({ p }) {
   );
 }
 
-function CardboardBox({ p }) {
+function CardboardBox({ p, nudgeId }) {
   const S = 0.34 * m2u;
   return (
-    <Body p={p} mass={1.4} friction={0.9}>
+    <Body p={p} nudgeId={nudgeId} mass={1.4} friction={0.9}>
       <CuboidCollider args={[S / 2, S / 2, S / 2]} />
       <mesh castShadow receiveShadow>
         <boxGeometry args={[S, S, S]} />

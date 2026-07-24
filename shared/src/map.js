@@ -263,6 +263,24 @@ export const SOCCER = {
   ],
 };
 
+// Standup Standoff — floor spots the meeting zone hops between (one per room,
+// kept clear of big furniture).
+export const KOTH_SPOTS = [
+  cp(-12, -4.5), // reception
+  cp(-4.8, -4.3), // open office
+  cp(5, -5.3), // meeting room floor
+  cp(12, -5), // kitchen (marble country)
+  cp(5.5, -0.5), // printer room
+  cp(0, 6.2), // lounge
+  cp(11.5, 6.5), // CEO office
+  cp(-12, 4.5), // balcony (bring a towel)
+];
+export const KOTH_RADIUS = u(2.0);
+
+// Meeting Room Sumo — the ring starts covering most of the office and
+// shrinks toward the open-office centre over the round.
+export const SUMO_ZONE = { x: u(-3), z: u(-3), r0: u(12), r1: u(1.5) };
+
 // Powerup pads
 export const POWERUP_PADS = [
   cp(-12, -2), cp(-6, -7.5), cp(0, -1), cp(6, -8.2), cp(12, -8), cp(6, 0.8),

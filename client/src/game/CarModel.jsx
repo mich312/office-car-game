@@ -112,8 +112,14 @@ export default function CarModel({ carId, paint, style, name, isLocal = false, s
     }
     const flags = flagsRef?.current ?? 0;
     if (shieldRef.current) {
-      shieldRef.current.visible = !!(flags & 8);
-      if (shieldRef.current.visible) shieldRef.current.rotation.y += dt * 2;
+      // bit 8 = shield item (blue), bit 64 = spawn protection (green pulse)
+      const prot = !!(flags & 64) && !(flags & 8);
+      shieldRef.current.visible = !!(flags & 8) || !!(flags & 64);
+      if (shieldRef.current.visible) {
+        shieldRef.current.rotation.y += dt * 2;
+        shieldRef.current.material.color.set(prot ? '#7dffb0' : '#7ad8ff');
+        shieldRef.current.material.opacity = prot ? 0.14 + Math.abs(Math.sin(performance.now() / 180)) * 0.1 : 0.22;
+      }
     }
     if (batteryRef.current) batteryRef.current.visible = !!(flags & 32);
     if (stunRef.current) {

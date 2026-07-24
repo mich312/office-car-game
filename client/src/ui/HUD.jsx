@@ -133,6 +133,11 @@ function MatchHUD() {
   const raceProgress = useStore((s) => s.raceProgress);
   const myId = useStore((s) => s.myId);
   const endsAt = useStore((s) => s.endsAt);
+  const itId = useStore((s) => s.itId);
+  const players = useStore((s) => s.players);
+  const sumoRound = useStore((s) => s.sumoRound);
+  const sumoOutLeft = useStore((s) => s.sumoOutLeft);
+  const sumoDead = useStore((s) => s.sumoDead);
   const [, force] = useState(0);
   useEffect(() => {
     const iv = setInterval(() => force((n) => n + 1), 100);
@@ -152,6 +157,21 @@ function MatchHUD() {
         {modeId === 'coffee_run' && <div className="mode-stat">☕ carrying {myBeans}/{MODES.coffee_run.maxCarry}</div>}
         {modeId === 'soccer' && <div className="mode-stat soccer">🟠 {teamScores[0]} — {teamScores[1]} 🔵</div>}
         {modeId === 'battery' && <div className="mode-stat">🔋 hold the battery to score</div>}
+        {modeId === 'koth' && <div className="mode-stat">📍 hold the standup zone to score</div>}
+        {modeId === 'tag' && (
+          <div className="mode-stat">
+            {itId === myId ? "🎯 YOU'RE IT — keep scoring!" : itId ? `🎯 ${players[itId]?.name || '???'} is It — bump them!` : '🎯 …'}
+          </div>
+        )}
+        {modeId === 'sumo' && (
+          <div className="mode-stat">
+            {sumoDead
+              ? `💀 out — next round soon`
+              : sumoOutLeft != null
+                ? `⚠️ GET BACK IN! ${sumoOutLeft.toFixed(1)}s`
+                : `🥋 round ${sumoRound || 1} — stay inside the ring`}
+          </div>
+        )}
       </div>
       <div className="bottom-left">
         <div className="speedo">
@@ -259,6 +279,22 @@ function Minimap() {
       if (net.robot) {
         g.fillStyle = '#ff3322';
         g.beginPath(); g.arc(px(net.robot.x), pz(net.robot.z), 4, 0, 7); g.fill();
+      }
+      if (net.zone) {
+        g.strokeStyle = st.modeId === 'sumo' ? '#ff5c5c' : '#ffd166';
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.ellipse(px(net.zone.x), pz(net.zone.z), net.zone.r * sx, net.zone.r * sz, 0, 0, 7);
+        g.stroke();
+      }
+      if (net.it) {
+        const s = net.it === st.myId
+          ? { p: [telemetry.x, 0, telemetry.z] }
+          : (() => { const buf = net.remotes.get(net.it); return buf?.[buf.length - 1]; })();
+        if (s) {
+          g.fillStyle = '#ffd166';
+          g.beginPath(); g.arc(px(s.p[0]), pz(s.p[2]), 4.5, 0, 7); g.fill();
+        }
       }
       // remote players
       for (const [id] of net.remotes) {

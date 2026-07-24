@@ -12,10 +12,13 @@ import {
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
   DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
-  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
+  SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
+  BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
+  SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
+  NUDGE_RATE_MS,
 } from '@rc/shared';
 import { useStore } from '../store.js';
-import { net, on, send, sendState, sampleRemote } from '../net.js';
+import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
 import { useControls } from './useControls.js';
 import CarModel from './CarModel.jsx';
 import Particles, { burst, puff } from './particles.jsx';
@@ -84,6 +87,14 @@ export default function LocalCar() {
     slipping: false,
     windPhase: 0,
     lastCp: 0,
+    frozenUntil: 0, // respawn input freeze
+    protectUntil: 0, // spawn protection (can't hit or be hit)
+    pendingRespawnAt: 0, // waiting for the server's RESPAWN_AT
+    safePoses: [], // ring buffer of recent grounded [x, z, yaw]
+    lastSafeAt: 0,
+    lastFwdSpeed: 0, // forward speed entering this physics step
+    selfBump: new Map(), // other id → t of locally-applied bump impulse
+    nudgeAt: new Map(), // prop id → t of last nudge broadcast
   }).current;
 
   const speedRef = useRef(0);
@@ -104,22 +115,21 @@ export default function LocalCar() {
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   };
 
+  // Ask the server for a respawn. It scores the spawn slots (races get our
+  // safe-pose proposal instead) and answers with RESPAWN_AT → we teleport,
+  // frozen briefly, spawn-protected for a couple of seconds. If the socket is
+  // down we fall back to the old local teleport so solo play still recovers.
   const respawn = () => {
-    const st = useStore.getState();
-    let spot;
-    if (st.modeId === 'desk_dash') {
-      const prog = st.raceProgress[net.myId];
-      const idx = prog ? Math.max(0, (prog[1] - 1 + CHECKPOINTS.length) % CHECKPOINTS.length) : 0;
-      const cp = CHECKPOINTS[idx];
-      const nxt = CHECKPOINTS[(idx + 1) % CHECKPOINTS.length];
-      spot = { x: cp.x, z: cp.z, rotY: Math.atan2(nxt.x - cp.x, nxt.z - cp.z) };
+    const nowMs = performance.now();
+    if (S.pendingRespawnAt && nowMs - S.pendingRespawnAt < 1400) return;
+    if (net.ws && net.ws.readyState === 1) {
+      S.pendingRespawnAt = nowMs;
+      send({ t: MSG.RESPAWN, safe: S.safePoses.length ? S.safePoses[0] : null });
     } else {
       const sp = SPAWNS[net.spawnIndex % SPAWNS.length];
-      spot = { x: sp.x, z: sp.z, rotY: sp.rotY };
+      teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
+      S.boost = Math.max(S.boost, 40);
     }
-    send({ t: MSG.RESPAWN }); // let the server sanction the teleport
-    teleport(spot.x, SPAWN_Y, spot.z, spot.rotY);
-    S.boost = Math.max(S.boost, 40);
   };
 
   // ------------------------------------------------ server events → physics
@@ -138,6 +148,21 @@ export default function LocalCar() {
         }
         S.boost = BOOST_MAX;
         S.stunnedUntil = 0;
+        S.frozenUntil = 0;
+        S.protectUntil = 0;
+        S.pendingRespawnAt = 0;
+        S.safePoses.length = 0;
+        S.selfBump.clear();
+      }),
+      on('respawn_at', (msg) => {
+        teleport(msg.x, SPAWN_Y, msg.z, msg.rotY);
+        const nowMs = performance.now();
+        S.pendingRespawnAt = 0;
+        S.frozenUntil = nowMs + (msg.freeze || 0);
+        S.protectUntil = nowMs + (msg.freeze || 0) + (msg.protect || 0);
+        S.boost = Math.max(S.boost, 40);
+        S.upsideDownTime = 0;
+        S.safePoses.length = 0;
       }),
       on('fx', (fx) => {
         const me = net.myId;
@@ -169,13 +194,13 @@ export default function LocalCar() {
             }
             break;
           case 'rocket_hit':
-            if (fx.target === me) {
+            if (fx.target === me && !fx.blocked) {
               S.stunnedUntil = performance.now() + fx.stunMs;
               body.applyImpulse({ x: (Math.random() - 0.5) * 90, y: mass * 9, z: (Math.random() - 0.5) * 90 }, true);
               audio.stun();
               S.shake = 1;
             }
-            if (fx.at) burst(fx.at, { count: 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
+            if (fx.at) burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
             break;
           case 'robot_hit':
             if (fx.target === me) {
@@ -203,22 +228,46 @@ export default function LocalCar() {
             S.shake = Math.max(S.shake, 0.5);
             audio.goal();
             break;
-          case 'bump':
-            if (fx.a === me || fx.b === me) {
-              S.shake = Math.max(S.shake, 0.35);
-              // Mass-scaled knockback: getting hit by a Micro Monster hurts,
-              // getting hit by a Formula barely rocks you.
-              const otherId = fx.a === me ? fx.b : fx.a;
-              const otherPos = fx.a === me ? fx.pb : fx.pa;
-              if (otherPos) {
-                const otherCar = CARS[useStore.getState().players[otherId]?.car] || CARS.balanced;
-                const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
-                const p = body.translation();
-                const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
-                const len = Math.hypot(dx, dz) || 1;
-                body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
-              }
+          case 'bump': {
+            if (fx.a !== me && fx.b !== me) break;
+            if (fx.kind === 'rub') { S.shake = Math.max(S.shake, 0.1); break; }
+            S.shake = Math.max(S.shake, 0.35);
+            const nowMs = performance.now();
+            const otherId = fx.a === me ? fx.b : fx.a;
+            // If we already applied this knockback locally at contact time,
+            // the server echo is confirmation only — don't double-shove.
+            if (nowMs - (S.selfBump.get(otherId) || 0) < 900) break;
+            if (nowMs < S.protectUntil) break;
+            // Mass-scaled knockback: getting hit by a Micro Monster hurts,
+            // getting hit by a Formula barely rocks you.
+            const otherPos = fx.a === me ? fx.pb : fx.pa;
+            if (otherPos) {
+              const otherCar = CARS[useStore.getState().players[otherId]?.car] || CARS.balanced;
+              const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
+              const p = body.translation();
+              const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
+              const len = Math.hypot(dx, dz) || 1;
+              body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
             }
+            break;
+          }
+          case 'tag':
+            if (fx.id === me) {
+              S.shake = Math.max(S.shake, 0.4);
+              audio.blip(880, 0.25, 0.25);
+            }
+            break;
+          case 'sumo_out':
+            if (fx.id === me) {
+              S.shake = Math.max(S.shake, 0.8);
+              audio.stun();
+            }
+            break;
+          case 'sumo_round':
+            audio.blip(660, 0.15, 0.2);
+            break;
+          case 'zone_hop':
+            audio.blip(520, 0.12, 0.18);
             break;
           case 'fake':
             if (fx.id === me) audio.blip(180, 0.3, 0.2);
@@ -302,8 +351,21 @@ export default function LocalCar() {
 
     const stunned = nowMs < S.stunnedUntil;
     const shrunk = nowMs < S.shrinkUntil;
-    const frozen = st.phase === PHASE.COUNTDOWN && Date.now() < st.countdownEnd;
+    const frozen = (st.phase === PHASE.COUNTDOWN && Date.now() < st.countdownEnd) || nowMs < S.frozenUntil;
     const carrying = (net.flags.get(net.myId) || 0) & 32;
+
+    // Safe-pose ring buffer: remember where we recently drove on solid ground
+    // so a race respawn can put us right back instead of rooms away.
+    if (grounded && S.groundedTime > SAFE_POSE_MIN_GROUNDED_S && pos.y > -0.5
+        && nowMs - S.lastSafeAt > SAFE_POSE_INTERVAL_MS) {
+      S.lastSafeAt = nowMs;
+      S.safePoses.push([
+        Math.round(pos.x * 100) / 100,
+        Math.round(pos.z * 100) / 100,
+        Math.round(Math.atan2(_fwd.x, _fwd.z) * 100) / 100,
+      ]);
+      if (S.safePoses.length > SAFE_POSE_BUFFER) S.safePoses.shift();
+    }
 
     // ---------------- puddles & event modifiers
     let gripMul = 1, speedMul = 1;
@@ -509,6 +571,31 @@ export default function LocalCar() {
     if (!S.boosting && grounded) {
       S.boost = Math.min(BOOST_MAX, S.boost + BOOST_REGEN * dt);
     }
+
+    // ---------------- safety rails
+    // Speed-proportional downforce glues the car down at speed (pressed along
+    // car-down so it also works on ramps).
+    if (grounded) {
+      const df = DOWNFORCE * Math.abs(fwdSpeed) * mass * dt;
+      body.applyImpulse({ x: -_up.x * df, y: -_up.y * df, z: -_up.z * df }, true);
+    }
+    // Hard caps: no impulse stack (bump + rocket + spring + wind) may launch
+    // the car past these — bounded chaos keeps the anti-teleport check happy.
+    {
+      const lv = body.linvel();
+      const sp = Math.hypot(lv.x, lv.y, lv.z);
+      if (sp > SPEED_HARD_CAP) {
+        const s = SPEED_HARD_CAP / sp;
+        body.setLinvel({ x: lv.x * s, y: lv.y * s, z: lv.z * s }, true);
+      }
+      const av = body.angvel();
+      const am = Math.hypot(av.x, av.y, av.z);
+      if (am > ANGVEL_CAP) {
+        const s = ANGVEL_CAP / am;
+        body.setAngvel({ x: av.x * s, y: av.y * s, z: av.z * s }, true);
+      }
+    }
+    S.lastFwdSpeed = fwdSpeed;
     telemetry.boosting = S.boosting || freeBoost;
     telemetry.boost = S.boost;
     telemetry.speed = S.speed;
@@ -607,7 +694,8 @@ export default function LocalCar() {
       const cur = visual.current.scale.x;
       visual.current.scale.setScalar(cur + (targetScale - cur) * Math.min(1, dt * 6));
     }
-    flagsRef.current = (nowMs < S.shieldUntil ? 8 : 0) | (carrying ? 32 : 0) | (stunned ? 4 : 0);
+    flagsRef.current = (nowMs < S.shieldUntil ? 8 : 0) | (carrying ? 32 : 0) | (stunned ? 4 : 0)
+      | (nowMs < S.protectUntil ? 64 : 0);
   });
 
   const startSpawn = SPAWNS[0];
@@ -624,17 +712,76 @@ export default function LocalCar() {
         linearDamping={0.05}
         userData={{ playerId: 'me' }}
         onCollisionEnter={(e) => {
-          const otherId = e.other.rigidBody?.userData?.playerId;
+          const other = e.other.rigidBody;
+          const ud = other?.userData;
           const nowMs = performance.now();
-          if (otherId && otherId !== 'me' && nowMs - S.lastBumpSend > 350) {
-            S.lastBumpSend = nowMs;
-            send({ t: MSG.BUMP, target: otherId });
-            S.shake = Math.max(S.shake, 0.3);
-            audio.impact(0.6);
+          const body = rb.current;
+          if (!body || !ud) return;
+          if (ud.playerId && ud.playerId !== 'me') {
+            // --- car contact
+            if (nowMs - S.lastBumpSend > 350) {
+              S.lastBumpSend = nowMs;
+              send({ t: MSG.BUMP, target: ud.playerId });
+            }
+            // Classify locally (own velocity vs the remote's interpolated
+            // velocity) and apply our own knockback NOW instead of waiting a
+            // round-trip for the server echo — that echo is skipped later.
+            const rv = remoteVelocity(ud.playerId) || [0, 0, 0];
+            const lv = body.linvel();
+            const rel = Math.hypot(lv.x - rv[0], lv.z - rv[2]);
+            const isHit = rel >= BUMP_REL_SPEED;
+            if (isHit && nowMs > S.protectUntil && nowMs - (S.selfBump.get(ud.playerId) || 0) > 900) {
+              S.selfBump.set(ud.playerId, nowMs);
+              const otherPos = other.translation();
+              const otherCar = CARS[useStore.getState().players[ud.playerId]?.car] || CARS.balanced;
+              const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
+              const p = body.translation();
+              const dx = p.x - otherPos.x, dz = p.z - otherPos.z;
+              const len = Math.hypot(dx, dz) || 1;
+              body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
+              S.shake = Math.max(S.shake, 0.35);
+              audio.impact(0.6);
+            } else {
+              S.shake = Math.max(S.shake, 0.12);
+              audio.impact(0.25);
+            }
+            // Forgiveness: contact with another car never costs more than
+            // (1 − BUMP_MIN_FWD_KEEP) of the forward speed we carried in.
+            if (S.lastFwdSpeed > 6) {
+              const rot = body.rotation();
+              _q.set(rot.x, rot.y, rot.z, rot.w);
+              _fwd.set(0, 0, 1).applyQuaternion(_q);
+              const v2 = body.linvel();
+              const cur = v2.x * _fwd.x + v2.z * _fwd.z;
+              const keep = S.lastFwdSpeed * BUMP_MIN_FWD_KEEP;
+              if (cur < keep) {
+                const add = keep - cur;
+                body.setLinvel({ x: v2.x + _fwd.x * add, y: v2.y, z: v2.z + _fwd.z * add }, true);
+              }
+            }
+          } else if (ud.propId !== undefined) {
+            // --- shared prop contact: tell peers we scattered it
+            const last = S.nudgeAt.get(ud.propId) || 0;
+            if (nowMs - last > NUDGE_RATE_MS) {
+              S.nudgeAt.set(ud.propId, nowMs);
+              const pp = other.translation();
+              const lv = body.linvel();
+              const r1 = (n) => Math.round(n * 10) / 10;
+              send({ t: MSG.NUDGE, i: ud.propId, p: [r1(pp.x), r1(pp.y), r1(pp.z)], v: [r1(lv.x), r1(lv.y), r1(lv.z)] });
+            }
           }
         }}
       >
-        <CuboidCollider args={[HALF.x, HALF.y, HALF.z]} mass={mass} friction={0.25} restitution={0.15} />
+        {/* mass split: most of it rides in a low ballast box so the centre of
+            mass sits near the floorpan — the main anti-rollover lever */}
+        <CuboidCollider args={[HALF.x, HALF.y, HALF.z]} mass={mass * 0.35} friction={0.25} restitution={0.15} />
+        <CuboidCollider
+          args={[HALF.x * 0.6, HALF.y * 0.35, HALF.z * 0.6]}
+          position={[0, -HALF.y * 0.65, 0]}
+          mass={mass * 0.65}
+          friction={0.25}
+          restitution={0.15}
+        />
         <group ref={visual}>
           <CarModel
             carId={carId}

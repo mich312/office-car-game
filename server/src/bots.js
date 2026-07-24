@@ -130,6 +130,27 @@ export class Bots {
       const dx = ball.p[0] - gx, dz = ball.p[2] - gz;
       const len = Math.hypot(dx, dz) || 1;
       goal = { x: ball.p[0] + (dx / len) * 1.2, z: ball.p[2] + (dz / len) * 1.2 };
+    } else if (modeId === 'koth' && mode) {
+      // park inside the zone, spread out on a per-bot orbit angle
+      const z = mode.zonePos();
+      const a = this.botAngle(p);
+      goal = { x: z.x + Math.cos(a) * 3, z: z.z + Math.sin(a) * 3 };
+    } else if (modeId === 'tag' && mode) {
+      if (mode.it === p.id) {
+        goal = null; // flee along the racing line
+      } else {
+        const it = this.room.players.get(mode.it);
+        if (it) goal = { x: it.p[0], z: it.p[2] };
+      }
+    } else if (modeId === 'sumo' && mode) {
+      if (p.sumoDead) {
+        goal = null; // cruise the racing line as a mobile chicane
+      } else {
+        const z = mode.zone;
+        const a = this.botAngle(p);
+        const r = Math.min(z.r * 0.5, 6);
+        goal = { x: z.x + Math.cos(a) * r, z: z.z + Math.sin(a) * r };
+      }
     }
     if (!goal) return this.followRaceLine(p);
     // Navigate: direct if clear, else route along the path loop
@@ -148,6 +169,12 @@ export class Bots {
       else break;
     }
     return BOT_PATH[next];
+  }
+
+  // stable per-bot angle so zone-seeking bots spread out instead of stacking
+  botAngle(p) {
+    const seed = parseInt(p.id.replace(/\D/g, ''), 10) || 1;
+    return seed * 2.4;
   }
 
   followRaceLine(p) {

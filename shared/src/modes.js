@@ -5,6 +5,7 @@ export const MODES = {
     icon: '🏁',
     desc: 'Race 3 laps through every room of the office. Shortcuts everywhere.',
     laps: 3,
+    seconds: 210,
   },
   coffee_run: {
     id: 'coffee_run',
@@ -13,6 +14,7 @@ export const MODES = {
     desc: 'Collect beans, deliver to the kitchen machine. Bump rivals to make them spill.',
     maxCarry: 5,
     beanScore: 10,
+    seconds: 180,
   },
   battery: {
     id: 'battery',
@@ -20,13 +22,46 @@ export const MODES = {
     icon: '🔋',
     desc: 'Hold the battery pack to score. Carrying makes you slower. Get hit, drop it.',
     scorePerSecond: 2,
+    seconds: 180,
   },
   soccer: {
     id: 'soccer',
     name: 'RC Soccer',
     icon: '⚽',
-    desc: 'Smash the giant ping pong ball into the other team’s goal.',
+    desc: 'Smash the giant ping pong ball into the other team’s goal. First to 5 wins.',
     goalScore: 50, // per team member; the scorer gets it twice
+    goalCap: 5, // a team reaching this ends the match early
+    seconds: 240,
+  },
+  koth: {
+    id: 'koth',
+    name: 'Standup Standoff',
+    icon: '📍',
+    desc: 'The meeting zone moves between rooms. Hold it to score — don’t be late.',
+    scorePerSecond: 3,
+    hopSeconds: 20, // zone relocates this often
+    seconds: 180,
+  },
+  tag: {
+    id: 'tag',
+    name: "You're It",
+    icon: '🎯',
+    desc: 'The tagged car scores while It. Bump them to steal it.',
+    scorePerSecond: 3,
+    tagCooldownMs: 1500,
+    seconds: 180,
+  },
+  sumo: {
+    id: 'sumo',
+    name: 'Meeting Room Sumo',
+    icon: '🥋',
+    desc: 'The safe zone shrinks. Shove rivals out of it. Last car rolling wins the round.',
+    roundSeconds: 45,
+    outSeconds: 6, // grace timer outside the zone before you're out
+    restSeconds: 4, // breather between rounds
+    placeScore: 15, // per player you outlasted
+    winBonus: 40,
+    seconds: 240,
   },
 };
 

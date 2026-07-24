@@ -360,6 +360,12 @@ JSON at 20 Hz is already the bandwidth ceiling.
 
 ## 7. Priority-ordered action list
 
+> **Status:** all ten items below are implemented on this branch (see
+> `scripts/smoke.mjs` for the end-to-end tests covering bumps, respawns,
+> nudges, binary snapshots and the three new modes). Item 6 turned out to be
+> partially done already — the ball was a kinematic collider client-side —
+> so it became the soccer score cap.
+
 | # | Change | Effort | Payoff |
 | --- | --- | --- | --- |
 | 1 | Gate bumps on `BUMP_REL_SPEED` (rub vs hit) | XS | fixes cooldown-eating rubs; hits feel earned |
