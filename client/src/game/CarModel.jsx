@@ -26,14 +26,72 @@ function toonRamp() {
   return _ramp;
 }
 
-// Inverted-hull outline for a box shape — rendered backface-only so it draws
-// a clean dark rim around the painted shell.
+// Inverted-hull outline — rendered backface-only so it draws a clean dark
+// rim around the painted shell (works for boxes and extruded shells alike).
 const OUTLINE_MAT = new THREE.MeshBasicMaterial({ color: '#0b0c12', side: THREE.BackSide });
-function Outline({ args, position, rotation }) {
+
+// ---------------------------------------------------------------- shells
+// Die-cast-toy silhouettes: each body is a 2D side profile (x = length,
+// +x = nose; y = height) extruded across the car's width with a bevel.
+// Geometries are cached per car id and shared by every car in the lobby.
+const SHELL_W = { buggy: 0.5, drift: 0.54, monster: 0.5, formula: 0.26, balanced: 0.54 };
+const shellCache = new Map();
+function shellGeo(carId) {
+  if (shellCache.has(carId)) return shellCache.get(carId);
+  const s = new THREE.Shape();
+  switch (carId) {
+    case 'buggy': // chunky open-top with a sloped nose
+      s.moveTo(-0.44, -0.06); s.lineTo(-0.44, 0.09); s.lineTo(-0.3, 0.13); s.lineTo(0.02, 0.13);
+      s.quadraticCurveTo(0.24, 0.12, 0.36, 0.06); s.quadraticCurveTo(0.45, 0.02, 0.44, -0.06);
+      break;
+    case 'drift': // low coupe: ducktail, fast roofline
+      s.moveTo(-0.48, -0.07); s.lineTo(-0.48, 0.06); s.lineTo(-0.44, 0.1); s.lineTo(-0.34, 0.09);
+      s.quadraticCurveTo(-0.26, 0.17, -0.14, 0.17); s.lineTo(0.03, 0.17);
+      s.quadraticCurveTo(0.16, 0.13, 0.26, 0.07); s.lineTo(0.44, 0.05);
+      s.quadraticCurveTo(0.48, 0.03, 0.48, -0.07);
+      break;
+    case 'monster': // tall pickup cab over a stubby bed
+      s.moveTo(-0.4, -0.02); s.lineTo(-0.4, 0.14); s.lineTo(-0.16, 0.14); s.lineTo(-0.13, 0.3);
+      s.quadraticCurveTo(0.0, 0.32, 0.08, 0.3); s.lineTo(0.19, 0.16); s.lineTo(0.38, 0.14);
+      s.quadraticCurveTo(0.42, 0.1, 0.4, -0.02);
+      break;
+    case 'formula': // needle nose, engine cover behind the driver
+      s.moveTo(-0.45, -0.05); s.lineTo(-0.45, 0.07); s.quadraticCurveTo(-0.28, 0.11, -0.12, 0.09);
+      s.lineTo(0.06, 0.07); s.lineTo(0.4, 0.03); s.quadraticCurveTo(0.47, 0.02, 0.47, -0.05);
+      break;
+    default: // balanced hatch: honest two-box
+      s.moveTo(-0.48, -0.08); s.lineTo(-0.48, 0.1); s.quadraticCurveTo(-0.44, 0.13, -0.34, 0.14);
+      s.quadraticCurveTo(-0.3, 0.21, -0.2, 0.22); s.lineTo(0.0, 0.22);
+      s.quadraticCurveTo(0.12, 0.2, 0.2, 0.12); s.lineTo(0.42, 0.1);
+      s.quadraticCurveTo(0.48, 0.07, 0.48, -0.08);
+      break;
+  }
+  s.closePath();
+  const w = SHELL_W[carId] ?? 0.54;
+  const depth = Math.max(0.1, w - 0.06); // bevel adds the rest of the width
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.025, bevelSegments: 2, curveSegments: 5,
+  });
+  geo.translate(0, 0, -depth / 2);
+  geo.rotateY(-Math.PI / 2); // profile length → world +z (car forward)
+  shellCache.set(carId, geo);
+  return geo;
+}
+
+// The tiny driver: helmet, visor, torso. Leans into corners via driverRef.
+function Driver({ mats, y, z, s = 1, refGroup }) {
   return (
-    <mesh position={position} rotation={rotation} scale={1.08} material={OUTLINE_MAT}>
-      <boxGeometry args={args} />
-    </mesh>
+    <group ref={refGroup} position={[0, y, z]} scale={s}>
+      <mesh castShadow position={[0, 0.05, 0]} material={mats.dark}>
+        <boxGeometry args={[0.16, 0.12, 0.1]} />
+      </mesh>
+      <mesh castShadow position={[0, 0.16, 0]} material={mats.accent}>
+        <sphereGeometry args={[0.075, 10, 8]} />
+      </mesh>
+      <mesh position={[0, 0.155, 0.055]} material={mats.glassDark}>
+        <boxGeometry args={[0.09, 0.045, 0.03]} />
+      </mesh>
+    </group>
   );
 }
 
@@ -55,6 +113,7 @@ export default function CarModel({ carId, paint, name, cosmetics, isLocal = fals
   const stunRef = useRef();
   const antennaRef = useRef();
   const propellerRef = useRef();
+  const driverRef = useRef();
   const trailAnchor = useRef();
   const spin = useRef(0);
 
@@ -110,6 +169,12 @@ export default function CarModel({ carId, paint, name, cosmetics, isLocal = fals
       antennaRef.current.rotation.z = steer * 0.18 * sway;
     }
     if (propellerRef.current) propellerRef.current.rotation.y += dt * (3 + Math.abs(speed) * 0.8);
+    // the driver leans into corners and hunkers down with speed
+    if (driverRef.current) {
+      const lean = -steer * Math.min(1, Math.abs(speed) / 14) * 0.35;
+      driverRef.current.rotation.z += (lean - driverRef.current.rotation.z) * Math.min(1, dt * 7);
+      driverRef.current.rotation.x = Math.min(0.18, Math.abs(speed) * 0.008);
+    }
   });
 
   const wheelR = carId === 'monster' ? 0.18 : 0.13;
@@ -120,7 +185,7 @@ export default function CarModel({ carId, paint, name, cosmetics, isLocal = fals
   return (
     <group>
       <group ref={bodyRef}>
-        <Body carId={carId} mats={mats} />
+        <Body carId={carId} mats={mats} driverRef={driverRef} />
         {/* headlights */}
         {[-0.18, 0.18].map((x) => (
           <mesh key={x} position={[x, 0.02, 0.5]}>
@@ -312,20 +377,15 @@ function Hat({ kind, propellerRef }) {
   }
 }
 
-// Far-LOD stand-in: three boxes instead of ~20 meshes. Remote cars swap to
-// this beyond ~28 units so 12-player lobbies stay cheap.
+// Far-LOD stand-in: the shared shell geometry + a dark base — two meshes
+// instead of ~20, but the silhouette matches so the LOD switch is invisible.
 export function CarProxy({ carId, paint }) {
   const car = CARS[carId] || CARS.balanced;
   const color = paint || car.color;
   const mat = useMemo(() => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() }), [color]);
   return (
     <group position={[0, -0.05, 0]}>
-      <mesh material={mat} position={[0, 0.02, 0]}>
-        <boxGeometry args={[0.54, 0.2, 0.95]} />
-      </mesh>
-      <mesh material={mat} position={[0, 0.16, -0.06]}>
-        <boxGeometry args={[0.44, 0.13, 0.5]} />
-      </mesh>
+      <mesh geometry={shellGeo(carId)} material={mat} />
       <mesh position={[0, -0.08, 0]}>
         <boxGeometry args={[0.62, 0.14, 0.8]} />
         <meshBasicMaterial color="#17181c" />
@@ -334,77 +394,87 @@ export function CarProxy({ carId, paint }) {
   );
 }
 
-function Body({ carId, mats }) {
+function Body({ carId, mats, driverRef }) {
+  const geo = shellGeo(carId);
+  const shell = (
+    <>
+      <mesh geometry={geo} material={OUTLINE_MAT} scale={1.06} />
+      <mesh castShadow geometry={geo} material={mats.body} />
+    </>
+  );
   switch (carId) {
     case 'buggy':
       return (
         <group>
-          <Outline args={[0.5, 0.16, 0.85]} position={[0, 0.02, 0]} />
-          <mesh castShadow material={mats.body} position={[0, 0.02, 0]}>
-            <boxGeometry args={[0.5, 0.16, 0.85]} />
-          </mesh>
-          <mesh castShadow material={mats.dark} position={[0, 0.14, -0.05]}>
-            <boxGeometry args={[0.4, 0.12, 0.4]} />
-          </mesh>
+          {shell}
+          <Driver mats={mats} y={0.11} z={-0.08} refGroup={driverRef} />
           {/* roll cage */}
           {[-0.16, 0.16].map((x) => (
             <mesh key={x} castShadow material={mats.rim} position={[x, 0.2, -0.05]} rotation-x={0.2}>
               <torusGeometry args={[0.16, 0.02, 6, 10, Math.PI]} />
             </mesh>
           ))}
-          <mesh castShadow material={mats.body} position={[0, 0.1, -0.44]} rotation-x={0.5}>
-            <boxGeometry args={[0.46, 0.02, 0.2]} />
+          {/* front skid plate */}
+          <mesh castShadow material={mats.dark} position={[0, -0.01, 0.42]} rotation-x={0.5}>
+            <boxGeometry args={[0.44, 0.02, 0.14]} />
           </mesh>
         </group>
       );
     case 'drift':
       return (
         <group>
-          <Outline args={[0.54, 0.13, 0.95]} position={[0, -0.01, 0]} />
-          <mesh castShadow material={mats.body} position={[0, -0.01, 0]}>
-            <boxGeometry args={[0.54, 0.13, 0.95]} />
+          {shell}
+          {/* raked windshield + rear glass */}
+          <mesh castShadow material={mats.glassDark} position={[0, 0.13, 0.12]} rotation-x={-0.6}>
+            <boxGeometry args={[0.44, 0.02, 0.16]} />
           </mesh>
-          <mesh castShadow material={mats.glassDark} position={[0, 0.1, -0.06]}>
-            <boxGeometry args={[0.44, 0.11, 0.45]} />
+          <mesh castShadow material={mats.glassDark} position={[0, 0.13, -0.23]} rotation-x={0.55}>
+            <boxGeometry args={[0.44, 0.02, 0.15]} />
           </mesh>
           {/* big spoiler */}
-          <mesh castShadow material={mats.body} position={[0, 0.18, -0.44]}>
+          <mesh castShadow material={mats.body} position={[0, 0.2, -0.44]}>
             <boxGeometry args={[0.56, 0.025, 0.14]} />
           </mesh>
           {[-0.22, 0.22].map((x) => (
-            <mesh key={x} castShadow material={mats.dark} position={[x, 0.12, -0.44]}>
-              <boxGeometry args={[0.03, 0.12, 0.1]} />
+            <mesh key={x} castShadow material={mats.dark} position={[x, 0.14, -0.44]}>
+              <boxGeometry args={[0.03, 0.1, 0.1]} />
             </mesh>
           ))}
+          {/* side exhaust */}
+          <mesh castShadow material={mats.rim} position={[0.24, -0.03, -0.42]} rotation-x={Math.PI / 2}>
+            <cylinderGeometry args={[0.025, 0.03, 0.1, 8]} />
+          </mesh>
         </group>
       );
     case 'monster':
       return (
         <group position={[0, 0.06, 0]}>
-          <Outline args={[0.5, 0.2, 0.8]} position={[0, 0.05, 0]} />
-          <mesh castShadow material={mats.body} position={[0, 0.05, 0]}>
-            <boxGeometry args={[0.5, 0.2, 0.8]} />
+          {shell}
+          {/* windshield + bull bar + exhaust stacks */}
+          <mesh castShadow material={mats.glassDark} position={[0, 0.23, 0.17]} rotation-x={-0.7}>
+            <boxGeometry args={[0.4, 0.02, 0.17]} />
           </mesh>
-          <mesh castShadow material={mats.glassDark} position={[0, 0.2, 0.05]}>
-            <boxGeometry args={[0.42, 0.14, 0.4]} />
-          </mesh>
-          <mesh castShadow material={mats.rim} position={[0, 0.0, 0.42]}>
+          <mesh castShadow material={mats.rim} position={[0, 0.02, 0.42]}>
             <boxGeometry args={[0.5, 0.08, 0.06]} />
           </mesh>
+          {[-0.19, 0.19].map((x) => (
+            <mesh key={x} castShadow material={mats.rim} position={[x, 0.2, -0.12]}>
+              <cylinderGeometry args={[0.02, 0.025, 0.16, 8]} />
+            </mesh>
+          ))}
         </group>
       );
     case 'formula':
       return (
         <group>
-          <Outline args={[0.26, 0.12, 0.9]} position={[0, -0.02, 0.1]} />
-          <mesh castShadow material={mats.body} position={[0, -0.02, 0.1]}>
-            <boxGeometry args={[0.26, 0.12, 0.9]} />
-          </mesh>
-          <mesh castShadow material={mats.dark} position={[0, 0.08, -0.02]}>
-            <sphereGeometry args={[0.11, 10, 8]} />
+          {shell}
+          <Driver mats={mats} y={0.06} z={-0.02} s={0.85} refGroup={driverRef} />
+          {/* airbox behind the driver */}
+          <mesh castShadow material={mats.dark} position={[0, 0.1, -0.2]}>
+            <sphereGeometry args={[0.08, 10, 8]} />
           </mesh>
           {/* wings */}
-          <mesh castShadow material={mats.accent} position={[0, 0.02, 0.5]}>
+          <mesh castShadow material={mats.accent} position={[0, 0.0, 0.5]}>
             <boxGeometry args={[0.6, 0.02, 0.14]} />
           </mesh>
           <mesh castShadow material={mats.accent} position={[0, 0.14, -0.45]}>
@@ -420,20 +490,19 @@ function Body({ carId, mats }) {
     default: // balanced hatchback
       return (
         <group>
-          <Outline args={[0.54, 0.17, 0.95]} position={[0, 0, 0]} />
-          <Outline args={[0.48, 0.14, 0.55]} position={[0, 0.14, -0.08]} />
-          <mesh castShadow material={mats.body} position={[0, 0, 0]}>
-            <boxGeometry args={[0.54, 0.17, 0.95]} />
+          {shell}
+          <mesh castShadow material={mats.glassDark} position={[0, 0.17, 0.13]} rotation-x={-0.55}>
+            <boxGeometry args={[0.44, 0.02, 0.19]} />
           </mesh>
-          <mesh castShadow material={mats.body} position={[0, 0.14, -0.08]}>
-            <boxGeometry args={[0.48, 0.14, 0.55]} />
+          <mesh castShadow material={mats.glassDark} position={[0, 0.17, -0.29]} rotation-x={0.5}>
+            <boxGeometry args={[0.44, 0.02, 0.17]} />
           </mesh>
-          <mesh castShadow material={mats.glassDark} position={[0, 0.14, 0.21]} rotation-x={-0.5}>
-            <boxGeometry args={[0.44, 0.02, 0.2]} />
-          </mesh>
-          <mesh castShadow material={mats.glassDark} position={[0, 0.14, -0.37]} rotation-x={0.4}>
-            <boxGeometry args={[0.44, 0.02, 0.18]} />
-          </mesh>
+          {/* roof rail accents */}
+          {[-0.2, 0.2].map((x) => (
+            <mesh key={x} castShadow material={mats.dark} position={[x, 0.23, -0.1]}>
+              <boxGeometry args={[0.02, 0.015, 0.34]} />
+            </mesh>
+          ))}
         </group>
       );
   }

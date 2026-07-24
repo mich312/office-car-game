@@ -13,7 +13,7 @@ import {
   AIR_PITCH_TORQUE, AIR_YAW_TORQUE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
   DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
-  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
+  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote } from '../net.js';
@@ -87,6 +87,10 @@ export default function LocalCar() {
     slipping: false,
     windPhase: 0,
     lastCp: 0,
+    fallCamUntil: 0,
+    ramUntil: 0,
+    drsUntil: 0,
+    overdriftUntil: 0,
   }).current;
 
   // the engine sound wears the selected car's voice
@@ -213,6 +217,8 @@ export default function LocalCar() {
             break;
           case 'bump':
             if (fx.a === me || fx.b === me) {
+              // Ram Mode: the rammer doesn't even feel it
+              if (fx.ram === me) { S.shake = Math.max(S.shake, 0.15); break; }
               // shake scales with the server-computed relative speed, and a
               // really big shunt gets an extra meaty clonk on top of the
               // collision sound both clients already played
@@ -225,15 +231,37 @@ export default function LocalCar() {
               if (otherPos) {
                 const otherCar = CARS[useStore.getState().players[otherId]?.car] || CARS.balanced;
                 const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
+                // getting hit by an active Ram Mode sends you FLYING
+                const ramBoost = fx.ram === otherId ? 2.2 : 1;
                 const p = body.translation();
                 const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
                 const len = Math.hypot(dx, dz) || 1;
-                body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
+                body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio * ramBoost, y: mass * 1.1 * ramBoost, z: (dz / len) * mass * 3.2 * ratio * ramBoost }, true);
               }
             }
             break;
           case 'fake':
             if (fx.id === me) audio.blip(180, 0.3, 0.2);
+            break;
+          case 'ability':
+            // my ability fired (server already checked the cooldown)
+            if (fx.id === me) {
+              const nowP = performance.now();
+              audio.boostFire();
+              switch (fx.car) {
+                case 'buggy': { // Pounce: a forward dive
+                  const r = body.rotation();
+                  _q.set(r.x, r.y, r.z, r.w);
+                  _fwd.set(0, 0, 1).applyQuaternion(_q);
+                  body.applyImpulse({ x: _fwd.x * mass * 10, y: mass * 6.5, z: _fwd.z * mass * 10 }, true);
+                  break;
+                }
+                case 'drift': S.overdriftUntil = nowP + ABILITY_FX.OVERDRIFT_S * 1000; break;
+                case 'monster': S.ramUntil = nowP + ABILITY_FX.RAM_S * 1000; S.shake = Math.max(S.shake, 0.4); break;
+                case 'formula': S.drsUntil = nowP + ABILITY_FX.DRS_S * 1000; break;
+                default: break;
+              }
+            }
             break;
           case 'eliminated':
             // zap sparks where they went down; if it's me, park the car in
@@ -343,6 +371,7 @@ export default function LocalCar() {
     if (shrunk) speedMul *= 0.85;
     if (carrying) speedMul *= BATTERY_SPEED_PENALTY;
     const ev = st.event;
+    if (ev?.id === 'sprinklers') gripMul = Math.min(gripMul, 0.45); // soaked floors
     if (ev?.id === 'ac_wind') {
       S.windPhase += dt;
       const wind = Math.sin(S.windPhase * 0.7) * 26 + 14;
@@ -370,7 +399,12 @@ export default function LocalCar() {
     steerRef.current += (steer - steerRef.current) * Math.min(1, dt * 10);
 
     if (grounded && !frozen) {
-      const top = car.topSpeed * speedMul;
+      // DRS: open rear wing, higher speed ceiling + a push while it lasts
+      const drs = nowMs < S.drsUntil;
+      const top = car.topSpeed * speedMul * (drs ? ABILITY_FX.DRS_TOP_MULT : 1);
+      if (drs && throttle > 0 && fwdSpeed < top) {
+        body.applyImpulse({ x: _fwd.x * car.boost * 0.5 * mass * dt, y: 0, z: _fwd.z * car.boost * 0.5 * mass * dt }, true);
+      }
       // brakes ≫ coast: holding back against forward motion stops you hard
       const braking = throttle < 0 && fwdSpeed > 1.5;
       if (braking) {
@@ -403,8 +437,9 @@ export default function LocalCar() {
       // snappy steering response — tight corners need the yaw rate NOW
       const newAngY = ang.y + (yawTarget - ang.y) * Math.min(1, dt * 14);
       body.setAngvel({ x: ang.x, y: newAngY, z: ang.z }, true);
-      // lateral grip
-      const grip = car.grip * (drifting ? car.drift : 1) * gripMul * (counterSteer && !drifting ? 1.25 : 1);
+      // lateral grip (Overdrift: sideways but never out of control)
+      const overdrift = nowMs < S.overdriftUntil;
+      const grip = car.grip * (drifting ? car.drift * (overdrift ? 1.6 : 1) : 1) * gripMul * (counterSteer && !drifting ? 1.25 : 1);
       const gripImpulse = -latVel * grip * mass * Math.min(1, dt * 12);
       body.applyImpulse({ x: _right.x * gripImpulse, y: 0, z: _right.z * gripImpulse }, true);
       S.slipping = Math.abs(latVel) > 6 || (drifting && Math.abs(fwdSpeed) > 12);
@@ -421,7 +456,7 @@ export default function LocalCar() {
       // drift charge — faster while actively steering the drift. Spark color
       // on the rear wheels tells you the tier you've earned.
       if (drifting) {
-        S.driftCharge += (steer !== 0 ? DRIFT_CHARGE_STEER : DRIFT_CHARGE_COAST) * dt;
+        S.driftCharge += (steer !== 0 ? DRIFT_CHARGE_STEER : DRIFT_CHARGE_COAST) * (overdrift ? 2 : 1) * dt;
         const tier = driftTier(S.driftCharge);
         if (tier > 0 && Math.random() < 0.55) {
           for (const rear of [WHEELS[2], WHEELS[3]]) {
@@ -570,6 +605,10 @@ export default function LocalCar() {
     if (stunned && Math.random() < 0.4) {
       burst([pos.x, pos.y + 0.6, pos.z], { count: 2, color: '#ffe27a', speed: 3, size: 0.06, ttl: 0.3, up: 2 });
     }
+    // Ram Mode: angry red wake
+    if (nowMs < S.ramUntil && Math.random() < 0.6) {
+      puff([pos.x, pos.y + 0.3, pos.z], [(Math.random() - 0.5) * 2, 1.2, (Math.random() - 0.5) * 2], 0.3, '#ff4d3d', 0.5);
+    }
 
     // ---------------- upside-down & fall recovery
     const upDot = _up.y;
@@ -655,7 +694,7 @@ export default function LocalCar() {
 
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
-    audio.setRain(pos.x < -8.5 * M && pos.z > -1 ? 0.9 : st.night ? 0.35 : 0.15);
+    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : pos.x < -8.5 * M && pos.z > -1 ? 0.9 : st.night ? 0.35 : 0.15);
 
     // ---------------- network send
     if (nowMs - S.lastSend > 1000 / INPUT_SEND_RATE) {

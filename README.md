@@ -38,6 +38,7 @@ post-processing on weak GPUs.
 | `B` / `Ctrl` | boost |
 | `Space` | jump / double jump (+air control with WASD, flips give boost) |
 | `E` / click | use powerup |
+| `Q` | car special ability (20 s cooldown) |
 | `H` | horn (bumped bots honk back) |
 | `1`–`8` | emote wheel |
 | `R` | respawn |
@@ -64,6 +65,17 @@ themselves 3 seconds before they hit.
   (telegraphed, then a red zap field). Escape the closures, survive the
   double-rate office events, outlive everyone. Eliminated players get a
   drone spectator cam (click/space to switch targets).
+- 🌍 **Open Office** — open-world free roam: ten minutes, no rules, style
+  points for drifting, air time and mayhem. The whole map is a playground.
+- 🏆 **Office Cup** — three random modes back-to-back with cumulative
+  score, rolling straight from round to round, grand ceremony at the end.
+
+Roughly one round in three gets a **mutator**, announced up front: Moon
+Gravity, Giant Ball, Mug Rain or Tiny Cars. Each car also carries a
+signature **ability** on `Q`: the buggy pounces, the Drift King enters a
+perfect 3-second Overdrift, the Micro Monster goes 2 seconds unstoppable,
+the Formula opens its DRS wing, and the Office Hatch photocopies whatever
+ability was used last.
 
 Every minute an **office event** hits: lights out, earthquake, printer paper
 storm, AC hurricane, server overload, or the cleaning robot on patrol.
@@ -77,6 +89,13 @@ are equipped in the garage — everyone in the lobby sees them (bots dress up
 too). Each car has its own synthesized engine voice. Collisions feed a
 rivalry tracker and the podium calls out your nemesis, and going over the
 balcony railing earns you a scream and a seagull's-eye kill-cam.
+
+The chaos is shared: when you punt a mug across the kitchen, everyone's
+kitchen gets the mug punted (prop impulses relay through the server and
+each client mirrors them). The office also fights back — the copier
+periodically blasts blinding paper at passers-by, ramming the kitchen
+vending machine drops cans (sometimes a golden one: free powerup), and the
+sprinkler-test event soaks every floor.
 
 ## The office
 

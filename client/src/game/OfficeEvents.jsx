@@ -16,7 +16,42 @@ export default function OfficeEvents() {
       {event?.id === 'paper_storm' && <PaperStorm />}
       {event?.id === 'server_overload' && <ServerSparks />}
       {event?.id === 'ac_wind' && <WindStreaks />}
+      {event?.id === 'sprinklers' && <SprinklerRain />}
     </group>
+  );
+}
+
+// Indoor rain: fast vertical streaks from the ceiling, everywhere at once.
+function SprinklerRain() {
+  const ref = useRef();
+  const N = 160;
+  const drops = useMemo(() => Array.from({ length: N }, () => ({
+    x: (Math.random() * 30 - 15) * M,
+    z: (Math.random() * 18 - 9) * M,
+    y: Math.random() * 12,
+    speed: 16 + Math.random() * 10,
+  })), []);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  useFrame((_, dt) => {
+    if (!ref.current) return;
+    drops.forEach((d, i) => {
+      d.y -= d.speed * dt;
+      if (d.y < 0.1) {
+        d.y = 11 + Math.random() * 2;
+        d.x = (Math.random() * 30 - 15) * M;
+        d.z = (Math.random() * 18 - 9) * M;
+      }
+      dummy.position.set(d.x, d.y, d.z);
+      dummy.updateMatrix();
+      ref.current.setMatrixAt(i, dummy.matrix);
+    });
+    ref.current.instanceMatrix.needsUpdate = true;
+  });
+  return (
+    <instancedMesh ref={ref} args={[null, null, N]} frustumCulled={false}>
+      <boxGeometry args={[0.015, 0.7, 0.015]} />
+      <meshBasicMaterial color="#9fd0ff" transparent opacity={0.4} />
+    </instancedMesh>
   );
 }
 

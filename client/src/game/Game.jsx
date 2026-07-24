@@ -1,7 +1,7 @@
 import { useEffect, Suspense } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
-import { GRAVITY } from '@rc/shared';
+import { GRAVITY, MUTATORS } from '@rc/shared';
 import { useStore } from '../store.js';
 import { connect, disconnect } from '../net.js';
 import { audio } from '../audio.js';
@@ -38,6 +38,9 @@ function Stats() {
 
 export default function Game() {
   const muted = useStore((s) => s.muted);
+  const mutator = useStore((s) => s.mutator);
+  // Moon Gravity mutator: the whole physics world floats
+  const gravity = mutator === 'moon_gravity' ? GRAVITY * MUTATORS.moon_gravity.gravity : GRAVITY;
 
   useEffect(() => {
     connect();
@@ -60,7 +63,7 @@ export default function Game() {
       <fog attach="fog" args={['#141a2a', 170, 420]} />
       <Suspense fallback={null}>
         <Lighting />
-        <Physics gravity={[0, GRAVITY, 0]} timeStep={1 / 60} maxCcdSubsteps={2}>
+        <Physics gravity={[0, gravity, 0]} timeStep={1 / 60} maxCcdSubsteps={2}>
           <Office />
           <Props />
           <LocalCar />

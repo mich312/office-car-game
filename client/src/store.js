@@ -38,6 +38,10 @@ export const useStore = create((set, get) => ({
   lcs: null, // { locked: [roomIds], warn: { room, until }, alive }
   rivalry: null, // { name, n } — your most-bumped partner last match
   nemesis: null, // { a, b, n } — the match's top feud
+  mutator: null, // active mutator id for this round
+  cup: null, // { round, total, standings?, final? } — Office Cup progress
+  abilityReadyAt: 0, // my special-ability cooldown (server-stamped)
+  printerFlashUntil: 0, // blinded by the printer until this timestamp
 
   // profile / progression
   name: saved.name || '',

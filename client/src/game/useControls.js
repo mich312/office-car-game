@@ -78,6 +78,7 @@ export function useControls() {
         case 'KeyP': useStore.setState((s) => ({ photoMode: !s.photoMode })); break;
         case 'KeyR': keys.current.respawn = true; break;
         case 'KeyH': send({ t: MSG.EMOTE, h: 1 }); audio.horn(); break; // sound now; echo draws the bubble
+        case 'KeyQ': send({ t: MSG.ABILITY }); break; // server checks cooldown, echo applies it
         default:
           // 1–8 → emote wheel (the bubble comes back via the server echo)
           if (e.code.startsWith('Digit')) {

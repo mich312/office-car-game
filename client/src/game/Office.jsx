@@ -342,6 +342,33 @@ function Furniture({ f, mats }) {
           <ShelfBooks w={w} d={d} />
         </SimpleBox>
       );
+    case 'vending':
+      // Ram it at speed: a can drops, sometimes golden (the server pays out).
+      return (
+        <SimpleBox x={x} z={z} w={w} d={d} h={h} mat={mats.dark}>
+          {/* glowing front panel facing into the kitchen (+z) */}
+          <mesh position={[0, h * 0.58, d / 2 + 0.01]}>
+            <planeGeometry args={[w * 0.72, h * 0.62]} />
+            <meshStandardMaterial color="#0d2b38" emissive="#1f7a9e" emissiveIntensity={0.7} roughness={0.3} />
+          </mesh>
+          {/* can rows behind the glass */}
+          {[0.35, 0.55, 0.75].map((fy, row) => (
+            <group key={row}>
+              {[-0.28, -0.09, 0.1, 0.29].map((fx, col) => (
+                <mesh key={col} position={[fx * w, h * fy, d / 2 + 0.02]} rotation-x={Math.PI / 2}>
+                  <cylinderGeometry args={[0.055, 0.055, 0.02, 8]} />
+                  <meshStandardMaterial color={['#e8332a', '#f1c40f', '#2ecc71', '#3498db'][(row + col) % 4]} emissive="#222" roughness={0.3} />
+                </mesh>
+              ))}
+            </group>
+          ))}
+          {/* dispensing slot */}
+          <mesh position={[0, h * 0.14, d / 2 + 0.01]}>
+            <planeGeometry args={[w * 0.6, h * 0.1]} />
+            <meshStandardMaterial color="#08090c" roughness={0.9} />
+          </mesh>
+        </SimpleBox>
+      );
     default:
       return <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={type === 'recdesk' ? mats.wood : type === 'island' || type === 'counter' ? mats.grey : mats.white} />;
   }

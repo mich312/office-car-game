@@ -131,6 +131,8 @@ function handleMessage(msg) {
         players, scores: {}, teamScores: [0, 0], podium: null, powerup: null,
         raceProgress: {}, myBeans: 0, event: null,
         spectating: false, spectateTarget: null, lcs: null, rivalry: null, nemesis: null,
+        mutator: msg.mutator || null, cup: msg.cup || null,
+        abilityReadyAt: 0, printerFlashUntil: 0,
       });
       emit('match_start', msg);
       break;
@@ -180,6 +182,10 @@ function handleMessage(msg) {
     case MSG.EFFECT:
       if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, msg.until);
       if (msg.type === 'eliminated' && msg.id === net.myId) S.setState({ spectating: true });
+      if (msg.type === 'ability' && msg.id === net.myId) S.setState({ abilityReadyAt: msg.readyAt || 0 });
+      if (msg.type === 'printer' && msg.targets?.includes(net.myId)) {
+        S.setState({ printerFlashUntil: Date.now() + (msg.blindMs || 1400) });
+      }
       emit('fx', msg);
       break;
     case MSG.OFFICE_EVENT:
@@ -211,6 +217,7 @@ function handleMessage(msg) {
       S.setState({
         phase: PHASE.PODIUM, podium: msg.podium,
         rivalry: msg.rivalries?.[net.myId] || null, nemesis: msg.nemesis || null,
+        cup: msg.cup || null,
       });
       const gained = msg.xp?.[net.myId] || 0;
       if (gained) S.getState().addXp(gained);

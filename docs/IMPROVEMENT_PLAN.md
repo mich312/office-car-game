@@ -245,15 +245,16 @@ big rocks. Rough effort in focused dev-days.
 | Balcony kill-cam & fall drama | C3 | ✅ scream + seagull's-eye cam + feed drama |
 | Per-car engine voices | D3 | ✅ five synth profiles |
 
-### Phase 2 — "Shared world & identity" (~2 weeks)
-| Item | Ws | Effort |
+### Phase 2 — "Shared world & identity" — ✅ SHIPPED
+| Item | Ws | Status |
 |------|----|--------|
-| Prop impulse-relay sync (v1) | B1 | 3 d |
-| Procedural car bodies v2 + driver figurine | A1 | 3 d |
-| Per-car special abilities | D1 | 3 d |
-| Office Cup tournament flow | E2 | 2 d |
-| Interactive printer + vending machine + sprinklers | C1 | 2 d |
-| Mutators (first 4) | E3 | 1 d |
+| Prop impulse-relay sync (v1) | B1 | ✅ rate-limited relay, momentum mirroring |
+| Procedural car bodies v2 + driver figurine | A1 | ✅ extruded profiles, leaning driver, matching LOD |
+| Per-car special abilities | D1 | ✅ Pounce/Overdrift/Ram/DRS/Company Car on `Q` |
+| Office Cup tournament flow | E2 | ✅ 3 rounds auto-rolling, cumulative standings |
+| Interactive printer + vending machine + sprinklers | C1 | ✅ + golden cans pay out powerups |
+| Mutators (first 4) | E3 | ✅ Moon Gravity, Giant Ball, Mug Rain, Tiny Cars |
+| Open Office free-roam mode *(added by request)* | E1 | ✅ 10-min sandbox, style points |
 
 ### Phase 3 — "The bigger office" (~2–3 weeks)
 | Item | Ws | Effort |

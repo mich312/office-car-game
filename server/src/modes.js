@@ -16,7 +16,32 @@ export function createMode(id, room) {
     case 'battery': return new BatteryMode(room);
     case 'soccer': return new SoccerMode(room);
     case 'last_standing': return new LastStandingMode(room);
+    case 'free_roam': return new FreeRoamMode(room);
     default: return new RaceMode(room);
+  }
+}
+
+// ------------------------------------------------------------ Open Office
+// Open-world sandbox: no objectives, no pressure — ten minutes of playground.
+// Style points keep the scoreboard honest: drifting, air time and mayhem.
+class FreeRoamMode {
+  constructor(room) {
+    this.room = room;
+    this.acc = 0;
+  }
+  update(dt) {
+    const cfg = MODES.free_roam;
+    for (const p of this.room.players.values()) {
+      if (p.drifting) p.score += cfg.driftPerS * dt;
+      if (!p.grounded) p.score += cfg.airPerS * dt;
+    }
+    this.acc += dt;
+    if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
+  }
+  onHit(attacker) { if (attacker) attacker.score += MODES.free_roam.bumpScore; }
+  onFall() {} // falls are free — the balcony is a diving board here
+  rocketTarget(player) {
+    return this.room.nearest(player, [...this.room.players.values()].filter((p) => p.id !== player.id));
   }
 }
 
@@ -279,6 +304,8 @@ class BatteryMode {
 class SoccerMode {
   constructor(room) {
     this.room = room;
+    // Giant Ball mutator inflates the ball server-side; clients scale to match
+    this.R = SOCCER.ballRadius * (room.mutator?.id === 'giant_ball' ? 1.8 : 1);
     this.resetBall();
     this.teamScores = [0, 0];
     this.freezeUntil = 0;
@@ -299,7 +326,7 @@ class SoccerMode {
     const t = now();
     if (t < this.freezeUntil) return;
     const b = this.ball;
-    const R = SOCCER.ballRadius;
+    const R = this.R;
     // integrate (2 substeps for stability)
     for (let step = 0; step < 2; step++) {
       const h = dt / 2;
@@ -366,7 +393,7 @@ class SoccerMode {
   }
   snapshot() {
     return {
-      ball: { p: this.ball.p.map(r2), v: this.ball.v.map(r2) },
+      ball: { p: this.ball.p.map(r2), v: this.ball.v.map(r2), r: r2(this.R) },
       teamScores: this.teamScores,
     };
   }

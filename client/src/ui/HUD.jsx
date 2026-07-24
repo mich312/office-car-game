@@ -1,7 +1,7 @@
 // In-game overlay: lobby, countdown, speed/boost, powerup slot, timer,
 // kill feed, minimap, scoreboard, event banner, podium.
 import { useEffect, useRef, useState } from 'react';
-import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE, MSG, M, roomAt } from '@rc/shared';
+import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE, MSG, M, roomAt, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
 import { telemetry } from '../game/LocalCar.jsx';
@@ -105,6 +105,8 @@ function Lobby() {
 function Countdown() {
   const countdownEnd = useStore((s) => s.countdownEnd);
   const modeId = useStore((s) => s.modeId);
+  const mutator = useStore((s) => s.mutator);
+  const cup = useStore((s) => s.cup);
   const [n, setN] = useState(3);
   useEffect(() => {
     const iv = setInterval(() => {
@@ -117,9 +119,11 @@ function Countdown() {
   }, [countdownEnd]);
   return (
     <div className="countdown">
+      {cup && <div className="cup-round">🏆 OFFICE CUP — ROUND {cup.round}/{cup.total}</div>}
       <div className="mode-name">{MODES[modeId]?.icon} {MODES[modeId]?.name}</div>
       <div className="count-num">{n > 0 ? n : 'GO!'}</div>
       <div className="mode-desc">{MODES[modeId]?.desc}</div>
+      {mutator && <div className="mutator-banner">{MUTATORS[mutator]?.icon} MUTATOR: {MUTATORS[mutator]?.name} — {MUTATORS[mutator]?.desc}</div>}
     </div>
   );
 }
@@ -136,6 +140,12 @@ function MatchHUD() {
   const lcs = useStore((s) => s.lcs);
   const spectating = useStore((s) => s.spectating);
   const spectateTarget = useStore((s) => s.spectateTarget);
+  const mutator = useStore((s) => s.mutator);
+  const cup = useStore((s) => s.cup);
+  const abilityReadyAt = useStore((s) => s.abilityReadyAt);
+  const printerFlashUntil = useStore((s) => s.printerFlashUntil);
+  const scores = useStore((s) => s.scores);
+  const myCar = useStore((s) => s.car);
   const [, force] = useState(0);
   useEffect(() => {
     const iv = setInterval(() => force((n) => n + 1), 100);
@@ -161,7 +171,11 @@ function MatchHUD() {
         {modeId === 'soccer' && <div className="mode-stat soccer">🟠 {teamScores[0]} — {teamScores[1]} 🔵</div>}
         {modeId === 'battery' && <div className="mode-stat">🔋 hold the battery to score</div>}
         {modeId === 'last_standing' && <div className="mode-stat">👑 {lcs?.alive ?? '…'} cars left{warnRoom ? ` · ${warnRoom.name} closes in ${warnLeft}s` : ''}</div>}
+        {modeId === 'free_roam' && <div className="mode-stat">🌍 style points: {Math.round(scores[myId] || 0)} — drift · fly · smash</div>}
+        {cup && <div className="mode-stat cup">🏆 Cup round {cup.round}/{cup.total}</div>}
+        {mutator && <div className="mode-stat mutator">{MUTATORS[mutator]?.icon} {MUTATORS[mutator]?.name}</div>}
       </div>
+      {printerFlashUntil > Date.now() && <div className="printer-flash">🖨️📄📄📄</div>}
       {inLockedRoom && <div className="zap-warning">⚠️ ROOM CLOSED — GET OUT!</div>}
       {spectating && (
         <div className="spectate-banner">
@@ -188,9 +202,27 @@ function MatchHUD() {
           <span className="pw-empty">?</span>
         )}
       </div>
+      <AbilitySlot carId={myCar} readyAt={abilityReadyAt} />
       <Minimap />
       <TouchControls />
     </>
+  );
+}
+
+// ---------------------------------------------------------- ability slot
+// Per-car special (Q / touch ⭐) with a cooldown fill driven by the
+// server-stamped readyAt.
+function AbilitySlot({ carId, readyAt }) {
+  const ab = ABILITIES[carId] || ABILITIES.balanced;
+  const left = Math.max(0, readyAt - Date.now());
+  const frac = Math.min(1, left / (ABILITY_COOLDOWN_S * 1000));
+  return (
+    <div className={`ability-slot ${left > 0 ? 'cooling' : 'ready'}`} title={`${ab.name} — ${ab.desc}`}>
+      <span className="ab-icon">{ab.icon}</span>
+      <span className="ab-name">{ab.name}</span>
+      <span className="pw-key">Q</span>
+      {left > 0 && <div className="ab-cd" style={{ height: `${frac * 100}%` }} />}
+    </div>
   );
 }
 
@@ -219,6 +251,7 @@ function TouchControls() {
         <button className="tc-btn" {...bind((d) => { touchInput.drift = d; })}>💨</button>
         <button className="tc-btn" {...bind((d) => { if (d) send({ t: MSG.USE_POWERUP }); })}>🎁</button>
         <button className="tc-btn" {...bind((d) => { if (d) { send({ t: MSG.EMOTE, h: 1 }); audio.horn(); } })}>📣</button>
+        <button className="tc-btn" {...bind((d) => { if (d) send({ t: MSG.ABILITY }); })}>⭐</button>
         <button className="tc-btn tc-wide" {...bind((d) => { touchInput.brake = d ? 1 : 0; })}>BRAKE</button>
       </div>
     </div>
@@ -334,12 +367,23 @@ function Podium() {
   const myId = useStore((s) => s.myId);
   const rivalry = useStore((s) => s.rivalry);
   const nemesis = useStore((s) => s.nemesis);
+  const cup = useStore((s) => s.cup);
   if (!podium) return null;
   const top3 = podium.slice(0, 3);
   const mine = podium.find((p) => p.id === myId);
   return (
     <div className="podium">
-      <h2>🏆 MATCH OVER</h2>
+      <h2>{cup?.final ? '🏆 OFFICE CUP CHAMPION' : cup ? `🏆 ROUND ${cup.round}/${cup.total} DONE` : '🏆 MATCH OVER'}</h2>
+      {cup?.standings && (
+        <div className="cup-standings">
+          {cup.standings.slice(0, 5).map((s, i) => (
+            <div key={s.id} className={`cup-row ${s.id === myId ? 'me' : ''}`}>
+              <span>{i + 1}. {s.name}</span><b>{s.score}</b>
+            </div>
+          ))}
+          {!cup.final && <p className="hint">next round starts automatically…</p>}
+        </div>
+      )}
       <div className="podium-steps">
         {[1, 0, 2].map((idx) => {
           const p = top3[idx];

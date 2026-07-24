@@ -8,6 +8,8 @@ export const MSG = {
   USE_POWERUP: 'use', // {}
   BUMP: 'bump', // { target } — client-detected car↔car hit, server validates by distance
   EMOTE: 'em', // { e: index } or { h: 1 } for the horn — rate-limited server-side
+  PROP: 'pr', // { i: prop index, im:[x,y,z], at:[x,y,z] } — "I whacked prop i this hard"
+  ABILITY: 'ab', // {} — use my car's special ability (server checks the cooldown)
 
   // server → client
   WELCOME: 'welcome', // { id, room }

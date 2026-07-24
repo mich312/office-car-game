@@ -122,6 +122,7 @@ export const FURNITURE = [
   f('counter', 14.25, -6, 1.4, 5.4, 0.92),
   f('island', 11, -6.2, 2, 1, 0.92),
   f('fridge', 14.4, -2.8, 1, 0.8, 1.9),
+  f('vending', 10, -8.5, 1, 0.8, 1.9), // ram it hard, sometimes it pays out
   // Printer room
   f('copier', 7.9, -1.9, 1, 1.2, 1.25),
   f('shelfrack', 3.6, 1.2, 0.4, 1.4, 1.8),
@@ -278,6 +279,12 @@ export const POWERUP_PADS = [
   cp(-12, -2), cp(-6, -7.5), cp(0, -1), cp(6, -8.2), cp(12, -8), cp(6, 0.8),
   cp(12, 1.9), cp(12, 8.2), cp(0, 8.2), cp(-12, 7), cp(-4, -4.9), cp(10.8, -3.2),
 ];
+
+// Interactive machines. The vending machine drops a can when rammed at speed
+// (sometimes golden = free powerup); the copier periodically "prints" a blast
+// of paper that blinds anyone driving past.
+export const VENDING = { x: u(10), z: u(-8.5), radius: u(1.5), minSpeed: 12, cooldownS: 8, goldenChance: 0.3 };
+export const PRINTER = { x: u(7.9), z: u(-1.9), radius: u(5), minIntervalS: 22, maxIntervalS: 42, blindS: 1.4 };
 
 // The cleaning robot's patrol route (Last Car Standing hazard + ambient menace)
 export const ROBOT_PATH = [

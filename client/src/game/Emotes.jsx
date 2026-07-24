@@ -14,8 +14,9 @@ const LIFE_MS = 2000;
 export default function Emotes() {
   const [list, setList] = useState([]);
   useEffect(() => on('fx', (fx) => {
-    if (fx.type !== 'emote') return;
-    const text = fx.horn ? '📣' : EMOTES[fx.e] ?? '❓';
+    // ability activations pop their icon just like an emote
+    if (fx.type !== 'emote' && fx.type !== 'ability') return;
+    const text = fx.type === 'ability' ? (fx.icon || '✨') : fx.horn ? '📣' : EMOTES[fx.e] ?? '❓';
     if (fx.horn && fx.id !== net.myId) {
       const r = sampleRemote(fx.id);
       const d = r ? Math.hypot(r.p[0] - telemetry.x, r.p[2] - telemetry.z) : 20;

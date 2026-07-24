@@ -4,7 +4,7 @@ import { useState, useRef, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment, Lightformer, ContactShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, DepthOfField, Vignette } from '@react-three/postprocessing';
-import { CARS, CAR_IDS, UNLOCKS } from '@rc/shared';
+import { CARS, CAR_IDS, UNLOCKS, ABILITIES } from '@rc/shared';
 import { useStore } from '../store.js';
 import { audio } from '../audio.js';
 import CarModel from '../game/CarModel.jsx';
@@ -78,6 +78,7 @@ export default function Menu() {
           </div>
           <h2>{car.name}</h2>
           <p className="car-desc">{car.desc}</p>
+          <p className="car-ability">{ABILITIES[carId]?.icon} <b>{ABILITIES[carId]?.name}</b> · {ABILITIES[carId]?.desc} <kbd>Q</kbd></p>
           <div className="stats">
             <Stat label="Speed" v={car.topSpeed / 20} />
             <Stat label="Accel" v={car.accel / 16} />
@@ -154,7 +155,8 @@ export default function Menu() {
             <div><kbd>B/CTRL</kbd> boost</div>
             <div><kbd>SPACE</kbd> jump / double jump</div>
             <div><kbd>E</kbd>/<kbd>CLICK</kbd> use powerup</div>
-            <div><kbd>H</kbd> horn · <kbd>1-8</kbd> emotes</div>
+            <div><kbd>Q</kbd> car ability · <kbd>H</kbd> horn</div>
+            <div><kbd>1-8</kbd> emotes</div>
             <div><kbd>R</kbd> respawn · <kbd>N</kbd> day/night</div>
             <div><kbd>TAB</kbd> scoreboard · <kbd>M</kbd> mute</div>
             <div><kbd>🎮</kbd> gamepads work: stick + triggers</div>
