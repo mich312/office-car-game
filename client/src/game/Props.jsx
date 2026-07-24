@@ -82,6 +82,7 @@ export default function Props() {
           case 'box': return <CardboardBox key={key} p={p} />;
           case 'lamp': return <Lamp key={key} p={p} />;
           case 'trash': return <Trash key={key} p={p} />;
+          case 'roll': return <Roll key={key} p={p} />;
           default: return null;
         }
       })}
@@ -316,29 +317,54 @@ function Keyboard({ p }) {
 
 function Monitor({ p, screen }) {
   const W = 0.55 * m2u, H = 0.33 * m2u;
+  // Origin at the FOOT of the stand: spawned on a desk it settles flat
+  // instead of depenetrating downward through the desktop (the old
+  // screen-center origin buried the base inside the slab on spawn). The
+  // wide, heavy base also keeps desks looking tidy until someone hits them.
+  const panelY = 0.45 + H / 2;
   return (
-    <Body p={p} mass={1.4} angularDamping={0.3}>
+    <Body p={p} mass={1.4} angularDamping={0.6}>
       {/* stand */}
-      <CuboidCollider args={[0.35, 0.03, 0.25]} position={[0, -H / 2 - 0.3, 0]} />
-      <CuboidCollider args={[0.06, 0.18, 0.06]} position={[0, -H / 2 - 0.12, 0]} />
+      <CuboidCollider args={[0.35, 0.03, 0.25]} position={[0, 0.03, 0]} />
+      <CuboidCollider args={[0.06, 0.2, 0.06]} position={[0, 0.26, 0]} />
       {/* panel */}
-      <CuboidCollider args={[W / 2, H / 2, 0.05]} />
-      <mesh position={[0, -H / 2 - 0.3, 0]} castShadow>
+      <CuboidCollider args={[W / 2, H / 2, 0.05]} position={[0, panelY, 0]} />
+      <mesh position={[0, 0.03, 0]} castShadow>
         <boxGeometry args={[0.7, 0.06, 0.5]} />
         <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.4} />
       </mesh>
-      <mesh position={[0, -H / 2 - 0.12, 0]} castShadow>
-        <boxGeometry args={[0.12, 0.36, 0.12]} />
+      <mesh position={[0, 0.26, 0]} castShadow>
+        <boxGeometry args={[0.12, 0.4, 0.12]} />
         <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.4} />
       </mesh>
-      <mesh castShadow>
+      <mesh position={[0, panelY, 0]} castShadow>
         <boxGeometry args={[W, H, 0.1]} />
         <meshStandardMaterial color="#14161a" roughness={0.3} />
       </mesh>
-      <mesh position={[0, 0, 0.055]}>
+      <mesh position={[0, panelY, 0.055]}>
         <planeGeometry args={[W * 0.92, H * 0.88]} />
         <meshBasicMaterial map={screen.tex} toneMapped={false} />
       </mesh>
+    </Body>
+  );
+}
+
+// Toilet paper — rolls beautifully, weighs nothing, matters deeply.
+function Roll({ p }) {
+  const R = 0.055 * m2u, W2 = 0.05 * m2u;
+  return (
+    <Body p={p} mass={0.15} friction={0.5} angularDamping={0.04}>
+      <group rotation-z={Math.PI / 2}>
+        <CylinderCollider args={[W2, R]} />
+        <mesh castShadow>
+          <cylinderGeometry args={[R, R, W2 * 2, 14]} />
+          <meshStandardMaterial color="#f7f5f0" roughness={0.85} />
+        </mesh>
+        <mesh>
+          <cylinderGeometry args={[R * 0.42, R * 0.42, W2 * 2 + 0.02, 10]} />
+          <meshStandardMaterial color="#c9b89a" roughness={0.9} />
+        </mesh>
+      </group>
     </Body>
   );
 }

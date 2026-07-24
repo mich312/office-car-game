@@ -3,8 +3,8 @@ export const MODES = {
     id: 'desk_dash',
     name: 'Desk Dash',
     icon: '🏁',
-    desc: 'Race 3 laps through every room of the office. Shortcuts everywhere.',
-    laps: 3,
+    desc: 'Race 2 laps through all thirteen rooms of the office. Shortcuts everywhere.',
+    laps: 2, // the v2 office lap is nearly twice as long
   },
   coffee_run: {
     id: 'coffee_run',

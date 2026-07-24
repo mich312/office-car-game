@@ -60,12 +60,12 @@ export default function Lighting() {
         shadow-bias={-0.0004}
         shadow-normalBias={0.35}
       >
-        <orthographicCamera attach="shadow-camera" args={[-85, 85, 65, -65, 10, 350]} />
+        <orthographicCamera attach="shadow-camera" args={[-105, 105, 75, -75, 10, 380]} />
       </directionalLight>
       {/* Warm office downlights — few big points; panels/env do the rest.
           Light count is the #1 fragment cost, so keep this list short. */}
       <group ref={ceiling}>
-        {[[-11, -4], [-2, -3.5], [9, -5], [2, 5.5]].map(([x, z], i) => (
+        {[[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, -2], [-11, 0]].map(([x, z], i) => (
           <pointLight
             key={i}
             position={[x * M, 2.7 * M, z * M]}
@@ -77,7 +77,7 @@ export default function Lighting() {
         ))}
       </group>
       {/* Server room ominous glow (doubles as the lights-out emergency light) */}
-      <pointLight position={[12 * M, 1.2 * M, 0.5 * M]} intensity={lightsOut ? 8 : 4} distance={9 * M} color={lightsOut ? '#ff5040' : '#3d7bff'} />
+      <pointLight position={[9.5 * M, 1.2 * M, 4.5 * M]} intensity={lightsOut ? 8 : 4} distance={9 * M} color={lightsOut ? '#ff5040' : '#3d7bff'} />
     </>
   );
 }

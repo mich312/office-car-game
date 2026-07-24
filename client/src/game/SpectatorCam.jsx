@@ -60,9 +60,9 @@ export function PhotoOrbitCam() {
     S.t += dt * 0.1;
     const az = Math.sin(S.t) * 0.85; // sweep angle around south
     const k = Math.min(1, dt * 2);
-    camera.position.x += (Math.sin(az) * 52 - camera.position.x) * k;
-    camera.position.y += (34 - camera.position.y) * k;
-    camera.position.z += ((-Math.cos(az) * 42 - 4) - camera.position.z) * k;
+    camera.position.x += (Math.sin(az) * 72 - camera.position.x) * k;
+    camera.position.y += (46 - camera.position.y) * k;
+    camera.position.z += ((-Math.cos(az) * 52 - 6) - camera.position.z) * k;
     camera.lookAt(0, -2, 2);
   });
   return null;

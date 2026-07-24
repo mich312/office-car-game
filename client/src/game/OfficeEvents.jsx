@@ -3,7 +3,7 @@
 import { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { M } from '@rc/shared';
+import { M, MAP_BOUNDS } from '@rc/shared';
 import { useStore } from '../store.js';
 import { burst } from './particles.jsx';
 
@@ -26,8 +26,8 @@ function SprinklerRain() {
   const ref = useRef();
   const N = 160;
   const drops = useMemo(() => Array.from({ length: N }, () => ({
-    x: (Math.random() * 30 - 15) * M,
-    z: (Math.random() * 18 - 9) * M,
+    x: MAP_BOUNDS.minX + Math.random() * (MAP_BOUNDS.maxX - MAP_BOUNDS.minX),
+    z: MAP_BOUNDS.minZ + Math.random() * (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ),
     y: Math.random() * 12,
     speed: 16 + Math.random() * 10,
   })), []);
@@ -38,8 +38,8 @@ function SprinklerRain() {
       d.y -= d.speed * dt;
       if (d.y < 0.1) {
         d.y = 11 + Math.random() * 2;
-        d.x = (Math.random() * 30 - 15) * M;
-        d.z = (Math.random() * 18 - 9) * M;
+        d.x = MAP_BOUNDS.minX + Math.random() * (MAP_BOUNDS.maxX - MAP_BOUNDS.minX);
+        d.z = MAP_BOUNDS.minZ + Math.random() * (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ);
       }
       dummy.position.set(d.x, d.y, d.z);
       dummy.updateMatrix();
@@ -58,8 +58,8 @@ function SprinklerRain() {
 function PaperStorm() {
   const ref = useRef();
   const sheets = useMemo(() => Array.from({ length: SHEETS }, () => ({
-    x: (Math.random() * 28 - 14) * M,
-    z: (Math.random() * 16 - 8) * M,
+    x: MAP_BOUNDS.minX + Math.random() * (MAP_BOUNDS.maxX - MAP_BOUNDS.minX),
+    z: MAP_BOUNDS.minZ + Math.random() * (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ),
     y: 5 + Math.random() * 12,
     vx: (Math.random() - 0.5) * 8,
     vz: (Math.random() - 0.5) * 8,
@@ -74,7 +74,7 @@ function PaperStorm() {
       s.y -= (2 + Math.sin(t + s.phase)) * dt;
       s.x += (s.vx + Math.sin(t * 2 + s.phase) * 4) * dt;
       s.z += s.vz * dt;
-      if (s.y < 0.3) { s.y = 10 + Math.random() * 6; s.x = (Math.random() * 28 - 14) * M; s.z = (Math.random() * 16 - 8) * M; }
+      if (s.y < 0.3) { s.y = 10 + Math.random() * 6; s.x = MAP_BOUNDS.minX + Math.random() * (MAP_BOUNDS.maxX - MAP_BOUNDS.minX); s.z = MAP_BOUNDS.minZ + Math.random() * (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ); }
       dummy.position.set(s.x, s.y, s.z);
       dummy.rotation.set(t * s.spin + s.phase, s.phase, Math.sin(t * 2 + s.phase));
       dummy.updateMatrix();
@@ -96,13 +96,13 @@ function ServerSparks() {
     acc.current += dt;
     if (acc.current > 0.22) {
       acc.current = 0;
-      const x = (10.5 + Math.random() * 3) * M;
-      const z = (Math.random() > 0.5 ? -0.6 : 1.6) * M;
+      const x = (7.2 + Math.random() * 4.6) * M;
+      const z = (Math.random() > 0.5 ? 3.3 : 5.7) * M;
       burst([x, 2.2 * M * Math.random() + 2, z], { count: 8, color: ['#ffe27a', '#ff9d3c', '#fff'], speed: 7, size: 0.06, ttl: 0.6 });
     }
   });
   return (
-    <pointLight position={[12 * M, 6, 0.5 * M]} intensity={10} distance={30} color="#ff7733" />
+    <pointLight position={[9.5 * M, 6, 4.5 * M]} intensity={10} distance={30} color="#ff7733" />
   );
 }
 
@@ -110,8 +110,8 @@ function WindStreaks() {
   const ref = useRef();
   const N = 60;
   const streaks = useMemo(() => Array.from({ length: N }, () => ({
-    x: (Math.random() * 30 - 15) * M,
-    z: (Math.random() * 18 - 9) * M,
+    x: MAP_BOUNDS.minX + Math.random() * (MAP_BOUNDS.maxX - MAP_BOUNDS.minX),
+    z: MAP_BOUNDS.minZ + Math.random() * (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ),
     y: 0.5 + Math.random() * 8,
     speed: 30 + Math.random() * 30,
   })), []);
@@ -120,7 +120,7 @@ function WindStreaks() {
     if (!ref.current) return;
     streaks.forEach((s, i) => {
       s.x += s.speed * dt;
-      if (s.x > 15 * M) s.x = -15 * M;
+      if (s.x > MAP_BOUNDS.maxX) s.x = MAP_BOUNDS.minX;
       dummy.position.set(s.x, s.y, s.z);
       dummy.rotation.z = Math.PI / 2;
       dummy.updateMatrix();

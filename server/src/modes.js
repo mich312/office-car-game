@@ -3,7 +3,7 @@
 import {
   MSG, MODES, CHECKPOINTS, CHECKPOINT_RADIUS, PICKUP_RADIUS,
   BEAN_SPAWNS, COFFEE_MACHINE, BATTERY_SPAWN, SOCCER, WALLS, FURNITURE,
-  GRAVITY, M, LCS, ROOMS, roomAt, COUNTDOWN_SECONDS,
+  GRAVITY, M, LCS, ROOMS, roomAt, COUNTDOWN_SECONDS, DECOR_TYPES,
 } from '@rc/shared';
 
 const now = () => Date.now();
@@ -312,7 +312,8 @@ class SoccerMode {
     // Assign teams, alternating by join order
     let i = 0;
     for (const p of room.players.values()) p.team = i++ % 2;
-    this.boxes = [...WALLS, ...FURNITURE].map((w) => ({
+    // decor (rugs, art, TVs) has no client collider — the ball skips it too
+    this.boxes = [...WALLS, ...FURNITURE.filter((f) => !DECOR_TYPES.includes(f.type))].map((w) => ({
       minX: w.x - w.w / 2, maxX: w.x + w.w / 2,
       minZ: w.z - w.d / 2, maxZ: w.z + w.d / 2, h: w.h,
     }));

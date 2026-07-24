@@ -13,7 +13,7 @@ import {
   AIR_PITCH_TORQUE, AIR_YAW_TORQUE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
   DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
-  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX,
+  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote } from '../net.js';
@@ -694,7 +694,7 @@ export default function LocalCar() {
 
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
-    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : pos.x < -8.5 * M && pos.z > -1 ? 0.9 : st.night ? 0.35 : 0.15);
+    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
 
     // ---------------- network send
     if (nowMs - S.lastSend > 1000 / INPUT_SEND_RATE) {

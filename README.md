@@ -99,11 +99,17 @@ sprinkler-test event soaks every floor.
 
 ## The office
 
-One handcrafted map, no loading screens: reception → open office → meeting
-room → kitchen → printer room → server room → CEO office → balcony (in the
-rain, with a railing low enough to be shoved over). Cars are 18 cm long: a
-desk is a mountain you climb via book-ramps, and you can drive *under* the
-furniture the big people use.
+One handcrafted 42×24 m floor, thirteen rooms, no loading screens:
+reception → storage (box fort) → cafeteria (drive the kitchen countertop) →
+games corner (foosball table, basketball hoop) → meeting room → CEO suite →
+lounge → an S-curve through the open office's desk pods → focus booths →
+bathroom (toilet-paper rolls roam free) → server-rack slalom → printer nook
+→ balcony terrace (in the rain, with planters, benches and a railing low
+enough to be shoved over). Walls are generated from door-gap "wall runs" so
+every room connects into one flowing circuit. Cars are 18 cm long: a desk
+is a mountain you climb via book-ramps, monitors sit properly on their
+stands until you ram them, and you can drive *under* the furniture the big
+people use.
 
 ## Architecture
 
