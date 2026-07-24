@@ -3,7 +3,10 @@ import * as THREE from 'three';
 
 const cache = new Map();
 
-function canvasTex(key, w, h, draw, repeat = [1, 1]) {
+function canvasTex(baseKey, w, h, draw, repeat = [1, 1]) {
+  // repeat is baked into the key: the same drawing at different tilings must
+  // not share one texture object (callers mutate .repeat via canvasTex only)
+  const key = `${baseKey}@${repeat[0]}x${repeat[1]}`;
   if (cache.has(key)) return cache.get(key);
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -203,5 +206,169 @@ export const skylineTex = () =>
         }
       }
       x += bw + 6 + Math.random() * 30;
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Vinyl decals (NFS-style). Transparent canvases wrapped onto thin planes
+// hugging the car body — one for the roof/hood, one mirrored pair for the
+// sides. Deterministic drawing so every client renders the same wrap.
+const hexPath = (g, x, y, r) => {
+  g.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    g[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  g.closePath();
+};
+
+// Top wrap: canvas x = car width, canvas y = car length (top of canvas = rear).
+export const vinylTopTex = (id, color) =>
+  canvasTex(`vinylT-${id}-${color}`, 256, 512, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = color;
+    g.strokeStyle = color;
+    switch (id) {
+      case 'stripes':
+        g.fillRect(w * 0.34, 0, w * 0.115, h);
+        g.fillRect(w * 0.545, 0, w * 0.115, h);
+        break;
+      case 'bolt': {
+        g.beginPath();
+        g.moveTo(w * 0.62, h);
+        g.lineTo(w * 0.34, h * 0.52);
+        g.lineTo(w * 0.52, h * 0.5);
+        g.lineTo(w * 0.38, 0);
+        g.lineTo(w * 0.72, h * 0.42);
+        g.lineTo(w * 0.52, h * 0.45);
+        g.lineTo(w * 0.78, h);
+        g.closePath();
+        g.fill();
+        break;
+      }
+      case 'hex': {
+        for (let r = 0; r < 8; r++) {
+          for (let c = 0; c < 5; c++) {
+            const x = 26 + c * 52 + (r % 2) * 26;
+            const y = 34 + r * 62;
+            const rr = 16 + ((r * 5 + c * 3) % 3) * 5;
+            g.globalAlpha = 0.35 + ((r * 7 + c * 5) % 5) * 0.13;
+            hexPath(g, x, y, rr);
+            if ((r + c) % 3 === 0) g.fill();
+            else { g.lineWidth = 4; g.stroke(); }
+          }
+        }
+        g.globalAlpha = 1;
+        break;
+      }
+      case 'tribal': {
+        g.lineWidth = 12;
+        g.lineCap = 'round';
+        for (const sx of [1, -1]) {
+          g.save();
+          g.translate(w / 2, 0);
+          g.scale(sx, 1);
+          g.beginPath();
+          g.moveTo(w * 0.42, h * 0.06);
+          g.bezierCurveTo(w * 0.1, h * 0.28, w * 0.46, h * 0.42, w * 0.14, h * 0.62);
+          g.stroke();
+          g.lineWidth = 7;
+          g.beginPath();
+          g.moveTo(w * 0.44, h * 0.4);
+          g.bezierCurveTo(w * 0.16, h * 0.55, w * 0.42, h * 0.72, w * 0.1, h * 0.94);
+          g.stroke();
+          g.restore();
+          g.lineWidth = 12;
+        }
+        break;
+      }
+      case 'flames': {
+        // hood licks: flames creeping up from the front (bottom of canvas)
+        for (let i = 0; i < 5; i++) {
+          const x = w * (0.14 + i * 0.18);
+          g.beginPath();
+          g.moveTo(x - 14, h);
+          g.quadraticCurveTo(x - 18, h * 0.9, x, h * (0.78 + (i % 2) * 0.06));
+          g.quadraticCurveTo(x + 18, h * 0.9, x + 14, h);
+          g.closePath();
+          g.fill();
+        }
+        break;
+      }
+      default: break;
+    }
+  });
+
+// Side wrap: canvas x = car length, canvas y = height.
+export const vinylSideTex = (id, color) =>
+  canvasTex(`vinylS-${id}-${color}`, 512, 128, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = color;
+    g.strokeStyle = color;
+    switch (id) {
+      case 'stripes':
+        g.fillRect(0, h * 0.62, w, h * 0.16);
+        break;
+      case 'bolt': {
+        g.beginPath();
+        g.moveTo(0, h * 0.4);
+        for (let x = 0; x <= w; x += 64) {
+          g.lineTo(x + 32, h * 0.62);
+          g.lineTo(x + 64, h * 0.4);
+        }
+        g.lineTo(w, h * 0.58);
+        for (let x = w; x >= 0; x -= 64) {
+          g.lineTo(x - 32, h * 0.8);
+          g.lineTo(x - 64, h * 0.58);
+        }
+        g.closePath();
+        g.fill();
+        break;
+      }
+      case 'hex': {
+        for (let c = 0; c < 9; c++) {
+          const x = 30 + c * 56;
+          const y = h * (0.3 + ((c * 13) % 5) * 0.11);
+          g.globalAlpha = 0.35 + ((c * 7) % 5) * 0.13;
+          hexPath(g, x, y, 13 + ((c * 3) % 3) * 4);
+          if (c % 3 === 0) g.fill();
+          else { g.lineWidth = 3; g.stroke(); }
+        }
+        g.globalAlpha = 1;
+        break;
+      }
+      case 'tribal': {
+        g.lineWidth = 8;
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(w * 0.02, h * 0.7);
+        g.bezierCurveTo(w * 0.3, h * 0.15, w * 0.45, h * 0.95, w * 0.7, h * 0.4);
+        g.quadraticCurveTo(w * 0.82, h * 0.16, w * 0.98, h * 0.3);
+        g.stroke();
+        g.lineWidth = 5;
+        g.beginPath();
+        g.moveTo(w * 0.1, h * 0.9);
+        g.quadraticCurveTo(w * 0.4, h * 0.55, w * 0.6, h * 0.75);
+        g.stroke();
+        break;
+      }
+      case 'flames': {
+        // classic flame job pouring back from the nose
+        g.beginPath();
+        g.moveTo(0, h);
+        g.lineTo(0, h * 0.15);
+        let x = 0;
+        const tips = [0.45, 0.25, 0.55, 0.3, 0.65, 0.45, 0.8];
+        for (let i = 0; i < tips.length; i++) {
+          const nx = w * ((i + 1) / tips.length) * 0.85;
+          g.quadraticCurveTo((x + nx) / 2, h * (tips[i] - 0.22), nx, h * tips[i]);
+          x = nx;
+        }
+        g.quadraticCurveTo(w * 0.92, h * 0.9, w * 0.6, h);
+        g.closePath();
+        g.fill();
+        break;
+      }
+      default: break;
     }
   });
