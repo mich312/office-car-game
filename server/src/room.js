@@ -196,6 +196,7 @@ export class Room {
     this.puddles = [];
     this.rockets = [];
     this.event = null;
+    this.pendingEvent = null;
     this.robot = null;
     this.nextEventAt = now() + (COUNTDOWN_SECONDS + OFFICE_EVENT_INTERVAL) * 1000;
     this.broadcast({
@@ -225,6 +226,7 @@ export class Room {
     this.modeId = null;
     this.votes.clear();
     this.event = null;
+    this.pendingEvent = null;
     this.robot = null;
     this.bots.clear();
     for (const p of this.players.values()) p.ready = false;
@@ -269,7 +271,7 @@ export class Room {
         if (p.powerup || p.bot && Math.random() < 0.5) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < 1.6) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
-          p.powerup = POWERUP_IDS[Math.floor(Math.random() * POWERUP_IDS.length)];
+          p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup, pad: pad.i });
           else p.botUseAt = t + 1500 + Math.random() * 4000;
           this.broadcast({ t: MSG.EFFECT, type: 'pad_taken', pad: pad.i, until: pad.readyAt });
@@ -280,6 +282,30 @@ export class Room {
   }
 
   // ------------------------------------------------------------- powerups
+  // Item odds depend on standing (Mario Kart style): the leader draws from a
+  // weak-but-defensive pool, the back of the pack draws catch-up tools, and
+  // everyone in between gets a linear blend. Only one rocket flies at a time.
+  rollPowerup(player) {
+    const order = [...this.players.values()].sort((a, b) => b.score - a.score);
+    const frac = order.length > 1 ? order.indexOf(player) / (order.length - 1) : 0.5;
+    const FRONT = { turbo: 0.6, emp: 0.8, rocket: 0.2, oil: 2.4, coffee: 2.0, shield: 3.0, shrink: 0.1, spring: 1.0, swap: 0.05, fake: 1.6 };
+    const BACK = { turbo: 3.0, emp: 1.6, rocket: 2.6, oil: 0.4, coffee: 0.4, shield: 0.7, shrink: 1.6, spring: 1.0, swap: 1.4, fake: 0.15 };
+    let total = 0;
+    const weights = POWERUP_IDS.map((id) => {
+      if (id === 'rocket' && this.rockets.length > 0) return 0;
+      const f = FRONT[id] ?? 1, b = BACK[id] ?? 1;
+      const v = f + (b - f) * frac;
+      total += v;
+      return v;
+    });
+    let roll = Math.random() * total;
+    for (let i = 0; i < weights.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0 && weights[i] > 0) return POWERUP_IDS[i];
+    }
+    return 'turbo';
+  }
+
   usePowerup(player) {
     const pw = player.powerup;
     if (!pw) return;
@@ -381,7 +407,8 @@ export class Room {
       return;
     }
     this.mode?.onHit?.(a, b, rel);
-    this.broadcast({ t: MSG.EFFECT, type: 'bump', a: a.id, b: b.id, at: a.p });
+    // pa/pb let clients compute mass-scaled knockback direction
+    this.broadcast({ t: MSG.EFFECT, type: 'bump', a: a.id, b: b.id, at: a.p, pa: a.p.map(r2), pb: b.p.map(r2) });
   }
 
   // ------------------------------------------------------- office events
@@ -390,9 +417,17 @@ export class Room {
       this.event = null;
       this.robot = null;
     }
-    if (!this.event && t >= this.nextEventAt) {
+    // Events are telegraphed: a warning fires 3 s ahead so chaos is something
+    // you play around, not something that just happens to you.
+    if (!this.event && !this.pendingEvent && t >= this.nextEventAt - 3000) {
       const pool = OFFICE_EVENTS.filter((e) => e.id !== this.lastEventId);
-      const ev = pool[Math.floor(Math.random() * pool.length)];
+      this.pendingEvent = pool[Math.floor(Math.random() * pool.length)];
+      const ev = this.pendingEvent;
+      this.broadcast({ t: MSG.OFFICE_EVENT, id: ev.id, duration: ev.duration, name: ev.name, icon: ev.icon, desc: ev.desc, warn: true, startsIn: 3 });
+    }
+    if (!this.event && this.pendingEvent && t >= this.nextEventAt) {
+      const ev = this.pendingEvent;
+      this.pendingEvent = null;
       this.lastEventId = ev.id;
       this.event = { id: ev.id, until: t + ev.duration * 1000 };
       this.nextEventAt = t + OFFICE_EVENT_INTERVAL * 1000;

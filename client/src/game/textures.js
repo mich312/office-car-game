@@ -144,6 +144,44 @@ export function makeScreen(kind = 'code') {
   return { tex, tick };
 }
 
+// Soft radial glow — floor light pools under the ceiling fixtures. Painting
+// the light's "cast" into cheap additive quads fakes many lights for free.
+export const glowTex = () =>
+  canvasTex('glow', 128, 128, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    const grad = g.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, w / 2);
+    grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.4)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+  });
+
+// Vertical light-shaft card with blind-slat stripes, fading toward the floor.
+export const shaftTex = () =>
+  canvasTex('shaft', 128, 256, (g, w, h) => {
+    g.clearRect(0, 0, w, h);
+    const grad = g.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(0.75, 'rgba(255,255,255,0.18)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    // slats: bright bands separated by gaps, softened edges
+    for (let x = 0; x < w; x += 22) {
+      g.fillRect(x + 3, 0, 13, h);
+    }
+    // horizontal fade at the card's left/right edges
+    const edge = g.createLinearGradient(0, 0, w, 0);
+    edge.addColorStop(0, 'rgba(0,0,0,1)');
+    edge.addColorStop(0.18, 'rgba(0,0,0,0)');
+    edge.addColorStop(0.82, 'rgba(0,0,0,0)');
+    edge.addColorStop(1, 'rgba(0,0,0,1)');
+    g.globalCompositeOperation = 'destination-out';
+    g.fillStyle = edge;
+    g.fillRect(0, 0, w, h);
+    g.globalCompositeOperation = 'source-over';
+  });
+
 export const skylineTex = () =>
   canvasTex('skyline', 1024, 256, (g, w, h) => {
     const grad = g.createLinearGradient(0, 0, 0, h);

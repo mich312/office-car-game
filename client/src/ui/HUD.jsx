@@ -316,6 +316,18 @@ function Feed() {
 
 function EventBanner() {
   const event = useStore((s) => s.event);
+  const eventWarn = useStore((s) => s.eventWarn);
+  if (!event && eventWarn) {
+    return (
+      <div className="event-banner warn">
+        <span className="ev-icon">⚠️</span>
+        <div>
+          <b>Incoming: {eventWarn.icon} {eventWarn.name}</b>
+          <small>{eventWarn.desc}</small>
+        </div>
+      </div>
+    );
+  }
   if (!event) return null;
   return (
     <div className="event-banner">

@@ -26,7 +26,7 @@ export const MODES = {
     name: 'RC Soccer',
     icon: '⚽',
     desc: 'Smash the giant ping pong ball into the other team’s goal.',
-    goalScore: 100,
+    goalScore: 50, // per team member; the scorer gets it twice
   },
 };
 

@@ -26,13 +26,34 @@ export const DOUBLE_JUMP_VEL = 11.5; // …double jump comfortably reaches it
 export const COYOTE_TIME = 0.12; // jump still works just after leaving ground
 export const BOOST_TOP_MULT = 1.3; // boosting may exceed top speed by this much
 export const UPRIGHT_ASSIST = 8; // gentle air auto-level torque (0 = off)
-export const AIR_PITCH_TORQUE = 1.1;
-export const AIR_YAW_TORQUE = 0.9;
+export const AIR_PITCH_TORQUE = 2.6;
+export const AIR_YAW_TORQUE = 2.2;
 export const BOOST_MAX = 100;
 export const BOOST_REGEN = 12; // per second while grounded
 export const BOOST_DRAIN = 38; // per second while boosting
 export const TRICK_BOOST_REWARD = 25; // clean flip landing
 export const BATTERY_SPEED_PENALTY = 0.72; // top-speed multiplier while carrying
+
+// Tiered drift mini-turbo (Mario Kart style). Charge accumulates while
+// drifting — faster while actively steering — and crossing each threshold
+// upgrades the spark tier. Releasing the drift fires a free boost whose
+// duration scales with the tier reached.
+export const DRIFT_TIER_TIMES = [1.0, 1.9, 3.2]; // charge seconds per tier
+export const DRIFT_TIER_BOOST_S = [0.7, 1.5, 2.4]; // release boost seconds
+export const DRIFT_TIER_COLORS = ['#59c7ff', '#ffb347', '#ff6bf0'];
+export const DRIFT_CHARGE_STEER = 1.0; // charge/s while steering in the drift
+export const DRIFT_CHARGE_COAST = 0.5; // charge/s while drifting straight
+
+// Slipstream: hold position in a rival's wake to earn a free speed burst.
+export const SLIPSTREAM = {
+  RANGE: 7, // how far behind a car the wake reaches (units)
+  LATERAL: 1.4, // half-width of the wake corridor
+  MIN_SPEED_FRAC: 0.65, // of top speed — no drafting while dawdling
+  CHARGE_S: 1.8, // seconds in the wake before the burst fires
+  BOOST_S: 2.0, // burst duration
+};
+
+export const BRAKE_STRENGTH = 2.4; // brake decel as a multiple of engine accel
 
 // Networking
 export const TICK_RATE = 20; // server simulation + snapshot Hz

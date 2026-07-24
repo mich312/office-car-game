@@ -16,8 +16,34 @@ const KEYMAP = {
 };
 
 export function useControls() {
-  const keys = useRef({ fwd: false, back: false, left: false, right: false, jump: false, drift: false, boost: false, jumpPressed: false });
+  const keys = useRef({
+    fwd: false, back: false, left: false, right: false, jump: false, drift: false, boost: false, jumpPressed: false,
+    gpSteer: 0, gpThrottle: 0, gpBrake: 0, gpDrift: false, gpBoost: false,
+  });
   useEffect(() => {
+    // Gamepad: standard mapping — left stick / d-pad steer, RT gas, LT brake,
+    // A jump, B boost, X/LB/RB drift, Y item, Start respawn. Polled per
+    // physics step from LocalCar via keys.current.poll().
+    let prevJump = false, prevUse = false, prevRespawn = false;
+    keys.current.poll = () => {
+      const k = keys.current;
+      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      let gp = null;
+      for (const p of pads) if (p && p.connected) { gp = p; break; }
+      if (!gp) { k.gpSteer = 0; k.gpThrottle = 0; k.gpBrake = 0; k.gpDrift = false; k.gpBoost = false; return; }
+      const btn = (i) => !!gp.buttons[i]?.pressed;
+      k.gpSteer = (gp.axes[0] || 0) + (btn(14) ? -1 : 0) + (btn(15) ? 1 : 0);
+      k.gpThrottle = Math.max(gp.buttons[7]?.value || 0, btn(12) ? 1 : 0);
+      k.gpBrake = Math.max(gp.buttons[6]?.value || 0, btn(13) ? 1 : 0);
+      k.gpDrift = btn(2) || btn(4) || btn(5);
+      k.gpBoost = btn(1);
+      if (btn(0) && !prevJump) k.jumpPressed = true;
+      prevJump = btn(0);
+      if (btn(3) && !prevUse) send({ t: MSG.USE_POWERUP });
+      prevUse = btn(3);
+      if (btn(9) && !prevRespawn) k.respawn = true;
+      prevRespawn = btn(9);
+    };
     const down = (e) => {
       if (e.repeat) return;
       const k = KEYMAP[e.code];

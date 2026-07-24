@@ -28,6 +28,8 @@ export const useStore = create((set, get) => ({
   night: false,
   photoMode: false,
   muted: !!saved.muted,
+  autoGas: !!saved.autoGas, // assist: throttle defaults to full when idle
+  eventWarn: null, // { id, name, icon, startsIn } — telegraphed office event
 
   // profile / progression
   name: saved.name || '',
@@ -37,8 +39,8 @@ export const useStore = create((set, get) => ({
 
   set,
   save() {
-    const { name, car, paint, xp, muted } = get();
-    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, xp, muted }));
+    const { name, car, paint, xp, muted, autoGas } = get();
+    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, xp, muted, autoGas }));
   },
   addXp(n) {
     set((s) => ({ xp: s.xp + n }));

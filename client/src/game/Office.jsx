@@ -7,7 +7,7 @@ import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { ROOMS, WALLS, FURNITURE, RAMPS, WALL_HEIGHT, M, MAP_BOUNDS } from '@rc/shared';
 import { useStore } from '../store.js';
-import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex } from './textures.js';
+import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex } from './textures.js';
 
 const FLOOR_MATS = {
   carpet: () => new THREE.MeshStandardMaterial({ map: carpetTex('#3e4a5e'), roughness: 0.95 }),
@@ -28,6 +28,79 @@ export default function Office() {
       <Ramps />
       <Outside />
       <Ambience />
+      <LightPools />
+      <LightShafts />
+    </group>
+  );
+}
+
+// -------------------------------------------- baked-look light pools & shafts
+// Positions mirror the ceiling pointLights in Lighting.jsx. Additive floor
+// quads sell the fixtures' cast for free; brightest at night, dead in a
+// blackout (only the server-room emergency pool stays, turning red).
+const POOL_SPOTS = [[-11, -4], [-2, -3.5], [9, -5], [2, 5.5]];
+
+function LightPools() {
+  const night = useStore((s) => s.night);
+  const event = useStore((s) => s.event);
+  const lightsOut = event?.id === 'lights_out';
+  const glow = useMemo(() => glowTex(), []);
+  const warmMat = useMemo(() => new THREE.MeshBasicMaterial({
+    map: glow, color: '#ffe3b0', transparent: true, opacity: 0.12,
+    blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
+  }), [glow]);
+  const serverMat = useMemo(() => new THREE.MeshBasicMaterial({
+    map: glow, color: '#3d7bff', transparent: true, opacity: 0.15,
+    blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
+  }), [glow]);
+  useFrame((_, dt) => {
+    const k = Math.min(1, dt * 2.5);
+    warmMat.opacity += ((lightsOut ? 0 : night ? 0.3 : 0.12) - warmMat.opacity) * k;
+    serverMat.opacity += ((lightsOut ? 0.4 : night ? 0.25 : 0.12) - serverMat.opacity) * k;
+    serverMat.color.lerp(new THREE.Color(lightsOut ? '#ff5040' : '#3d7bff'), k);
+  });
+  return (
+    <group>
+      {POOL_SPOTS.map(([x, z], i) => (
+        <mesh key={i} rotation-x={-Math.PI / 2} position={[x * M, 0.03, z * M]} material={warmMat}>
+          <planeGeometry args={[11, 11]} />
+        </mesh>
+      ))}
+      <mesh rotation-x={-Math.PI / 2} position={[12 * M, 0.03, 0.5 * M]} material={serverMat}>
+        <planeGeometry args={[9, 9]} />
+      </mesh>
+    </group>
+  );
+}
+
+// Moonlight slabs through the north windows — giant parallel shafts crossing
+// the track are the cheapest "this room is enormous" cue there is.
+function LightShafts() {
+  const night = useStore((s) => s.night);
+  const event = useStore((s) => s.event);
+  const lightsOut = event?.id === 'lights_out';
+  const mat = useRef();
+  const tex = useMemo(() => shaftTex(), []);
+  useFrame((_, dt) => {
+    if (!mat.current) return;
+    const k = Math.min(1, dt * 2.5);
+    const target = lightsOut ? 0.14 : night ? 0.11 : 0.05;
+    mat.current.opacity += (target - mat.current.opacity) * k;
+    mat.current.color.lerp(new THREE.Color(night || lightsOut ? '#8fa8ff' : '#ffe9c4'), k);
+  });
+  // shared material across all shafts (first mesh's ref drives them all)
+  const material = useMemo(() => new THREE.MeshBasicMaterial({
+    map: tex, color: '#8fa8ff', transparent: true, opacity: 0.08,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
+  }), [tex]);
+  mat.current = material;
+  return (
+    <group>
+      {[-20, -2, 16, 34].map((x, i) => (
+        <mesh key={i} position={[x, 6.1, 31]} rotation-x={0.99} material={material}>
+          <planeGeometry args={[7, 22]} />
+        </mesh>
+      ))}
     </group>
   );
 }

@@ -10,16 +10,21 @@ import {
   SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING,
   JUMP_VEL, DOUBLE_JUMP_VEL, COYOTE_TIME, UPRIGHT_ASSIST, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   TRICK_BOOST_REWARD, BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
+  AIR_PITCH_TORQUE, AIR_YAW_TORQUE,
+  DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
+  DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
   SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M,
 } from '@rc/shared';
 import { useStore } from '../store.js';
-import { net, on, send, sendState } from '../net.js';
+import { net, on, send, sendState, sampleRemote } from '../net.js';
 import { useControls } from './useControls.js';
 import CarModel from './CarModel.jsx';
 import Particles, { burst, puff } from './particles.jsx';
+import SkidMarks, { skid } from './SkidMarks.jsx';
 import { audio } from '../audio.js';
 
-const CAR_MASS = 14;
+const BASE_MASS = 14;
+const driftTier = (c) => (c >= DRIFT_TIER_TIMES[2] ? 3 : c >= DRIFT_TIER_TIMES[1] ? 2 : c >= DRIFT_TIER_TIMES[0] ? 1 : 0);
 const HALF = { x: CAR_WIDTH / 2, y: CAR_HEIGHT / 2, z: CAR_LENGTH / 2 };
 const WHEELS = [
   [-0.28, -0.05, 0.34], [0.28, -0.05, 0.34], // front L/R
@@ -51,6 +56,9 @@ export default function LocalCar() {
   const paint = useStore((s) => s.paint);
   const myName = useStore((s) => s.name);
   const car = CARS[carId] || CARS.balanced;
+  // Per-car mass is real physics now: heavy cars shove light ones in bumps.
+  // Forces scale with mass so acceleration curves stay identical per car.
+  const mass = BASE_MASS * (car.mass || 1);
 
   const S = useRef({
     boost: BOOST_MAX,
@@ -66,6 +74,11 @@ export default function LocalCar() {
     lastSend: 0,
     lastBumpSend: 0,
     driftTime: 0,
+    driftCharge: 0,
+    miniTurboUntil: 0,
+    slipT: 0,
+    slipBoostUntil: 0,
+    slipCooldownUntil: 0,
     shake: 0,
     fov: 60,
     speed: 0,
@@ -140,12 +153,12 @@ export default function LocalCar() {
               const r = body.rotation();
               _q.set(r.x, r.y, r.z, r.w);
               _fwd.set(0, 0, 1).applyQuaternion(_q);
-              body.applyImpulse({ x: _fwd.x * CAR_MASS * 9, y: 0, z: _fwd.z * CAR_MASS * 9 }, true);
+              body.applyImpulse({ x: _fwd.x * mass * 9, y: 0, z: _fwd.z * mass * 9 }, true);
             }
             break;
           case 'spring':
             if (fx.id === me) {
-              body.applyImpulse({ x: 0, y: CAR_MASS * fx.impulse, z: 0 }, true);
+              body.applyImpulse({ x: 0, y: mass * fx.impulse, z: 0 }, true);
               audio.jump();
               S.shake = Math.max(S.shake, 0.5);
             }
@@ -160,7 +173,7 @@ export default function LocalCar() {
           case 'rocket_hit':
             if (fx.target === me) {
               S.stunnedUntil = performance.now() + fx.stunMs;
-              body.applyImpulse({ x: (Math.random() - 0.5) * 90, y: CAR_MASS * 9, z: (Math.random() - 0.5) * 90 }, true);
+              body.applyImpulse({ x: (Math.random() - 0.5) * 90, y: mass * 9, z: (Math.random() - 0.5) * 90 }, true);
               audio.stun();
               S.shake = 1;
             }
@@ -169,7 +182,7 @@ export default function LocalCar() {
           case 'robot_hit':
             if (fx.target === me) {
               S.stunnedUntil = performance.now() + 1400;
-              body.applyImpulse({ x: (Math.random() - 0.5) * 120, y: CAR_MASS * 7, z: (Math.random() - 0.5) * 120 }, true);
+              body.applyImpulse({ x: (Math.random() - 0.5) * 120, y: mass * 7, z: (Math.random() - 0.5) * 120 }, true);
               audio.stun();
               S.shake = 0.8;
             }
@@ -193,7 +206,21 @@ export default function LocalCar() {
             audio.goal();
             break;
           case 'bump':
-            if (fx.at && (fx.a === me || fx.b === me)) S.shake = Math.max(S.shake, 0.35);
+            if (fx.a === me || fx.b === me) {
+              S.shake = Math.max(S.shake, 0.35);
+              // Mass-scaled knockback: getting hit by a Micro Monster hurts,
+              // getting hit by a Formula barely rocks you.
+              const otherId = fx.a === me ? fx.b : fx.a;
+              const otherPos = fx.a === me ? fx.pb : fx.pa;
+              if (otherPos) {
+                const otherCar = CARS[useStore.getState().players[otherId]?.car] || CARS.balanced;
+                const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
+                const p = body.translation();
+                const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
+                const len = Math.hypot(dx, dz) || 1;
+                body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
+              }
+            }
             break;
           case 'fake':
             if (fx.id === me) audio.blip(180, 0.3, 0.2);
@@ -223,6 +250,7 @@ export default function LocalCar() {
     const nowMs = performance.now();
     const st = useStore.getState();
     const k = keys.current;
+    k.poll?.(); // refresh gamepad axes/buttons once per physics step
 
     const pos = body.translation();
     const rot = body.rotation();
@@ -255,8 +283,8 @@ export default function LocalCar() {
         // point velocity along suspension
         const pv = body.velocityAtPoint ? body.velocityAtPoint({ x: _p.x, y: _p.y, z: _p.z }) : vel;
         const velAlong = pv.x * _up.x + pv.y * _up.y + pv.z * _up.z;
-        let f = (SUSPENSION_STIFFNESS * compression - SUSPENSION_DAMPING * velAlong) * (CAR_MASS / 4);
-        f = Math.max(0, Math.min(f, CAR_MASS * 90));
+        let f = (SUSPENSION_STIFFNESS * compression - SUSPENSION_DAMPING * velAlong) * (mass / 4);
+        f = Math.max(0, Math.min(f, mass * 90));
         body.applyImpulseAtPoint(
           { x: _up.x * f * dt, y: _up.y * f * dt, z: _up.z * f * dt },
           { x: _p.x, y: _p.y, z: _p.z }, true,
@@ -265,6 +293,7 @@ export default function LocalCar() {
     }
     const grounded = groundedWheels >= 2;
     S.grounded = grounded;
+    if (!grounded) { skid(0, null, 0); skid(1, null, 0); }
     if (grounded) {
       S.groundedTime += dt;
       S.sinceGrounded = 0;
@@ -294,29 +323,40 @@ export default function LocalCar() {
     if (ev?.id === 'ac_wind') {
       S.windPhase += dt;
       const wind = Math.sin(S.windPhase * 0.7) * 26 + 14;
-      body.applyImpulse({ x: wind * dt * CAR_MASS * 0.12, y: 0, z: Math.cos(S.windPhase * 0.5) * 18 * dt * CAR_MASS * 0.12 }, true);
+      body.applyImpulse({ x: wind * dt * mass * 0.12, y: 0, z: Math.cos(S.windPhase * 0.5) * 18 * dt * mass * 0.12 }, true);
     }
     if (ev?.id === 'earthquake' && grounded) {
       S.shake = Math.max(S.shake, 0.25);
       if (Math.random() < 0.06) {
-        body.applyImpulse({ x: (Math.random() - 0.5) * CAR_MASS * 6, y: Math.random() * CAR_MASS * 4, z: (Math.random() - 0.5) * CAR_MASS * 6 }, true);
+        body.applyImpulse({ x: (Math.random() - 0.5) * mass * 6, y: Math.random() * mass * 4, z: (Math.random() - 0.5) * mass * 6 }, true);
       }
     }
 
     // ---------------- driving
-    const throttle = frozen || stunned ? 0 : (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
-    const steer = frozen || stunned ? 0 : (k.left ? 1 : 0) - (k.right ? 1 : 0);
-    const drifting = k.drift && grounded && Math.abs(fwdSpeed) > 8;
+    // Inputs: keyboard is digital, gamepad axes (when present) are analog.
+    const gpSteer = Math.abs(k.gpSteer || 0) > 0.12 ? -k.gpSteer : 0;
+    let throttleIn = (k.fwd ? 1 : 0) - (k.back ? 1 : 0) + (k.gpThrottle || 0) - (k.gpBrake || 0);
+    if (st.autoGas && throttleIn === 0) throttleIn = 1; // auto-gas assist
+    throttleIn = Math.max(-1, Math.min(1, throttleIn));
+    const throttle = frozen || stunned ? 0 : throttleIn;
+    const steerIn = gpSteer !== 0 ? gpSteer : (k.left ? 1 : 0) - (k.right ? 1 : 0);
+    const steer = frozen || stunned ? 0 : steerIn;
+    const driftHeld = k.drift || k.gpDrift;
+    const drifting = driftHeld && grounded && Math.abs(fwdSpeed) > 8;
     S.driftTime = drifting ? S.driftTime + dt : 0;
     steerRef.current += (steer - steerRef.current) * Math.min(1, dt * 10);
 
     if (grounded && !frozen) {
       const top = car.topSpeed * speedMul;
-      // engine
-      if (throttle !== 0) {
+      // brakes ≫ coast: holding back against forward motion stops you hard
+      const braking = throttle < 0 && fwdSpeed > 1.5;
+      if (braking) {
+        const decel = Math.min(fwdSpeed / dt, car.accel * BRAKE_STRENGTH * -throttle);
+        body.applyImpulse({ x: -_fwd.x * decel * mass * dt, y: 0, z: -_fwd.z * decel * mass * dt }, true);
+      } else if (throttle !== 0) {
         const overspeed = throttle > 0 ? fwdSpeed > top : fwdSpeed < -top * 0.5;
         if (!overspeed) {
-          const f = car.accel * CAR_MASS * throttle * (drifting ? 0.85 : 1);
+          const f = car.accel * mass * throttle * (drifting ? 0.85 : 1);
           body.applyImpulse({ x: _fwd.x * f * dt, y: 0, z: _fwd.z * f * dt }, true);
         }
       }
@@ -325,47 +365,81 @@ export default function LocalCar() {
       const effSpeed = Math.max(Math.abs(fwdSpeed), throttle !== 0 ? 7 : 0);
       const speedFactor = Math.min(1, effSpeed / 10);
       const dir = fwdSpeed < -1 ? -1 : 1;
-      const yawTarget = steer * car.handling * speedFactor * dir * (drifting ? 1.45 : 1);
+      const latVel = _v.dot(_right);
+      // counter-steer = steering into the slide; it always works at full rate
+      // and gets a grip bonus so slides are catchable
+      const counterSteer = steer * latVel > 1.5;
+      // high-speed steering fade: full lock at top speed just scrubs — taper
+      // it (except while drifting or counter-steering)
+      let fade = 1;
+      if (!drifting && !counterSteer) {
+        const s = Math.max(0, Math.min(1, (Math.abs(fwdSpeed) / car.topSpeed - 0.55) / 0.55));
+        fade = 1 - 0.35 * s * s * (3 - 2 * s);
+      }
+      const yawTarget = steer * car.handling * speedFactor * fade * dir * (drifting ? 1.45 : 1);
       // snappy steering response — tight corners need the yaw rate NOW
       const newAngY = ang.y + (yawTarget - ang.y) * Math.min(1, dt * 14);
       body.setAngvel({ x: ang.x, y: newAngY, z: ang.z }, true);
       // lateral grip
-      const latVel = _v.dot(_right);
-      const grip = car.grip * (drifting ? car.drift : 1) * gripMul;
-      const gripImpulse = -latVel * grip * CAR_MASS * Math.min(1, dt * 12);
+      const grip = car.grip * (drifting ? car.drift : 1) * gripMul * (counterSteer && !drifting ? 1.25 : 1);
+      const gripImpulse = -latVel * grip * mass * Math.min(1, dt * 12);
       body.applyImpulse({ x: _right.x * gripImpulse, y: 0, z: _right.z * gripImpulse }, true);
       S.slipping = Math.abs(latVel) > 6 || (drifting && Math.abs(fwdSpeed) > 12);
       // rolling resistance + parking brake: real deceleration off-throttle,
       // and below walking pace the car is pinned so it never creeps on its own
       if (throttle === 0) {
-        body.applyImpulse({ x: -_v.x * CAR_MASS * 2.2 * dt, y: 0, z: -_v.z * CAR_MASS * 2.2 * dt }, true);
+        body.applyImpulse({ x: -_v.x * mass * 2.2 * dt, y: 0, z: -_v.z * mass * 2.2 * dt }, true);
         const hSpeed = Math.hypot(_v.x, _v.z);
         if (hSpeed < 1.2 && !drifting && gripMul > 0.5) {
           const damp = hSpeed < 0.15 ? 0 : 0.7; // full stop once it's basically stopped
           body.setLinvel({ x: _v.x * damp, y: vel.y, z: _v.z * damp }, true);
         }
       }
-      // mini-turbo on drift release
-      if (!drifting && S.prevDrifting && S.driftReleaseBoost > 1.1) {
-        body.applyImpulse({ x: _fwd.x * CAR_MASS * 5, y: 0, z: _fwd.z * CAR_MASS * 5 }, true);
-        audio.boostFire();
-      }
-      S.driftReleaseBoost = drifting ? S.driftTime : 0;
-      // tire smoke
-      if (S.slipping && Math.random() < 0.7) {
-        for (const rear of [WHEELS[2], WHEELS[3]]) {
-          _corner.set(rear[0], rear[1] - 0.1, rear[2]).applyQuaternion(_q);
-          puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_v.x * 0.1, 0.5, -_v.z * 0.1], 0.32, drifting ? '#e8e8e8' : '#cfcfcf');
+      // drift charge — faster while actively steering the drift. Spark color
+      // on the rear wheels tells you the tier you've earned.
+      if (drifting) {
+        S.driftCharge += (steer !== 0 ? DRIFT_CHARGE_STEER : DRIFT_CHARGE_COAST) * dt;
+        const tier = driftTier(S.driftCharge);
+        if (tier > 0 && Math.random() < 0.55) {
+          for (const rear of [WHEELS[2], WHEELS[3]]) {
+            _corner.set(rear[0], rear[1] - 0.08, rear[2]).applyQuaternion(_q);
+            burst([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z],
+              { count: 1, color: DRIFT_TIER_COLORS[tier - 1], speed: 2.5, size: 0.055, ttl: 0.3, up: 1.5 });
+          }
         }
+      }
+      // mini-turbo fires on drift release, duration scales with tier reached
+      if (!drifting && S.prevDrifting) {
+        const tier = driftTier(S.driftCharge);
+        if (tier > 0) {
+          S.miniTurboUntil = nowMs + DRIFT_TIER_BOOST_S[tier - 1] * 1000;
+          body.applyImpulse({ x: _fwd.x * mass * 3, y: 0, z: _fwd.z * mass * 3 }, true);
+          burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2 });
+          audio.boostFire();
+        }
+        S.driftCharge = 0;
+      }
+      // tire smoke + skid marks on the floor
+      if (S.slipping) {
+        [WHEELS[2], WHEELS[3]].forEach((rear, wi) => {
+          _corner.set(rear[0], rear[1] - 0.1, rear[2]).applyQuaternion(_q);
+          skid(wi, pos.x + _corner.x, pos.z + _corner.z);
+          if (Math.random() < 0.7) {
+            puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_v.x * 0.1, 0.5, -_v.z * 0.1], 0.32, drifting ? '#e8e8e8' : '#cfcfcf');
+          }
+        });
+      } else {
+        skid(0, null, 0);
+        skid(1, null, 0);
       }
     } else if (!grounded && !frozen && !stunned) {
       // air control
-      const pitch = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
-      const yaw = (k.left ? 1 : 0) - (k.right ? 1 : 0);
+      const pitch = Math.max(-1, Math.min(1, (k.fwd ? 1 : 0) - (k.back ? 1 : 0) + (k.gpThrottle || 0) - (k.gpBrake || 0)));
+      const yaw = Math.max(-1, Math.min(1, (k.left ? 1 : 0) - (k.right ? 1 : 0) + gpSteer));
       body.applyTorqueImpulse({
-        x: _right.x * pitch * 2.6 * dt * CAR_MASS * 0.35,
-        y: yaw * 2.2 * dt * CAR_MASS * 0.35,
-        z: _right.z * pitch * 2.6 * dt * CAR_MASS * 0.35,
+        x: _right.x * pitch * AIR_PITCH_TORQUE * dt * mass * 0.35,
+        y: yaw * AIR_YAW_TORQUE * dt * mass * 0.35,
+        z: _right.z * pitch * AIR_PITCH_TORQUE * dt * mass * 0.35,
       }, true);
       // gentle auto-level toward wheels-down when the player isn't
       // steering a flip — intentional tricks still work, roof landings don't
@@ -375,6 +449,9 @@ export default function LocalCar() {
       S.airSpin += Math.abs(ang.x * dt) + Math.abs(ang.z * dt);
     }
     S.prevDrifting = drifting;
+    // charge survives drift-hops (shift held over a jump, MK style) but is
+    // forfeit if you let go of drift while airborne
+    if (!driftHeld && !grounded) S.driftCharge = 0;
 
     // trick landing reward
     if (grounded && S.airSpin > 4.5) {
@@ -404,20 +481,59 @@ export default function LocalCar() {
       }
     }
 
-    // ---------------- boost (capped so it can't stack speed forever)
-    const wantBoost = (k.boost || (k.drift && k.fwd && !grounded)) && !frozen && !stunned;
+    // ---------------- slipstream: hold a rival's wake to earn a free burst
+    if (grounded && !frozen && !stunned && S.speed > car.topSpeed * SLIPSTREAM.MIN_SPEED_FRAC) {
+      let inWake = false;
+      for (const id of net.remotes.keys()) {
+        const r = sampleRemote(id);
+        if (!r) continue;
+        const dx = r.p[0] - pos.x, dz = r.p[2] - pos.z;
+        const ahead = dx * _fwd.x + dz * _fwd.z;
+        if (ahead < 1 || ahead > SLIPSTREAM.RANGE) continue;
+        if (Math.abs(dx * _right.x + dz * _right.z) > SLIPSTREAM.LATERAL) continue;
+        if (Math.abs((r.p[1] || 0) - pos.y) > 2) continue;
+        inWake = true;
+        break;
+      }
+      if (inWake) {
+        S.slipT += dt;
+        // wind streaks telegraph the charging draft
+        if (Math.random() < 0.35) {
+          _corner.set((Math.random() < 0.5 ? -1 : 1) * 0.45, 0.15, 0.6).applyQuaternion(_q);
+          puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 4, 0.6, -_fwd.z * 4], 0.14, '#cfe4ff', 0.35);
+        }
+        if (S.slipT >= SLIPSTREAM.CHARGE_S && nowMs > S.slipCooldownUntil) {
+          S.slipBoostUntil = nowMs + SLIPSTREAM.BOOST_S * 1000;
+          S.slipCooldownUntil = nowMs + 5000;
+          S.slipT = 0;
+          st.pushFeed('💨 Slipstream!');
+          audio.boostFire();
+        }
+      } else {
+        S.slipT = Math.max(0, S.slipT - dt * 2);
+      }
+    } else {
+      S.slipT = Math.max(0, S.slipT - dt * 2);
+    }
+
+    // ---------------- boost (capped so it can't stack speed forever).
+    // Mini-turbo and slipstream bursts use the same engine, free of the meter.
+    const wantBoost = (k.boost || k.gpBoost || (driftHeld && k.fwd && !grounded)) && !frozen && !stunned;
     S.boosting = wantBoost && S.boost > 1;
-    if (S.boosting) {
-      S.boost = Math.max(0, S.boost - BOOST_DRAIN * dt);
-      const f = fwdSpeed < car.topSpeed * BOOST_TOP_MULT ? car.boost * CAR_MASS : 0;
+    const freeBoost = !frozen && !stunned && (nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil);
+    if (S.boosting || freeBoost) {
+      if (S.boosting) S.boost = Math.max(0, S.boost - BOOST_DRAIN * dt);
+      const f = fwdSpeed < car.topSpeed * BOOST_TOP_MULT ? car.boost * mass : 0;
       body.applyImpulse({ x: _fwd.x * f * dt, y: 0, z: _fwd.z * f * dt }, true);
       if (Math.random() < 0.8) {
         _corner.set(0, 0.05, -0.55).applyQuaternion(_q);
-        puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 6, 1, -_fwd.z * 6], 0.22, '#7ab8ff', 0.35);
+        puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 6, 1, -_fwd.z * 6], 0.22, freeBoost && !S.boosting ? '#ffd27a' : '#7ab8ff', 0.35);
       }
-    } else if (grounded) {
+    }
+    if (!S.boosting && grounded) {
       S.boost = Math.min(BOOST_MAX, S.boost + BOOST_REGEN * dt);
     }
+    telemetry.boosting = S.boosting || freeBoost;
     telemetry.boost = S.boost;
     telemetry.speed = S.speed;
     telemetry.x = pos.x;
@@ -425,7 +541,7 @@ export default function LocalCar() {
     telemetry.y = pos.y;
     telemetry.grounded = grounded;
     telemetry.heading = Math.atan2(_fwd.x, _fwd.z);
-    boostingRef.current = S.boosting;
+    boostingRef.current = S.boosting || freeBoost;
 
     // ---------------- stun visuals
     if (stunned && Math.random() < 0.4) {
@@ -477,14 +593,19 @@ export default function LocalCar() {
       if (camera.position.y < 0.7) camera.position.y = 0.7;
       // keep the car anchored in the lower third: modest look-ahead, higher aim
       _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
+      // trauma-style shake: amplitude ∝ shake², plus a rotational component —
+      // rotation is what makes a shake read as force instead of glitch
+      const trauma = S.shake * S.shake;
       if (S.shake > 0.01) {
-        _look.x += (Math.random() - 0.5) * S.shake * 1.6;
-        _look.y += (Math.random() - 0.5) * S.shake * 1.2;
-        _look.z += (Math.random() - 0.5) * S.shake * 1.6;
+        _look.x += (Math.random() - 0.5) * trauma * 2.2;
+        _look.y += (Math.random() - 0.5) * trauma * 1.7;
+        _look.z += (Math.random() - 0.5) * trauma * 2.2;
         S.shake *= Math.pow(0.02, dt);
       }
       camera.lookAt(_look);
-      const targetFov = 58 + Math.min(1, S.speed / car.topSpeed) * 10 + (S.boosting ? 6 : 0);
+      if (S.shake > 0.01) camera.rotateZ((Math.random() - 0.5) * trauma * 0.09);
+      const boostingNow = S.boosting || nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil;
+      const targetFov = 58 + Math.min(1, S.speed / car.topSpeed) * 11 + (boostingNow ? 8 : 0);
       S.fov += (targetFov - S.fov) * Math.min(1, dt * 5);
       if (Math.abs(camera.fov - S.fov) > 0.05) { camera.fov = S.fov; camera.updateProjectionMatrix(); }
     }
@@ -537,7 +658,7 @@ export default function LocalCar() {
           }
         }}
       >
-        <CuboidCollider args={[HALF.x, HALF.y, HALF.z]} mass={CAR_MASS} friction={0.25} restitution={0.15} />
+        <CuboidCollider args={[HALF.x, HALF.y, HALF.z]} mass={mass} friction={0.25} restitution={0.15} />
         <group ref={visual}>
           <CarModel
             carId={carId}
@@ -553,6 +674,7 @@ export default function LocalCar() {
         </group>
       </RigidBody>
       <Particles />
+      <SkidMarks />
     </>
   );
 }
