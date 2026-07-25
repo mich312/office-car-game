@@ -45,7 +45,7 @@ const _camTarget = new THREE.Vector3();
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 
-export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, roll: 0, pitch: 0 }; // read by HUD/minimap
+export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0 }; // read by HUD/minimap/controller
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
 
 export default function LocalCar() {
@@ -685,6 +685,8 @@ export default function LocalCar() {
     telemetry.y = pos.y;
     telemetry.grounded = grounded;
     telemetry.heading = Math.atan2(_fwd.x, _fwd.z);
+    telemetry.steer = steerRef.current; // +1 = left, smoothed like the wheels
+    telemetry.throttle = throttle;
     boostingRef.current = S.boosting || freeBoost;
 
     // ---------------- stun visuals

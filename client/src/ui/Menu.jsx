@@ -1,8 +1,11 @@
-// The garage is a real 3D place now: your RC car sits on a workbench desk
-// under a lamp, surrounded by tools. Everything you used to click in a flat
-// menu lives inside the world — stats & tuning on the bench monitor, the
-// controls cheat-sheet on a propped clipboard, and a big red RACE button.
-import { useState, useRef, Suspense, useMemo } from 'react';
+// The garage is a real 3D place: your RC car sits on a workbench desk under
+// a lamp, surrounded by tools. Stats, parts, paint, the setup sheet and gear
+// live on the bench monitor; the controls cheat-sheet on a propped clipboard;
+// the big red RACE button starts the game.
+// Clicking the monitor or clipboard docks the camera onto it (focus mode) —
+// the monitor dock keeps the car in frame on the left, so fitting a part or
+// changing paint previews live while you click. Esc backs out.
+import { useState, useRef, useEffect, Suspense, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment, Lightformer, ContactShadows, Html } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
@@ -20,6 +23,7 @@ import { useStore } from '../store.js';
 import { audio } from '../audio.js';
 import CarModel from '../game/CarModel.jsx';
 import { woodTex } from '../game/textures.js';
+import Icon from './Icon.jsx';
 
 const play = () => {
   audio.start();
@@ -31,24 +35,68 @@ const play = () => {
 };
 
 export default function Menu() {
+  const [focus, setFocus] = useState(null); // null | 'monitor' | 'clipboard'
+  const xp = useStore((s) => s.xp);
+  const nextUnlock = UNLOCKS.find((u) => u.xp > xp);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') setFocus(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="garage3d">
-      <Canvas dpr={[1, 2]} shadows camera={{ position: [0, 2.6, 5.2], fov: 42 }} gl={{ antialias: true }}>
+      <Canvas
+        dpr={[1, 2]}
+        shadows
+        camera={{ position: [0, 2.6, 5.2], fov: 42 }}
+        gl={{ antialias: true }}
+        onPointerMissed={() => setFocus(null)}
+      >
         <color attach="background" args={['#0a0d18']} />
         <fog attach="fog" args={['#0a0d18', 9, 18]} />
         <Suspense fallback={null}>
-          <GarageScene />
+          <GarageScene focus={focus} setFocus={setFocus} />
         </Suspense>
       </Canvas>
-      <div className="garage-overlay">
-        <h1>TINY <span>RC</span> MAYHEM</h1>
-        <p>the workshop · 2–12 players · one giant office</p>
+
+      <div className={`garage-overlay ${focus ? 'dim' : ''}`}>
+        <div className="logo">
+          <span className="logo-tiny">TINY RC</span>
+          <span className="logo-mayhem">MAYHEM</span>
+        </div>
+        <p className="logo-sub label">the workshop · 2–12 players · one giant office</p>
       </div>
+
+      <div className="garage-xp chip">
+        <span className="label">career</span>
+        <span>{xp} XP</span>
+        {nextUnlock && <span className="label">next · {nextUnlock.name} @ {nextUnlock.xp}</span>}
+      </div>
+
+      {focus ? (
+        <button className="chip focus-back" onClick={() => setFocus(null)}>
+          <Icon name="chevron-left" size={15} /> back to the bench <kbd>ESC</kbd>
+        </button>
+      ) : (
+        <>
+          <p className="garage-help label">tap the monitor to tune your car · smack the red button to race</p>
+          {/* portrait phones can't reach the in-world monitor/button — give
+              them real controls instead of a scavenger hunt */}
+          <div className="garage-actions">
+            <button className="btn btn-ghost" onClick={() => setFocus('monitor')}>
+              <Icon name="wrench" size={16} /> Tune
+            </button>
+            <button className="btn btn-primary" onClick={play}>RACE →</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function GarageScene() {
+function GarageScene({ focus, setFocus }) {
   const carId = useStore((s) => s.car);
   const paint = useStore((s) => s.paint);
   const style = useStore((s) => s.style);
@@ -69,12 +117,13 @@ function GarageScene() {
       <directionalLight position={[3, 6, 4]} intensity={1.1} color="#dfe6ff" />
       <pointLight position={[-3.5, 2.5, -1]} intensity={9} color="#6a8bff" />
 
-      <Rig />
+      <Rig focus={focus} />
       <Desk />
       <Backdrop />
 
       {/* the star of the show, on its turntable — stance, tyre width and wing
-          angle update live as the setup sheet on the monitor changes */}
+          angle update live as the setup sheet on the monitor changes, and the
+          turntable parks so the part you just fitted faces the camera */}
       <Turntable>
         <CarModel
           carId={carId}
@@ -92,8 +141,18 @@ function GarageScene() {
       <primitive object={lampTarget} position={[0, 0.3, 0]} />
       <DeskLamp position={[-2.3, 0, -1.6]} target={lampTarget} />
 
-      <Monitor position={[2.35, 0, -0.7]} rotation={[0, -0.55, 0]} />
-      <Clipboard position={[-2.05, 0, 0.55]} rotation={[0, 0.62, 0]} />
+      <Monitor
+        position={[2.35, 0, -0.7]}
+        rotation={[0, -0.55, 0]}
+        active={focus === 'monitor'}
+        onFocus={() => setFocus('monitor')}
+      />
+      <Clipboard
+        position={[-2.05, 0, 0.55]}
+        rotation={[0, 0.62, 0]}
+        active={focus === 'clipboard'}
+        onFocus={() => setFocus('clipboard')}
+      />
       <StartButton position={[1.75, 0, 1.35]} />
       <Tools />
 
@@ -105,54 +164,78 @@ function GarageScene() {
   );
 }
 
-// Where the bench camera goes, and which way the turntable parks, when you are
-// fitting a part. Every slot in PART_SLOTS names one of these regions, so
-// changing a bumper swings the nose round and pulls the camera in on it.
-const FOCUS_VIEWS = {
-  // angle 0 points the nose at the bench camera; +π turns the tail round
-  front: { angle: -0.35, cam: [0.55, 1.3, 3.1], look: [0, 0.48, 0.15] },
-  rear: { angle: Math.PI - 0.35, cam: [0.5, 1.35, 3.1], look: [0, 0.48, -0.1] },
-  side: { angle: Math.PI / 2, cam: [0.15, 1.2, 2.95], look: [0, 0.46, 0] },
-  roof: { angle: -0.5, cam: [0.4, 2.35, 2.15], look: [0, 0.52, 0] },
-  wheel: { angle: Math.PI / 2 - 0.3, cam: [0.8, 0.92, 2.4], look: [0.1, 0.3, 0.2] },
+// Camera rig: subtle head-tracking parallax while roaming the bench, and a
+// docked pose while a surface has focus. The monitor dock is deliberately
+// off-axis — the screen parks on the right of the frame and the turntable
+// stays visible on the left, so parts/paint/setup preview live.
+const POSES = {
+  monitor: {
+    center: new THREE.Vector3(2.34, 1.28, -0.68),
+    normal: new THREE.Vector3(-0.522, 0, 0.852),
+    right: new THREE.Vector3(0.852, 0, 0.522), // screen-right from the dock
+    halfW: 1.6, halfH: 1.1,
+    shift: -0.62, // slide camera+look screen-left → monitor right, car left
+    dMul: 1.34,
+  },
+  clipboard: {
+    center: new THREE.Vector3(-2.05, 0.98, 0.68),
+    normal: new THREE.Vector3(0.55, 0.31, 0.77),
+    right: new THREE.Vector3(0, 0, 0),
+    halfW: 0.85, halfH: 1.0,
+    shift: 0, dMul: 1,
+  },
 };
-const DEFAULT_CAM = [0, 2.6, 5.2];
-const DEFAULT_LOOK = [0.1, 0.75, 0];
-const _camGoal = new THREE.Vector3();
-const _lookGoal = new THREE.Vector3();
-const _look = new THREE.Vector3();
-
-// Head-tracking parallax so the desk feels like a diorama, plus the part-focus
-// dolly: with a focus set the camera eases to that region's viewpoint and the
-// pointer parallax stands down.
-function Rig() {
-  const look = useRef(new THREE.Vector3(...DEFAULT_LOOK));
-  useFrame(({ camera, pointer }, dt) => {
-    const view = FOCUS_VIEWS[useStore.getState().focus];
-    const k = 1 - Math.pow(0.004, Math.min(dt, 0.1));
-    if (view) {
-      _camGoal.set(...view.cam);
-      _lookGoal.set(...view.look);
+function Rig({ focus }) {
+  const look = useRef(new THREE.Vector3(0.1, 0.75, 0));
+  const tmpPos = useRef(new THREE.Vector3());
+  const tmpLook = useRef(new THREE.Vector3());
+  useFrame(({ camera, pointer }, delta) => {
+    const pose = POSES[focus];
+    let targetPos, targetLook;
+    if (pose) {
+      // dock on the surface's normal axis, far enough back that the whole
+      // panel fits the current viewport (portrait phones need more distance)
+      const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const tanH = tanV * camera.aspect;
+      const d = Math.max((pose.halfH * 1.12) / tanV, (pose.halfW * 1.12) / tanH) * pose.dMul;
+      // wide viewports can afford the split view; portrait keeps it centered
+      const shift = camera.aspect > 1.2 ? pose.shift : 0;
+      targetLook = tmpLook.current.copy(pose.center).addScaledVector(pose.right, shift);
+      targetPos = tmpPos.current.copy(pose.normal).multiplyScalar(d).add(targetLook);
     } else {
-      _camGoal.set(DEFAULT_CAM[0] + pointer.x * 0.45, DEFAULT_CAM[1] + pointer.y * 0.25, DEFAULT_CAM[2]);
-      _lookGoal.set(...DEFAULT_LOOK);
+      targetPos = tmpPos.current.set(pointer.x * 0.45, 2.6 + pointer.y * 0.25, 5.2);
+      targetLook = tmpLook.current.set(0.1, 0.75, 0);
     }
-    camera.position.lerp(_camGoal, k);
-    look.current.lerp(_lookGoal, k);
+    // exponential damping — frame-rate independent, so the dock takes the
+    // same ~0.6 s on a 30 fps laptop and a 144 Hz monitor
+    const dt = Math.min(delta, 0.1);
+    camera.position.lerp(targetPos, 1 - Math.exp(-(pose ? 7 : 2.5) * dt));
+    look.current.lerp(targetLook, 1 - Math.exp(-(pose ? 8 : 3) * dt));
     camera.lookAt(look.current);
   });
   return null;
 }
+
+// Where the turntable parks when you are fitting a part. Every slot in
+// PART_SLOTS names one of these regions; the docked camera stays put and the
+// car swings round so the part you just changed faces it.
+const FOCUS_ANGLES = {
+  front: 0.7,
+  rear: Math.PI + 0.7,
+  side: Math.PI / 2 + 0.5,
+  roof: 0.4,
+  wheel: Math.PI / 2 + 0.5,
+};
 
 function Turntable({ children }) {
   const ref = useRef();
   const spin = useRef(0);
   useFrame((_, dt) => {
     if (!ref.current) return;
-    const view = FOCUS_VIEWS[useStore.getState().focus];
-    if (view) {
+    const angle = FOCUS_ANGLES[useStore.getState().focus];
+    if (angle !== undefined) {
       // shortest way round to the parked angle
-      let d = (view.angle - spin.current) % (Math.PI * 2);
+      let d = (angle - spin.current) % (Math.PI * 2);
       if (d > Math.PI) d -= Math.PI * 2;
       if (d < -Math.PI) d += Math.PI * 2;
       spin.current += d * Math.min(1, dt * 4.5);
@@ -263,9 +346,16 @@ function DeskLamp({ position, target }) {
   );
 }
 
-// The bench monitor runs the tuning software — the whole old menu UI lives
-// on this screen, projected into the world via a CSS3D transform.
-function Monitor({ position, rotation }) {
+// The bench monitor runs the tuning software — the menu UI lives on this
+// screen, projected into the world via a CSS3D transform.
+function Monitor({ position, rotation, active, onFocus }) {
+  const grab = (e) => {
+    e.stopPropagation();
+    onFocus();
+    document.body.style.cursor = '';
+  };
+  const over = (e) => { e.stopPropagation(); if (!active) document.body.style.cursor = 'pointer'; };
+  const out = () => { document.body.style.cursor = ''; };
   return (
     <group position={position} rotation={rotation}>
       {/* stand */}
@@ -274,7 +364,7 @@ function Monitor({ position, rotation }) {
         <meshStandardMaterial color="#22262f" metalness={0.6} roughness={0.4} />
       </mesh>
       {/* frame */}
-      <mesh position={[0, 1.28, -0.05]} castShadow>
+      <mesh position={[0, 1.28, -0.05]} castShadow onClick={grab} onPointerOver={over} onPointerOut={out}>
         <boxGeometry args={[3.05, 2.05, 0.1]} />
         <meshStandardMaterial color="#191d26" metalness={0.4} roughness={0.5} />
       </mesh>
@@ -284,7 +374,7 @@ function Monitor({ position, rotation }) {
         <meshBasicMaterial color="#0c1322" toneMapped={false} />
       </mesh>
       <Html transform position={[0, 1.28, 0.02]} distanceFactor={1.63}>
-        <MonitorUI />
+        <MonitorUI active={active} onFocus={onFocus} />
       </Html>
       {/* sticky note on the frame */}
       <mesh position={[1.28, 0.2, 0.02]} rotation-z={-0.12}>
@@ -295,7 +385,40 @@ function Monitor({ position, rotation }) {
   );
 }
 
-function MonitorUI() {
+// Stat bars are calibrated against the roster min/max so cars actually
+// differ on screen, and they show the car AS TUNED with a tick where stock
+// sits — the setup sheet's effect is visible, not remembered.
+const STAT_DEFS = [
+  ['Speed', (c) => c.topSpeed],
+  ['Accel', (c) => c.accel],
+  ['Handling', (c) => c.handling],
+  ['Drift', (c) => 1 - c.drift],
+  ['Boost', (c) => c.boost],
+];
+const STAT_RANGES = STAT_DEFS.map(([label, get]) => {
+  const vals = CAR_IDS.map((id) => get(CARS[id]));
+  const min = Math.min(...vals), max = Math.max(...vals);
+  // leave tuning headroom past the roster extremes so +2 sheets still move
+  const pad = (max - min) * 0.25 || 1;
+  return { label, get, min: min - pad * 0.4, max: max + pad };
+});
+
+const WHEEL_NAMES = Object.fromEntries(WHEEL_IDS.map((id) => [id, WHEEL_STYLES[id].name]));
+const SPOILER_NAMES = Object.fromEntries(SPOILER_IDS.map((id) => [id, SPOILER_STYLES[id].name]));
+
+// Fitted-parts summary for the CAR tab: names only the parts you changed.
+function fittedLabel(style) {
+  const parts = [];
+  for (const slot of PART_SLOTS) {
+    const v = style[slot.id];
+    if (v !== DEFAULT_STYLE[slot.id]) parts.push(slot.options[v]);
+  }
+  if (style.wheels !== DEFAULT_STYLE.wheels) parts.push(WHEEL_NAMES[style.wheels]);
+  if (style.spoiler !== DEFAULT_STYLE.spoiler) parts.push(SPOILER_NAMES[style.spoiler]);
+  return parts.length ? parts.join(' · ') : 'Showroom stock';
+}
+
+function MonitorUI({ active, onFocus }) {
   const store = useStore();
   const [tab, setTab] = useState('car');
   const [carIdx, setCarIdx] = useState(Math.max(0, CAR_IDS.indexOf(store.car)));
@@ -323,10 +446,13 @@ function MonitorUI() {
 
   return (
     <div className="monitor-ui" onPointerDown={(e) => e.stopPropagation()}>
-      <header>
-        <b>🔧 RC TUNER v2.0</b>
-        <span className="mu-xp">CAREER {store.xp} XP{nextUnlock ? ` · next: ${nextUnlock.name} @ ${nextUnlock.xp}` : ''}</span>
-      </header>
+      <div className="mu-titlebar">
+        <span className="mu-dots"><i /><i /><i /></span>
+        <span className="mu-title"><Icon name="wrench" size={14} /> RC TUNER</span>
+        <span className="mu-career">
+          {nextUnlock ? `next unlock: ${nextUnlock.name} @ ${nextUnlock.xp} xp` : 'v2.1 · all gear unlocked'}
+        </span>
+      </div>
       <nav>
         <button className={tab === 'car' ? 'sel' : ''} onClick={() => setTab('car')}>CAR</button>
         <button className={tab === 'parts' ? 'sel' : ''} onClick={() => setTab('parts')}>PARTS</button>
@@ -347,67 +473,22 @@ function MonitorUI() {
           </div>
           {/* bars show the car AS TUNED, with a tick where stock sits */}
           <div className="mu-stats">
-            <Stat label="Speed" v={tuned.topSpeed / 20} base={car.topSpeed / 20} />
-            <Stat label="Accel" v={tuned.accel / 16} base={car.accel / 16} />
-            <Stat label="Handling" v={tuned.handling / 4} base={car.handling / 4} />
-            <Stat label="Drift" v={1 - tuned.drift / 0.6} base={1 - car.drift / 0.6} />
-            <Stat label="Boost" v={tuned.boost / 13} base={car.boost / 13} />
+            {STAT_RANGES.map(({ label, get, min, max }) => {
+              const norm = (x) => Math.min(1, Math.max(0, (x - min) / (max - min)));
+              return <Stat key={label} label={label} v={norm(get(tuned))} base={norm(get(car))} />;
+            })}
           </div>
           <p className="mu-setup">
             SETUP · <b>{tuneLabel(store.tune)}</b>
             <button className="mu-linkbtn" onClick={() => setTab('tune')}>setup sheet →</button>
           </p>
-          <p className="mu-ability">{ABILITIES[carId]?.icon} <b>{ABILITIES[carId]?.name}</b> · {ABILITIES[carId]?.desc} <kbd>Q</kbd></p>
-          <p className="mu-built">
+          <p className="mu-setup mu-built">
             BUILD · <b>{buildLabel}</b>
             <button className="mu-linkbtn" onClick={() => setTab('parts')}>fit parts →</button>
           </p>
-        </div>
-      )}
-
-      {tab === 'tune' && (
-        <div className="mu-body">
-          <div className="mu-row mu-presets">
-            {TUNE_PRESET_IDS.map((id) => (
-              <button
-                key={id}
-                className={activePreset === id ? 'sel' : ''}
-                title={TUNE_PRESETS[id].desc}
-                onClick={() => { store.applyTunePreset(id); audio.blip(660, 0.06); }}
-              >
-                {TUNE_PRESETS[id].name}
-              </button>
-            ))}
-          </div>
-          <div className="mu-tune">
-            {TUNE_AXES.map((axis) => {
-              const v = store.tune[axis.id];
-              return (
-                <div className="mu-tune-row" key={axis.id} title={`${axis.desc}  +${axis.gains} / −${axis.costs}`}>
-                  <span className="mu-tune-name">{axis.icon} {axis.name}</span>
-                  <span className="mu-tune-end">{axis.low}</span>
-                  <input
-                    type="range"
-                    min={TUNE_MIN}
-                    max={TUNE_MAX}
-                    step={1}
-                    value={v}
-                    aria-label={axis.name}
-                    onChange={(e) => {
-                      const n = Number(e.target.value);
-                      store.setTune({ [axis.id]: n });
-                      audio.blip(560 + n * 45, 0.04);
-                    }}
-                  />
-                  <span className="mu-tune-end">{axis.high}</span>
-                  <span className={`mu-tune-val ${v ? 'on' : ''}`}>
-                    {v === 0 ? '·' : `${v > 0 ? '+' : ''}${v}`}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          <TunePreview carId={carId} tune={store.tune} />
+          <p className="mu-ability">
+            <b>{ABILITIES[carId]?.name}</b> · {ABILITIES[carId]?.desc} <kbd>Q</kbd>
+          </p>
         </div>
       )}
 
@@ -437,7 +518,7 @@ function MonitorUI() {
             />
           </div>
           <div className="mu-plate">
-            <label className="mu-label" htmlFor="platetext">PLATE</label>
+            <label className="label" htmlFor="platetext">plate</label>
             <input
               id="platetext"
               value={store.style.plate}
@@ -449,7 +530,7 @@ function MonitorUI() {
               useStore.getState().setStyle(randomStyle());
               useStore.getState().setFocus('side');
               audio.blip(880, 0.08);
-            }}>🎲 SURPRISE ME</button>
+            }}>SURPRISE ME</button>
             <button onClick={() => {
               useStore.getState().setStyle({ ...DEFAULT_STYLE, plate: store.style.plate });
               useStore.getState().setFocus('side');
@@ -457,21 +538,21 @@ function MonitorUI() {
             }}>STRIP TO STOCK</button>
           </div>
           <p className="mu-hint mu-partshint">
-            Every part fits every body · the bench camera swings round to whatever you just fitted
+            Every part fits every body · the turntable swings round to whatever you just fitted
           </p>
         </div>
       )}
 
       {tab === 'paint' && (
         <div className="mu-body">
-          <label className="mu-label">FINISH</label>
+          <label className="label">Finish</label>
           <div className="mu-row">
             {FINISH_IDS.map((id) => (
               <button key={id} className={store.style.finish === id ? 'sel' : ''}
                 onClick={() => setStyle({ finish: id }, 'side')}>{FINISHES[id].name}</button>
             ))}
           </div>
-          <label className="mu-label">PAINT</label>
+          <label className="label">Paint</label>
           <div className="mu-swatches">
             {paints.map((p) => (
               <button
@@ -490,7 +571,7 @@ function MonitorUI() {
             <button className={`swatch none ${!store.paint ? 'sel' : ''}`} title="Stock paint"
               onClick={() => { useStore.setState({ paint: null }); useStore.getState().save(); }}>✕</button>
           </div>
-          <label className="mu-label">VINYL</label>
+          <label className="label">Vinyl</label>
           <div className="mu-row">
             {VINYL_IDS.map((id) => (
               <button key={id} className={store.style.vinyl === id ? 'sel' : ''}
@@ -499,7 +580,7 @@ function MonitorUI() {
           </div>
           <div className="mu-cols mu-cols3">
             <div>
-              <label className="mu-label">VINYL COLOR</label>
+              <label className="label">Vinyl color</label>
               <div className="mu-swatches">
                 {VINYL_COLORS.map((c) => (
                   <button key={c} className={`swatch ${store.style.vinylColor === c ? 'sel' : ''}`}
@@ -508,7 +589,7 @@ function MonitorUI() {
               </div>
             </div>
             <div>
-              <label className="mu-label">UNDERGLOW</label>
+              <label className="label">Underglow</label>
               <div className="mu-swatches">
                 {GLOW_COLORS.map((c) => (
                   <button key={c || 'off'} className={`swatch ${c ? '' : 'none'} ${store.style.glow === c ? 'sel' : ''}`}
@@ -518,7 +599,7 @@ function MonitorUI() {
               </div>
             </div>
             <div>
-              <label className="mu-label" title="splitter · mirrors · wing · helmet">TRIM</label>
+              <label className="label" title="splitter · mirrors · wing · helmet">Trim</label>
               <div className="mu-swatches">
                 {ACCENT_COLORS.map((c) => (
                   <button key={c || 'body'} className={`swatch ${c ? '' : 'none'} ${store.style.accent === c ? 'sel' : ''}`}
@@ -531,14 +612,59 @@ function MonitorUI() {
         </div>
       )}
 
+      {tab === 'tune' && (
+        <div className="mu-body">
+          <div className="mu-row mu-presets">
+            {TUNE_PRESET_IDS.map((id) => (
+              <button
+                key={id}
+                className={activePreset === id ? 'sel' : ''}
+                title={TUNE_PRESETS[id].desc}
+                onClick={() => { store.applyTunePreset(id); audio.blip(660, 0.06); }}
+              >
+                {TUNE_PRESETS[id].name}
+              </button>
+            ))}
+          </div>
+          <div className="mu-tune">
+            {TUNE_AXES.map((axis) => {
+              const v = store.tune[axis.id];
+              return (
+                <div className="mu-tune-row" key={axis.id} title={`${axis.desc}  +${axis.gains} / −${axis.costs}`}>
+                  <span className="mu-tune-name">{axis.name}</span>
+                  <span className="mu-tune-end">{axis.low}</span>
+                  <input
+                    type="range"
+                    min={TUNE_MIN}
+                    max={TUNE_MAX}
+                    step={1}
+                    value={v}
+                    aria-label={axis.name}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      store.setTune({ [axis.id]: n });
+                      audio.blip(560 + n * 45, 0.04);
+                    }}
+                  />
+                  <span className="mu-tune-end">{axis.high}</span>
+                  <span className={`mu-tune-val ${v ? 'on' : ''}`}>
+                    {v === 0 ? '·' : `${v > 0 ? '+' : ''}${v}`}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <TunePreview carId={carId} tune={store.tune} />
+        </div>
+      )}
 
       {tab === 'gear' && (
         <div className="mu-body">
-          {[['hat', 'HAT'], ['antenna', 'ANTENNA'], ['trail', 'TRAIL']].map(([slot, label]) => {
+          {[['hat', 'Hat'], ['antenna', 'Antenna'], ['trail', 'Trail']].map(([slot, label]) => {
             const items = unlocked.filter((u) => u.type === slot);
             return (
               <div key={slot}>
-                <label className="mu-label">{label}</label>
+                <label className="label">{label}</label>
                 <div className="mu-row">
                   <button className={!store.cos[slot] ? 'sel' : ''}
                     onClick={() => { store.equip(slot, null); audio.blip(440, 0.05); }}>none</button>
@@ -555,43 +681,34 @@ function MonitorUI() {
       )}
 
       <footer>
-        <input
-          value={store.name}
-          maxLength={16}
-          placeholder="DRIVER NAME"
-          onChange={(e) => useStore.setState({ name: e.target.value })}
-          onKeyDown={(e) => e.key === 'Enter' && play()}
-        />
+        <div className={`mu-driver ${store.name.trim() ? '' : 'attn'}`}>
+          <label className="label" htmlFor="mu-name">driver</label>
+          <input
+            id="mu-name"
+            value={store.name}
+            maxLength={16}
+            placeholder="type your name"
+            onChange={(e) => useStore.setState({ name: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && play()}
+          />
+        </div>
         <label className="mu-auto" title="car accelerates on its own">
           <input type="checkbox" checked={store.autoGas}
             onChange={(e) => { useStore.setState({ autoGas: e.target.checked }); useStore.getState().save(); }} />
           auto-gas
         </label>
-        <button className="mu-play" onClick={play}>ENTER THE OFFICE →</button>
+        <button className="btn btn-primary mu-play" onClick={play}>ENTER THE OFFICE</button>
       </footer>
+
+      {/* while the camera isn't docked, the whole screen is one big
+          "focus me" button — no more clicking tiny moving targets */}
+      {!active && <button className="mu-cover" aria-label="Open the tuner" onClick={onFocus} />}
     </div>
   );
 }
 
-// A stat bar. With `base` it also draws a tick where the untuned car sits, so
-// the setup sheet's effect is visible at a glance instead of remembered.
-// Fitted-parts summary for the CAR tab: names only the parts you changed.
-function fittedLabel(style) {
-  const parts = [];
-  for (const slot of PART_SLOTS) {
-    const v = style[slot.id];
-    if (v !== DEFAULT_STYLE[slot.id]) parts.push(slot.options[v]);
-  }
-  if (style.wheels !== DEFAULT_STYLE.wheels) parts.push(WHEEL_NAMES[style.wheels]);
-  if (style.spoiler !== DEFAULT_STYLE.spoiler) parts.push(SPOILER_NAMES[style.spoiler]);
-  return parts.length ? parts.join(' · ') : 'Showroom stock';
-}
-
-const WHEEL_NAMES = Object.fromEntries(WHEEL_IDS.map((id) => [id, WHEEL_STYLES[id].name]));
-const SPOILER_NAMES = Object.fromEntries(SPOILER_IDS.map((id) => [id, SPOILER_STYLES[id].name]));
-
-// One fitted part: name, the option you have on, and arrows to flip through the
-// rest. Cycling is the point — the car changes under you as you click.
+// One fitted part: name, the option you have on, and arrows to flip through
+// the rest. Cycling is the point — the car changes under you as you click.
 function PartRow({ label, options, value, onPick }) {
   const keys = Object.keys(options);
   const i = Math.max(0, keys.indexOf(value));
@@ -609,6 +726,7 @@ function PartRow({ label, options, value, onPick }) {
   );
 }
 
+// A stat bar: tuned value filled, a tick where stock sits, delta readout.
 function Stat({ label, v, base }) {
   const pct = Math.round(Math.min(1, Math.max(0, v)) * 100);
   const basePct = base === undefined ? null : Math.round(Math.min(1, Math.max(0, base)) * 100);
@@ -630,7 +748,7 @@ function Stat({ label, v, base }) {
 }
 
 // ---------------------------------------------------------------- preview
-// Honest preview: `simulateDrive` re-runs the grounded driving model from
+// Honest preview: `tuneMetrics` re-runs the grounded driving model from
 // LocalCar.jsx with these numbers, so the trace is what the car will actually
 // do on a flat floor at full throttle — stock dashed, your sheet solid.
 function TunePreview({ carId, tune }) {
@@ -659,7 +777,7 @@ function TunePreview({ carId, tune }) {
 
   return (
     <div className="mu-preview">
-      <label className="mu-label">PREVIEW · 6 s slalom from a standing start · dashed = stock</label>
+      <label className="label">Preview · 6 s slalom from a standing start · dashed = stock</label>
       <svg viewBox={`0 0 ${W} ${H}`} className="mu-trace" preserveAspectRatio="none">
         <polyline points={coursePts} className="axis" />
         <polyline points={pts(ghost)} className="ghost" />
@@ -697,10 +815,15 @@ function Metric({ label, v, base, unit = '', digits = 0, lowerIsBetter = false, 
 }
 
 // Controls cheat-sheet on a clipboard leaning against a coffee mug.
-function Clipboard({ position, rotation }) {
+function Clipboard({ position, rotation, active, onFocus }) {
+  const grab = (e) => { e.stopPropagation(); onFocus(); document.body.style.cursor = ''; };
+  const over = (e) => { e.stopPropagation(); if (!active) document.body.style.cursor = 'pointer'; };
+  const out = () => { document.body.style.cursor = ''; };
   return (
     <group position={position} rotation={rotation}>
-      <group rotation-x={-0.32}>
+      {/* the DOM sheet is click-transparent (read-only), so any click on the
+          board/paper meshes lands here and docks the camera */}
+      <group rotation-x={-0.32} onClick={grab} onPointerOver={over} onPointerOut={out}>
         {/* board */}
         <mesh position={[0, 0.78, 0]} castShadow>
           <boxGeometry args={[1.5, 1.9, 0.04]} />
@@ -716,9 +839,9 @@ function Clipboard({ position, rotation }) {
           <planeGeometry args={[1.34, 1.72]} />
           <meshStandardMaterial color="#f4f1e6" roughness={0.9} />
         </mesh>
-        <Html transform position={[0, 0.76, 0.03]} distanceFactor={1.36}>
+        <Html transform position={[0, 0.76, 0.03]} distanceFactor={1.36} pointerEvents="none">
           <div className="clipboard-ui">
-            <h3>— CONTROLS —</h3>
+            <h3>CONTROLS</h3>
             <div><kbd>WASD</kbd> drive</div>
             <div><kbd>SHIFT</kbd> drift → sparks → mini-turbo</div>
             <div><kbd>SPACE</kbd>/<kbd>B</kbd> boost</div>
@@ -727,8 +850,8 @@ function Clipboard({ position, rotation }) {
             <div><kbd>1-8</kbd> emotes</div>
             <div><kbd>R</kbd> respawn · <kbd>N</kbd> night</div>
             <div><kbd>TAB</kbd> scores · <kbd>M</kbd> mute</div>
-            <div>🎮 gamepad: stick + triggers</div>
-            <div className="cb-note">ramps launch you —<br />land on your wheels ✏️</div>
+            <div><Icon name="gamepad" size={17} className="cb-icon" /> gamepad: stick + triggers</div>
+            <div className="cb-note">ramps launch you —<br />land on your wheels!</div>
           </div>
         </Html>
       </group>
@@ -765,8 +888,9 @@ function StartButton({ position }) {
           toneMapped={false}
         />
       </mesh>
+      {/* click-transparent label — the glorious red dome is the button */}
       <Html position={[0, 0.75, 0]} center className="race-tag">
-        <div onClick={play}>RACE!</div>
+        <div className="sticky">RACE →</div>
       </Html>
     </group>
   );

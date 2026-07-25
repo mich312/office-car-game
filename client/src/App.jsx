@@ -9,7 +9,7 @@ export default function App() {
   return (
     <>
       {screen === 'game' && (
-        <Suspense fallback={<div className="loading">Unboxing tiny cars…</div>}>
+        <Suspense fallback={<div className="connect-screen"><p>unboxing tiny cars<span className="dots" /></p></div>}>
           <Game />
           <HUD />
         </Suspense>

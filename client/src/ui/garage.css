@@ -1,0 +1,522 @@
+/* Garage (3D menu) surfaces: overlay lockup, bench monitor "RC TUNER" app,
+   clipboard sheet, focus-mode chrome. The monitor/clipboard DOM is projected
+   into the 3D scene, so those blocks use px (they scale with the scene, not
+   the viewport). */
+
+.garage3d { position: fixed; inset: 0; }
+.garage3d canvas { display: block; }
+
+/* ------------------------------------------------------------ logo lockup */
+.garage-overlay {
+  position: fixed;
+  top: var(--hud-y);
+  left: var(--hud-x);
+  pointer-events: none;
+  z-index: 5;
+  transition: opacity var(--t-slow) var(--ease);
+}
+.garage-overlay.dim { opacity: 0; }
+
+.logo { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; }
+.logo-tiny {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(30px, 3.4vw, 46px);
+  line-height: 0.9;
+  letter-spacing: 0.06em;
+  color: var(--text-1);
+  text-shadow: 0 3px 18px rgba(0, 0, 0, 0.6);
+}
+.logo-mayhem {
+  display: inline-block;
+  background: var(--amber);
+  color: #1d1305;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(19px, 2.1vw, 29px);
+  line-height: 1;
+  letter-spacing: 0.22em;
+  padding: 0.18em 0.4em 0.14em 0.55em;
+  border-radius: 3px;
+  transform: rotate(-2.5deg);
+  transform-origin: left center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+.logo-sub { margin-top: 0.7rem; }
+.logo.small .logo-tiny { font-size: 26px; }
+.logo.small .logo-mayhem { font-size: 16px; }
+
+.garage-xp {
+  position: fixed;
+  top: var(--hud-y);
+  right: var(--hud-x-r);
+  z-index: 5;
+}
+.garage-xp .label { color: var(--amber); }
+
+.garage-help {
+  position: fixed;
+  bottom: var(--hud-y-b);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  pointer-events: none;
+  text-align: center;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+/* DOM fallback actions for portrait phones, where the in-world monitor and
+   red button sit mostly off-screen */
+.garage-actions { display: none; }
+@media (max-width: 700px) {
+  .garage-xp { display: none; }
+  .garage-help { display: none; }
+  .garage-actions {
+    position: fixed;
+    bottom: var(--hud-y-b);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 0.6rem;
+    z-index: 5;
+  }
+  .garage-actions .btn { padding: 0.75rem 1.5rem; }
+}
+
+button.chip { cursor: pointer; }
+.focus-back {
+  position: fixed;
+  top: var(--hud-y);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  animation: toastin var(--t-slow) var(--ease-pop);
+}
+.focus-back:hover { border-color: var(--amber); }
+
+/* ------------------------------------------------- bench monitor: RC TUNER */
+.monitor-ui {
+  position: relative;
+  width: 640px;
+  height: 430px;
+  display: flex;
+  flex-direction: column;
+  background: #10141f;
+  border-radius: 6px;
+  overflow: hidden;
+  color: var(--text-1);
+  font-family: var(--font-body);
+  box-shadow: inset 0 0 60px rgba(20, 30, 55, 0.55);
+}
+
+/* click-shield while the camera isn't docked on the screen */
+.mu-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.mu-cover:hover { background: rgba(255, 180, 84, 0.05); }
+.mu-cover::after {
+  content: 'CLICK TO TUNE';
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  background: var(--note);
+  color: var(--note-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  padding: 4px 10px;
+  border-radius: 2px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.mu-cover:hover::after { opacity: 1; }
+
+.mu-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  background: #161c2b;
+  border-bottom: 1px solid var(--line);
+}
+.mu-dots { display: flex; gap: 5px; }
+.mu-dots i { width: 8px; height: 8px; border-radius: 50%; background: #39445f; }
+.mu-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  color: var(--amber);
+}
+.mu-career {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.monitor-ui nav {
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: #131828;
+}
+.monitor-ui nav button {
+  padding: 9px 18px 7px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.monitor-ui nav button:hover { color: var(--text-2); }
+.monitor-ui nav button.sel { color: var(--text-1); border-bottom-color: var(--amber); }
+
+.mu-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 16px;
+}
+.mu-body .label { font-size: 10px; margin-top: 6px; }
+
+.mu-pick { display: grid; grid-template-columns: 38px 1fr 38px; align-items: center; gap: 10px; }
+.mu-pick h2 { font-family: var(--font-display); font-weight: 700; font-size: 24px; letter-spacing: 0.04em; }
+.mu-pick p { font-size: 12px; color: var(--text-2); }
+.mu-arrow {
+  height: 42px;
+  font-size: 22px;
+  color: var(--text-2);
+  cursor: pointer;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.mu-arrow:hover { border-color: var(--amber); color: var(--amber); }
+
+.mu-stats { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+.mu-stat {
+  display: grid;
+  grid-template-columns: 74px 1fr 26px;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.mu-stat .bar {
+  position: relative;
+  height: 9px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+.mu-stat .bar > div {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--amber);
+}
+/* tick = where the untuned car sits, so the sheet's effect is visible */
+.mu-stat .bar .tick {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 14px;
+  margin-left: -1px;
+  background: rgba(238, 242, 250, 0.75);
+  border-radius: 1px;
+}
+.mu-stat em, .mu-metric em {
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-align: right;
+  color: var(--text-3);
+}
+.mu-stat em.up, .mu-metric em.up { color: var(--good); }
+.mu-stat em.down, .mu-metric em.down { color: var(--bad); }
+
+/* CAR tab summary lines linking to the sheet/catalogue */
+.mu-setup { font-size: 11px; letter-spacing: 0.06em; color: var(--text-2); margin-top: 4px; }
+.mu-setup b { color: var(--info); font-weight: 600; }
+.mu-setup.mu-built b { color: var(--amber); }
+.mu-linkbtn {
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 10px;
+  cursor: pointer;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.mu-linkbtn:hover { border-color: var(--amber); color: var(--amber); }
+
+/* ------------------------------------------------------------- setup sheet */
+.mu-presets { margin-top: 2px; }
+.mu-presets button { font-size: 10px; letter-spacing: 0.04em; padding: 4px 7px; }
+.mu-tune { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.mu-tune-row {
+  display: grid;
+  grid-template-columns: 96px 46px 1fr 52px 20px;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  height: 18px;
+  color: var(--text-2);
+}
+.mu-tune-name { letter-spacing: 0.04em; white-space: nowrap; color: var(--text-1); }
+.mu-tune-end { font-size: 9px; letter-spacing: 0.04em; color: var(--text-3); text-align: center; }
+.mu-tune-row input[type="range"] {
+  width: 100%;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--amber);
+  cursor: pointer;
+}
+.mu-tune-val { font-size: 11px; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.mu-tune-val.on { color: var(--amber); font-weight: 700; }
+
+.mu-preview { margin-top: 4px; }
+.mu-trace {
+  width: 100%;
+  height: 56px;
+  display: block;
+  margin-top: 2px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+}
+.mu-trace .axis { stroke: rgba(238, 242, 250, 0.16); stroke-width: 1; stroke-dasharray: 3 4; }
+.mu-trace .ghost { fill: none; stroke: rgba(238, 242, 250, 0.4); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.mu-trace .live { fill: none; stroke: var(--amber); stroke-width: 1.8; }
+.mu-trace .dot { fill: var(--amber); }
+.mu-metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin-top: 5px; }
+.mu-metric {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 4px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+}
+.mu-metric span { font-size: 8px; letter-spacing: 0.08em; color: var(--text-3); text-transform: uppercase; }
+.mu-metric b { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-1); }
+.mu-metric em { text-align: left; }
+
+/* ------------------------------------------------------------ parts picker */
+.mu-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; margin-top: 6px; }
+.mu-part {
+  display: grid;
+  grid-template-columns: 62px 18px 1fr 18px 32px;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  height: 22px;
+}
+.mu-part-label { letter-spacing: 0.04em; color: var(--text-3); white-space: nowrap; }
+.mu-part-arrow {
+  height: 18px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-2);
+  cursor: pointer;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.mu-part-arrow:hover { border-color: var(--amber); color: var(--amber); }
+.mu-part-val {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+  font-weight: 600;
+}
+.mu-part-dots { display: flex; gap: 3px; justify-content: flex-end; }
+.mu-part-dots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(238, 242, 250, 0.2); }
+.mu-part-dots i.on { background: var(--amber); }
+
+.mu-plate {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+}
+.mu-plate .label { margin: 0; font-size: 9px; }
+.mu-plate input {
+  width: 104px;
+  padding: 5px 8px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.mu-plate input:focus-visible { border-color: var(--info); }
+.mu-plate button {
+  margin-left: auto;
+  padding: 5px 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+}
+.mu-plate button:hover { border-color: var(--amber); color: var(--amber); }
+.mu-plate button + button { margin-left: 0; }
+.mu-partshint { align-self: flex-start; margin-top: 8px; font-size: 10.5px; }
+
+.mu-cols3 { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mu-cols3 .mu-swatches .swatch { width: 20px; height: 20px; border-radius: 5px; }
+
+.mu-ability { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+.mu-ability b { color: var(--note); font-weight: 700; }
+
+.mu-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.mu-row button {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.mu-row button:hover { border-color: var(--text-3); }
+.mu-row button.sel { border-color: var(--amber); color: var(--text-1); background: var(--amber-tint); }
+.mu-hint { font-size: 11px; color: var(--text-3); align-self: center; }
+
+.mu-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mu-swatches { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform var(--t-fast) var(--ease);
+  color: #fff;
+  font-size: 12px;
+}
+.swatch:hover { transform: scale(1.12); }
+.swatch.sel { border-color: #fff; box-shadow: 0 0 10px rgba(255, 255, 255, 0.45); }
+.swatch.none { background: rgba(255, 255, 255, 0.08); }
+
+.monitor-ui footer {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  border-top: 1px solid var(--line);
+  padding: 9px 14px 11px;
+  background: #131828;
+}
+.mu-driver { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mu-driver .label { font-size: 9px; }
+.mu-driver input {
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.mu-driver input:focus { border-color: var(--info); }
+.mu-driver.attn input { border-color: var(--amber); animation: attnpulse 1.6s var(--ease) infinite; }
+@keyframes attnpulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 180, 84, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(255, 180, 84, 0.25); }
+}
+.mu-auto {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  padding-bottom: 8px;
+}
+.mu-auto input { accent-color: var(--amber); }
+.mu-play { font-size: 13px; padding: 9px 16px; white-space: nowrap; }
+
+/* ----------------------------------------------------- clipboard + race tag */
+.clipboard-ui {
+  width: 360px;
+  height: 470px;
+  pointer-events: none;
+  color: #2b2416;
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.85;
+  padding: 20px 22px;
+}
+.clipboard-ui h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: 0.24em;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.clipboard-ui kbd {
+  background: rgba(43, 36, 22, 0.08);
+  border: 1px solid rgba(43, 36, 22, 0.4);
+  border-bottom-width: 2px;
+  color: #2b2416;
+  border-radius: 5px;
+  padding: 0 7px;
+  font-size: 14px;
+}
+.cb-note { margin-top: 10px; font-style: italic; opacity: 0.75; font-size: 15px; line-height: 1.4; }
+.cb-icon { vertical-align: -3px; opacity: 0.8; }
+
+.race-tag, .race-tag > div { pointer-events: none; }
+.race-tag > div {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  transform: rotate(-4deg);
+}

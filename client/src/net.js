@@ -114,7 +114,7 @@ function handleMessage(msg) {
     }
     case MSG.PLAYER_JOIN: {
       S.setState((s) => ({ players: { ...s.players, [msg.player.id]: msg.player } }));
-      S.getState().pushFeed(`👋 ${msg.player.name} rolled in`);
+      S.getState().pushFeed(`${msg.player.name} rolled in`);
       break;
     }
     case MSG.PLAYER_LEAVE: {
@@ -224,7 +224,7 @@ function handleMessage(msg) {
       if (msg.warn) {
         // 3s heads-up before the event actually starts
         S.setState({ eventWarn: msg });
-        S.getState().pushFeed(`⚠️ Incoming: ${msg.icon} ${msg.name}`);
+        S.getState().pushFeed(`Incoming: ${msg.name}`);
         setTimeout(() => {
           const w = S.getState().eventWarn;
           if (w && w.id === msg.id) S.setState({ eventWarn: null });

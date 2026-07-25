@@ -67,9 +67,11 @@ eight wrap colours, four paint finishes (toon gloss, matte wrap, metal flake,
 pearl coat), a trim colour for splitter/mirrors/wing/helmet, three glass tints,
 underglow in six colours (brightest after dark) and a licence plate you can
 write yourself. A **clipboard** propped against a coffee mug holds the controls
-cheat-sheet, and the big red button on the desk starts the game. Your build is
-saved locally and synced to every player in the lobby — the bots roll their own
-builds too, parts included.
+cheat-sheet, and the big red button on the desk starts the game. Click the
+monitor or clipboard and the camera docks onto it head-on for crisp reading
+(`Esc` backs out); on phones, on-screen **Tune** and **Race** buttons stand in
+for the desk props. Your build is saved locally and synced to every player in
+the lobby — the bots roll their own builds too, parts included.
 
 ### Bolt-on parts
 
@@ -131,19 +133,10 @@ backlog live in `docs/car-design-brainstorm.md`.
 - 🏁 **Desk Dash** — 3 laps through all eight rooms, shortcuts everywhere
 - ☕ **Coffee Run** — collect beans, deliver to the kitchen machine, bump rivals to make them spill
 - 🔋 **Capture the Battery** — hold it to score, carrying slows you down, get hit and you drop it
-<<<<<<< HEAD
 - ⚽ **RC Soccer** — a huge ping pong ball and two doorway goals, first to 5 wins
 - 📍 **Standup Standoff** — the meeting zone hops between rooms every 20 s; hold it to score
 - 🎯 **You're It** — the crowned car scores while It; bump them to steal the crown
 - 🥋 **Meeting Room Sumo** — the ring shrinks over the round; shove rivals out, last car rolling wins
-
-Contact is honest about physics: light rubs are cosmetic, real hits (above a
-relative-speed threshold) knock cars back scaled by mass and trigger mode
-effects. Respawning asks the server for a safe slot (scored by distance to
-enemies), grants a ~2 s green protection bubble that pops if you attack, and
-races put you back at your last safe pose instead of three rooms away.
-=======
-- ⚽ **RC Soccer** — a huge ping pong ball and two doorway goals
 - 👑 **Last Car Standing** — Facilities locks the office down room by room
   (telegraphed, then a red zap field). Escape the closures, survive the
   double-rate office events, outlive everyone. Eliminated players get a
@@ -153,13 +146,18 @@ races put you back at your last safe pose instead of three rooms away.
 - 🏆 **Office Cup** — three random modes back-to-back with cumulative
   score, rolling straight from round to round, grand ceremony at the end.
 
+Contact is honest about physics: light rubs are cosmetic, real hits (above a
+relative-speed threshold) knock cars back scaled by mass and trigger mode
+effects. Respawning asks the server for a safe slot (scored by distance to
+enemies), grants a ~2 s green protection bubble that pops if you attack, and
+races put you back at your last safe pose instead of three rooms away.
+
 Roughly one round in three gets a **mutator**, announced up front: Moon
 Gravity, Giant Ball, Mug Rain or Tiny Cars. Each car also carries a
 signature **ability** on `Q`: the buggy pounces, the Drift King enters a
 perfect 3-second Overdrift, the Micro Monster goes 2 seconds unstoppable,
 the Formula opens its DRS wing, and the Office Hatch photocopies whatever
 ability was used last.
->>>>>>> origin/claude/tiny-rc-mayhem-dsi2u0
 
 Every minute an **office event** hits: lights out, earthquake, printer paper
 storm, AC hurricane, server overload, or the cleaning robot on patrol.
@@ -225,8 +223,9 @@ client/   React 19 + Vite + react-three-fiber + drei + Rapier + zustand
   events** when you plow through them, so everyone sees roughly the same
   office chaos; the rest of the clutter stays local set dressing.
 - Everything is procedural — materials, textures, the skyline, the audio
-  (synthesized motors, skids, glass and rain via WebAudio). Zero asset files,
-  zero external requests.
+  (synthesized motors, skids, glass and rain via WebAudio). Zero external
+  requests; the only bundled assets are two ~22 KB woff2 files for the UI's
+  display font (Barlow Condensed, OFL — see `client/src/assets/fonts/`).
 
 ## Testing
 
