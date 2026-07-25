@@ -367,3 +367,17 @@ the "amateur" reading since the HUD is where players spend their time.
   portrait, the in-world monitor and red button sit mostly off-screen.
 - Barlow Condensed ships as two latin-subset woff2 files (~22 KB each,
   OFL license alongside) — still zero external requests at runtime.
+
+### Post-ship addition: diegetic drive cluster
+
+`client/src/game/ControllerHUD.jsx` — on fine-pointer devices the flat
+speed/boost cluster is replaced by a procedural toy RC transmitter portaled
+onto the camera inside the game canvas: sticks that physically mirror
+steering/throttle, a canvas-texture LCD speed readout, a boost LED ladder
+(cyan → amber when full, brighter while draining), a pulsing link LED and a
+speed-swaying antenna. It updates straight from `telemetry` in useFrame (no
+React re-renders), draws with `depthTest: false` so world geometry never
+clips it, and carries a tight-falloff private fill light (skipped on
+`?lowfx`). Phones keep the DOM cluster — screen space there is scarcer than
+theme points. Scoreboard/lobby/timers intentionally stay flat 2D: they are
+glanced at under time pressure, where diegetic rendering costs legibility.

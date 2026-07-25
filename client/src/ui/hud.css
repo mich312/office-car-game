@@ -65,6 +65,10 @@
   align-items: flex-end;
   gap: 0.7rem;
 }
+/* fine pointers get the in-world RC transmitter instead (ControllerHUD.jsx) */
+@media (pointer: fine) {
+  .drive-cluster { display: none; }
+}
 .boost-ring {
   position: relative;
   width: 7.6rem;

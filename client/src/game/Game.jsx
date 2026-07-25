@@ -14,10 +14,15 @@ import ModeObjects from './ModeObjects.jsx';
 import OfficeEvents from './OfficeEvents.jsx';
 import Emotes from './Emotes.jsx';
 import SpectatorCam, { PhotoOrbitCam } from './SpectatorCam.jsx';
+import ControllerHUD from './ControllerHUD.jsx';
 import Effects from './Effects.jsx';
 
 // Low-effects mode for weak GPUs (and CI): ?lowfx disables shadows + post.
 const LOWFX = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('lowfx');
+// The diegetic RC-transmitter cluster replaces the flat speed/boost HUD on
+// fine-pointer devices; phones keep the DOM cluster (screen space is scarce
+// behind the touch controls).
+const FINE_POINTER = typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches;
 
 // Renderer stats hook for perf testing: accumulate across all passes in a
 // frame (autoReset off), publish at end of frame, reset manually.
@@ -74,6 +79,7 @@ export default function Game() {
         <Emotes />
         <SpectatorCam />
         <PhotoOrbitCam />
+        {FINE_POINTER && <ControllerHUD />}
         {!LOWFX && <Effects />}
       </Suspense>
     </Canvas>
