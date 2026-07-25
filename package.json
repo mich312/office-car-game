@@ -13,7 +13,8 @@
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
     "build": "npm run build -w client",
-    "start": "node server/src/index.js"
+    "start": "node server/src/index.js",
+    "test": "node scripts/test-snapshot.mjs && node scripts/test-tuning.mjs && node scripts/smoke.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

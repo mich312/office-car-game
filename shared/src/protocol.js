@@ -24,8 +24,21 @@ export const MSG = {
   MATCH_END: 'end', // { podium:[{id,name,score}], xp, rivalries, nemesis }
   PLAYER_JOIN: 'join',
   PLAYER_LEAVE: 'leave',
-  RESPAWN: 'respawn', // { p, rotY } — server tells you where to respawn
+  RESPAWN: 'respawn', // client → server: { safe?: [x, z, rotY] } — please respawn me
+  RESPAWN_AT: 'rsat', // server → client: { x, z, rotY, freeze, protect }
   ERROR: 'error',
+};
+
+// Snapshot player flag bits (players[id].f)
+export const FLAG = {
+  DRIFTING: 1,
+  GROUNDED: 2,
+  STUNNED: 4,
+  SHIELD: 8,
+  SHRUNK: 16,
+  BATTERY: 32,
+  PROTECTED: 64, // spawn protection — can't be hit, can't hit
+  KO: 128, // eliminated for the current sumo round
 };
 
 export const PHASE = {

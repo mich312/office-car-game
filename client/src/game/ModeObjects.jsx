@@ -11,7 +11,7 @@ import {
   ROOMS, WALL_HEIGHT,
 } from '@rc/shared';
 import { useStore } from '../store.js';
-import { net, on } from '../net.js';
+import { net, on, sampleRemote } from '../net.js';
 import { burst } from './particles.jsx';
 
 export default function ModeObjects() {
@@ -28,7 +28,86 @@ export default function ModeObjects() {
       {active && modeId === 'coffee_run' && <><Beans /><CoffeeMachine /></>}
       {active && modeId === 'battery' && <Battery />}
       {active && modeId === 'soccer' && <><SoccerBall /><Goals /></>}
+      {active && modeId === 'koth' && <Zone color="#ffd166" label="📍 STANDUP" />}
+      {active && modeId === 'sumo' && <Zone color="#ff5c5c" label="🥋 RING" wall />}
+      {active && modeId === 'tag' && <ItCrown />}
       {active && modeId === 'last_standing' && <LockedRooms />}
+    </group>
+  );
+}
+
+// ---------------------------------------------------- zone (koth & sumo)
+// A translucent ring + wall driven directly from net.zone: unit-radius
+// geometry scaled to the live radius, so the sumo shrink animates for free.
+function Zone({ color, label, wall = false }) {
+  const group = useRef();
+  const ring = useRef();
+  const wallRef = useRef();
+  const labelRef = useRef();
+  useFrame(({ clock }) => {
+    const z = net.zone;
+    if (!group.current) return;
+    group.current.visible = !!z;
+    if (!z) return;
+    group.current.position.x += (z.x - group.current.position.x) * 0.2;
+    group.current.position.z += (z.z - group.current.position.z) * 0.2;
+    if (ring.current) {
+      ring.current.scale.setScalar(z.r);
+      ring.current.rotation.z = clock.elapsedTime * 0.4;
+      ring.current.material.opacity = 0.55 + Math.sin(clock.elapsedTime * 3) * 0.2;
+    }
+    if (wallRef.current) {
+      wallRef.current.scale.set(z.r, 1, z.r);
+      wallRef.current.material.opacity = 0.1 + Math.sin(clock.elapsedTime * 2) * 0.04;
+    }
+    if (labelRef.current) labelRef.current.position.y = 3.2 + Math.sin(clock.elapsedTime * 1.5) * 0.2;
+  });
+  return (
+    <group ref={group} visible={false}>
+      <mesh ref={ring} position={[0, 0.05, 0]} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.94, 1, 64]} />
+        <meshBasicMaterial color={color} transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
+      </mesh>
+      {wall && (
+        <mesh ref={wallRef} position={[0, 1.4, 0]}>
+          <cylinderGeometry args={[1, 1, 2.8, 64, 1, true]} />
+          <meshBasicMaterial color={color} transparent opacity={0.12} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+      <group ref={labelRef} position={[0, 3.2, 0]}>
+        <TextSprite text={label} size={0.9} color={color} />
+      </group>
+    </group>
+  );
+}
+
+// -------------------------------------------------------- tag mode crown
+// A spinning cone hovering over whoever is It — including you.
+function ItCrown() {
+  const group = useRef();
+  useFrame(({ clock }) => {
+    const id = net.it;
+    if (!group.current) return;
+    let pos = null;
+    if (id && id === net.myId) {
+      const t = window.__rcTelemetry;
+      if (t) pos = [t.x, t.y, t.z];
+    } else if (id) {
+      const s = sampleRemote(id);
+      if (s) pos = s.p;
+    }
+    group.current.visible = !!pos;
+    if (!pos) return;
+    group.current.position.set(pos[0], (pos[1] || 0) + 1.35 + Math.sin(clock.elapsedTime * 3) * 0.12, pos[2]);
+    group.current.rotation.y = clock.elapsedTime * 2.5;
+  });
+  return (
+    <group ref={group} visible={false}>
+      <mesh rotation-x={Math.PI}>
+        <coneGeometry args={[0.28, 0.42, 4]} />
+        <meshStandardMaterial color="#ffd166" emissive="#ffb703" emissiveIntensity={1.2} />
+      </mesh>
+      <pointLight intensity={2.5} distance={5} color="#ffd166" />
     </group>
   );
 }

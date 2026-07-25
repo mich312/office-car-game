@@ -222,7 +222,7 @@ button.chip { cursor: pointer; }
 .mu-stats { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
 .mu-stat {
   display: grid;
-  grid-template-columns: 74px 1fr;
+  grid-template-columns: 74px 1fr 26px;
   align-items: center;
   gap: 10px;
   font-size: 10px;
@@ -231,15 +231,180 @@ button.chip { cursor: pointer; }
   text-transform: uppercase;
   color: var(--text-3);
 }
-.mu-stat .cells { display: flex; gap: 4px; }
-.mu-stat .cells i {
+.mu-stat .bar {
+  position: relative;
   height: 9px;
-  flex: 1;
-  border-radius: 2px;
+  border-radius: 3px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
-.mu-stat .cells i.on { background: var(--amber); border-color: var(--amber-deep); }
+.mu-stat .bar > div {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--amber);
+}
+/* tick = where the untuned car sits, so the sheet's effect is visible */
+.mu-stat .bar .tick {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 14px;
+  margin-left: -1px;
+  background: rgba(238, 242, 250, 0.75);
+  border-radius: 1px;
+}
+.mu-stat em, .mu-metric em {
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0;
+  text-align: right;
+  color: var(--text-3);
+}
+.mu-stat em.up, .mu-metric em.up { color: var(--good); }
+.mu-stat em.down, .mu-metric em.down { color: var(--bad); }
+
+/* CAR tab summary lines linking to the sheet/catalogue */
+.mu-setup { font-size: 11px; letter-spacing: 0.06em; color: var(--text-2); margin-top: 4px; }
+.mu-setup b { color: var(--info); font-weight: 600; }
+.mu-setup.mu-built b { color: var(--amber); }
+.mu-linkbtn {
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 10px;
+  cursor: pointer;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.mu-linkbtn:hover { border-color: var(--amber); color: var(--amber); }
+
+/* ------------------------------------------------------------- setup sheet */
+.mu-presets { margin-top: 2px; }
+.mu-presets button { font-size: 10px; letter-spacing: 0.04em; padding: 4px 7px; }
+.mu-tune { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.mu-tune-row {
+  display: grid;
+  grid-template-columns: 96px 46px 1fr 52px 20px;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  height: 18px;
+  color: var(--text-2);
+}
+.mu-tune-name { letter-spacing: 0.04em; white-space: nowrap; color: var(--text-1); }
+.mu-tune-end { font-size: 9px; letter-spacing: 0.04em; color: var(--text-3); text-align: center; }
+.mu-tune-row input[type="range"] {
+  width: 100%;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--amber);
+  cursor: pointer;
+}
+.mu-tune-val { font-size: 11px; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.mu-tune-val.on { color: var(--amber); font-weight: 700; }
+
+.mu-preview { margin-top: 4px; }
+.mu-trace {
+  width: 100%;
+  height: 56px;
+  display: block;
+  margin-top: 2px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+}
+.mu-trace .axis { stroke: rgba(238, 242, 250, 0.16); stroke-width: 1; stroke-dasharray: 3 4; }
+.mu-trace .ghost { fill: none; stroke: rgba(238, 242, 250, 0.4); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.mu-trace .live { fill: none; stroke: var(--amber); stroke-width: 1.8; }
+.mu-trace .dot { fill: var(--amber); }
+.mu-metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; margin-top: 5px; }
+.mu-metric {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 4px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+}
+.mu-metric span { font-size: 8px; letter-spacing: 0.08em; color: var(--text-3); text-transform: uppercase; }
+.mu-metric b { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-1); }
+.mu-metric em { text-align: left; }
+
+/* ------------------------------------------------------------ parts picker */
+.mu-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; margin-top: 6px; }
+.mu-part {
+  display: grid;
+  grid-template-columns: 62px 18px 1fr 18px 32px;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  height: 22px;
+}
+.mu-part-label { letter-spacing: 0.04em; color: var(--text-3); white-space: nowrap; }
+.mu-part-arrow {
+  height: 18px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-2);
+  cursor: pointer;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.mu-part-arrow:hover { border-color: var(--amber); color: var(--amber); }
+.mu-part-val {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+  font-weight: 600;
+}
+.mu-part-dots { display: flex; gap: 3px; justify-content: flex-end; }
+.mu-part-dots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(238, 242, 250, 0.2); }
+.mu-part-dots i.on { background: var(--amber); }
+
+.mu-plate {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+}
+.mu-plate .label { margin: 0; font-size: 9px; }
+.mu-plate input {
+  width: 104px;
+  padding: 5px 8px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.mu-plate input:focus-visible { border-color: var(--info); }
+.mu-plate button {
+  margin-left: auto;
+  padding: 5px 9px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+}
+.mu-plate button:hover { border-color: var(--amber); color: var(--amber); }
+.mu-plate button + button { margin-left: 0; }
+.mu-partshint { align-self: flex-start; margin-top: 8px; font-size: 10.5px; }
+
+.mu-cols3 { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mu-cols3 .mu-swatches .swatch { width: 20px; height: 20px; border-radius: 5px; }
 
 .mu-ability { font-size: 12px; color: var(--text-2); margin-top: 4px; }
 .mu-ability b { color: var(--note); font-weight: 700; }

@@ -190,6 +190,11 @@ function MatchHUD() {
   const raceProgress = useStore((s) => s.raceProgress);
   const myId = useStore((s) => s.myId);
   const endsAt = useStore((s) => s.endsAt);
+  const itId = useStore((s) => s.itId);
+  const players = useStore((s) => s.players);
+  const sumoRound = useStore((s) => s.sumoRound);
+  const sumoOutLeft = useStore((s) => s.sumoOutLeft);
+  const sumoDead = useStore((s) => s.sumoDead);
   const lcs = useStore((s) => s.lcs);
   const spectating = useStore((s) => s.spectating);
   const spectateTarget = useStore((s) => s.spectateTarget);
@@ -238,6 +243,24 @@ function MatchHUD() {
           )}
           {modeId === 'battery' && (
             <div className="chip"><Icon name="battery" size={15} /> hold the battery to score</div>
+          )}
+          {modeId === 'koth' && (
+            <div className="chip"><Icon name="target" size={15} /> hold the standup zone to score</div>
+          )}
+          {modeId === 'tag' && (
+            <div className="chip"><Icon name="crown" size={15} />
+              {itId === myId ? "YOU'RE IT — keep scoring!" : itId ? `${players[itId]?.name || '???'} is It — bump them!` : '…'}
+            </div>
+          )}
+          {modeId === 'sumo' && (
+            <div className={`chip ${sumoOutLeft != null && !sumoDead ? 'mutator-chip' : ''}`}>
+              <Icon name={sumoDead ? 'skull' : sumoOutLeft != null ? 'warning' : 'target'} size={15} />
+              {sumoDead
+                ? 'out — next round soon'
+                : sumoOutLeft != null
+                  ? `GET BACK IN! ${sumoOutLeft.toFixed(1)}s`
+                  : `round ${sumoRound || 1} — stay inside the ring`}
+            </div>
           )}
           {modeId === 'last_standing' && (
             <div className="chip"><Icon name="crown" size={15} />
@@ -415,6 +438,24 @@ function Minimap() {
       if (net.robot) {
         g.fillStyle = '#ff5c5c';
         g.beginPath(); g.arc(px(net.robot.x), pz(net.robot.z), 3.5, 0, 7); g.fill();
+      }
+      // koth/sumo zone ring
+      if (net.zone) {
+        g.strokeStyle = st.modeId === 'sumo' ? 'rgba(255, 92, 92, 0.9)' : `rgba(255, 180, 84, ${0.55 + 0.45 * pulse})`;
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.ellipse(px(net.zone.x), pz(net.zone.z), net.zone.r * sx, net.zone.r * sz, 0, 0, 7);
+        g.stroke();
+      }
+      // whoever is It glows amber
+      if (net.it) {
+        const s = net.it === st.myId
+          ? { p: [telemetry.x, 0, telemetry.z] }
+          : (() => { const buf = net.remotes.get(net.it); return buf?.[buf.length - 1]; })();
+        if (s) {
+          g.fillStyle = `rgba(255, 180, 84, ${0.6 + 0.4 * pulse})`;
+          g.beginPath(); g.arc(px(s.p[0]), pz(s.p[2]), 4.5, 0, 7); g.fill();
+        }
       }
       // remote players in their paint colors (bots dimmed)
       for (const [id] of net.remotes) {

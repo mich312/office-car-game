@@ -3,7 +3,7 @@
 // doubles as a corridor graph), grab powerups and generally cause trouble.
 import {
   BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER,
-  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle,
+  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
 } from '@rc/shared';
 
 const BOT_NAMES = [
@@ -57,7 +57,7 @@ export class Bots {
     const car = CAR_IDS[Math.floor(Math.random() * CAR_IDS.length)];
     // plain name — UI surfaces mark bots with their own vector icon, and the
     // in-world nameplate adds its own robot prefix (RemoteCars)
-    const p = this.room.makePlayer(id, null, { name, car, style: randomStyle() });
+    const p = this.room.makePlayer(id, null, { name, car, style: randomStyle(), tune: randomTune() });
     p.bot = true;
     p.ready = true;
     // bots dress up too — hats and paints keep a bot lobby colorful
@@ -106,6 +106,37 @@ export class Bots {
       if (p.powerup && p.botUseAt && t > p.botUseAt) {
         p.botUseAt = 0;
         this.room.usePowerup(p);
+      }
+    }
+    this.separate();
+  }
+
+  // Bots have no collision shapes, so without this they drive through each
+  // other and stack on shared targets (zone centres, the ball). Push each bot
+  // out of every other car's personal space — full strength against humans
+  // (whose physics the server never moves), half against fellow bots.
+  separate() {
+    const all = [...this.room.players.values()];
+    for (const b of all) {
+      if (!b.bot) continue;
+      for (const o of all) {
+        if (o === b) continue;
+        const dx = b.p[0] - o.p[0], dz = b.p[2] - o.p[2];
+        const d = Math.hypot(dx, dz);
+        const minD = 1.05;
+        if (d >= minD) continue;
+        if (d < 1e-4) { b.p[0] += 0.1; continue; }
+        const push = (minD - d) * (o.bot ? 0.5 : 1);
+        let px = b.p[0] + (dx / d) * push, pz = b.p[2] + (dz / d) * push;
+        for (const w of wallBoxes) {
+          if (px > w.minX && px < w.maxX && pz > w.minZ && pz < w.maxZ) {
+            const dl = px - w.minX, drr = w.maxX - px, dtp = pz - w.minZ, dbt = w.maxZ - pz;
+            const m = Math.min(dl, drr, dtp, dbt);
+            if (m === dl) px = w.minX; else if (m === drr) px = w.maxX;
+            else if (m === dtp) pz = w.minZ; else pz = w.maxZ;
+          }
+        }
+        b.p[0] = px; b.p[2] = pz;
       }
     }
   }
@@ -159,6 +190,27 @@ export class Bots {
       const dx = ball.p[0] - gx, dz = ball.p[2] - gz;
       const len = Math.hypot(dx, dz) || 1;
       goal = { x: ball.p[0] + (dx / len) * 1.2, z: ball.p[2] + (dz / len) * 1.2 };
+    } else if (modeId === 'koth' && mode) {
+      // park inside the zone, spread out on a per-bot orbit angle
+      const z = mode.zonePos();
+      const a = this.botAngle(p);
+      goal = { x: z.x + Math.cos(a) * 3, z: z.z + Math.sin(a) * 3 };
+    } else if (modeId === 'tag' && mode) {
+      if (mode.it === p.id) {
+        goal = null; // flee along the racing line
+      } else {
+        const it = this.room.players.get(mode.it);
+        if (it) goal = { x: it.p[0], z: it.p[2] };
+      }
+    } else if (modeId === 'sumo' && mode) {
+      if (p.sumoDead) {
+        goal = null; // cruise the racing line as a mobile chicane
+      } else {
+        const z = mode.zone;
+        const a = this.botAngle(p);
+        const r = Math.min(z.r * 0.5, 6);
+        goal = { x: z.x + Math.cos(a) * r, z: z.z + Math.sin(a) * r };
+      }
     }
     if (!goal) return this.followRaceLine(p);
     // Navigate: direct if clear, else route along the path loop
@@ -179,6 +231,12 @@ export class Bots {
     return BOT_PATH[next];
   }
 
+  // stable per-bot angle so zone-seeking bots spread out instead of stacking
+  botAngle(p) {
+    const seed = parseInt(p.id.replace(/\D/g, ''), 10) || 1;
+    return seed * 2.4;
+  }
+
   followRaceLine(p) {
     const wp = BOT_PATH[p.wp % BOT_PATH.length];
     if (Math.hypot(wp.x - p.p[0], wp.z - p.p[2]) < 5) p.wp = (p.wp + 1) % BOT_PATH.length;
@@ -186,7 +244,9 @@ export class Bots {
   }
 
   drive(p, target, dt) {
-    const car = CARS[p.car];
+    // bots run their own setup sheet, so a ballasted bot really is slower.
+    // Resolved once per bot — car and sheet are fixed for its lifetime.
+    const car = p.tuned || (p.tuned = tunedStats(CARS[p.car] || CARS.balanced, p.tune));
     const desired = Math.atan2(target.x - p.p[0], target.z - p.p[2]);
     let dh = desired - p.heading;
     while (dh > Math.PI) dh -= Math.PI * 2;

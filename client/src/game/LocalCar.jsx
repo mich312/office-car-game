@@ -7,15 +7,18 @@ import { RigidBody, CuboidCollider, useRapier, useBeforePhysicsStep } from '@rea
 import * as THREE from 'three';
 import {
   CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP, BOOST_TOP_MULT,
-  SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, SUSPENSION_SETTLE, SPAWN_Y,
+  SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, SPAWN_Y,
   UPRIGHT_ASSIST, SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
   DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
-  SPAWNS, CHECKPOINTS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
+  SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
+  BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
+  SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
+  tunedStats,
 } from '@rc/shared';
 import { useStore } from '../store.js';
-import { net, on, send, sendState, sampleRemote } from '../net.js';
+import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
 import { useControls } from './useControls.js';
 import CarModel from './CarModel.jsx';
 import Particles, { burst, puff } from './particles.jsx';
@@ -42,7 +45,7 @@ const _camTarget = new THREE.Vector3();
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 
-export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0 }; // read by HUD/minimap/controller
+export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0 }; // read by HUD/minimap/controller
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
 
 export default function LocalCar() {
@@ -55,11 +58,22 @@ export default function LocalCar() {
   const paint = useStore((s) => s.paint);
   const myCos = useStore((s) => s.cos);
   const style = useStore((s) => s.style);
+  const tune = useStore((s) => s.tune);
   const myName = useStore((s) => s.name);
-  const car = CARS[carId] || CARS.balanced;
+  const baseCar = CARS[carId] || CARS.balanced;
+  // The garage setup sheet is the car we actually drive: gearing, tyres,
+  // springs, wing and ballast all resolve into these numbers (see
+  // shared/src/tuning.js). Stock sheet → identical to the roster stats.
+  const car = useMemo(() => tunedStats(baseCar, tune), [baseCar, tune]);
   // Per-car mass is real physics now: heavy cars shove light ones in bumps.
   // Forces scale with mass so acceleration curves stay identical per car.
-  const mass = BASE_MASS * (car.mass || 1);
+  const mass = BASE_MASS * car.mass;
+  // A rival's mass includes their ballast notch — that's what ballast is FOR,
+  // so knockback ratios have to see it on both sides of the contact.
+  const remoteMass = (id) => {
+    const p = useStore.getState().players[id];
+    return tunedStats(CARS[p?.car] || CARS.balanced, p?.tune).mass;
+  };
 
   const S = useRef({
     boost: BOOST_MAX,
@@ -85,6 +99,13 @@ export default function LocalCar() {
     slipping: false,
     windPhase: 0,
     lastCp: 0,
+    frozenUntil: 0, // respawn input freeze
+    protectUntil: 0, // spawn protection (can't hit or be hit)
+    pendingRespawnAt: 0, // waiting for the server's RESPAWN_AT
+    safePoses: [], // ring buffer of recent grounded [x, z, yaw]
+    lastSafeAt: 0,
+    lastFwdSpeed: 0, // forward speed entering this physics step
+    selfBump: new Map(), // other id → t of locally-applied bump impulse
     fallCamUntil: 0,
     ramUntil: 0,
     drsUntil: 0,
@@ -98,9 +119,11 @@ export default function LocalCar() {
   const steerRef = useRef(0);
   const boostingRef = useRef(false);
   const flagsRef = useRef(0);
+  // measured weight transfer (rad): roll from lateral G, pitch from accel/brake
+  const leanRef = useRef({ roll: 0, pitch: 0 });
   // per-wheel visual Y (local) so the wheels follow the suspension rays
   const wheelR = carId === 'monster' ? 0.18 : 0.13;
-  const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - SUSPENSION_SETTLE + wheelR));
+  const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - car.settle + wheelR));
 
   const teleport = (x, y, z, rotY) => {
     const body = rb.current;
@@ -112,22 +135,21 @@ export default function LocalCar() {
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   };
 
+  // Ask the server for a respawn. It scores the spawn slots (races get our
+  // safe-pose proposal instead) and answers with RESPAWN_AT → we teleport,
+  // frozen briefly, spawn-protected for a couple of seconds. If the socket is
+  // down we fall back to the old local teleport so solo play still recovers.
   const respawn = () => {
-    const st = useStore.getState();
-    let spot;
-    if (st.modeId === 'desk_dash') {
-      const prog = st.raceProgress[net.myId];
-      const idx = prog ? Math.max(0, (prog[1] - 1 + CHECKPOINTS.length) % CHECKPOINTS.length) : 0;
-      const cp = CHECKPOINTS[idx];
-      const nxt = CHECKPOINTS[(idx + 1) % CHECKPOINTS.length];
-      spot = { x: cp.x, z: cp.z, rotY: Math.atan2(nxt.x - cp.x, nxt.z - cp.z) };
+    const nowMs = performance.now();
+    if (S.pendingRespawnAt && nowMs - S.pendingRespawnAt < 1400) return;
+    if (net.ws && net.ws.readyState === 1) {
+      S.pendingRespawnAt = nowMs;
+      send({ t: MSG.RESPAWN, safe: S.safePoses.length ? S.safePoses[0] : null });
     } else {
       const sp = SPAWNS[net.spawnIndex % SPAWNS.length];
-      spot = { x: sp.x, z: sp.z, rotY: sp.rotY };
+      teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
+      S.boost = Math.max(S.boost, 40);
     }
-    send({ t: MSG.RESPAWN }); // let the server sanction the teleport
-    teleport(spot.x, SPAWN_Y, spot.z, spot.rotY);
-    S.boost = Math.max(S.boost, 40);
   };
 
   // ------------------------------------------------ server events → physics
@@ -146,8 +168,23 @@ export default function LocalCar() {
         }
         S.boost = BOOST_MAX;
         S.stunnedUntil = 0;
+        S.frozenUntil = 0;
+        S.protectUntil = 0;
+        S.pendingRespawnAt = 0;
+        S.safePoses.length = 0;
+        S.selfBump.clear();
         S.fallCamUntil = 0;
         rb.current?.setGravityScale(1, true); // back from the ghost realm
+      }),
+      on('respawn_at', (msg) => {
+        teleport(msg.x, SPAWN_Y, msg.z, msg.rotY);
+        const nowMs = performance.now();
+        S.pendingRespawnAt = 0;
+        S.frozenUntil = nowMs + (msg.freeze || 0);
+        S.protectUntil = nowMs + (msg.freeze || 0) + (msg.protect || 0);
+        S.boost = Math.max(S.boost, 40);
+        S.upsideDownTime = 0;
+        S.safePoses.length = 0;
       }),
       on('fx', (fx) => {
         const me = net.myId;
@@ -179,13 +216,13 @@ export default function LocalCar() {
             }
             break;
           case 'rocket_hit':
-            if (fx.target === me) {
+            if (fx.target === me && !fx.blocked) {
               S.stunnedUntil = performance.now() + fx.stunMs;
               body.applyImpulse({ x: (Math.random() - 0.5) * 90, y: mass * 9, z: (Math.random() - 0.5) * 90 }, true);
               audio.stun();
               S.shake = 1;
             }
-            if (fx.at) burst(fx.at, { count: 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
+            if (fx.at) burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
             break;
           case 'robot_hit':
             if (fx.target === me) {
@@ -213,30 +250,62 @@ export default function LocalCar() {
             S.shake = Math.max(S.shake, 0.5);
             audio.goal();
             break;
-          case 'bump':
-            if (fx.a === me || fx.b === me) {
-              // Ram Mode: the rammer doesn't even feel it
-              if (fx.ram === me) { S.shake = Math.max(S.shake, 0.15); break; }
-              // shake scales with the server-computed relative speed, and a
-              // really big shunt gets an extra meaty clonk on top of the
-              // collision sound both clients already played
-              S.shake = Math.max(S.shake, Math.min(1, 0.25 + (fx.rel || 0) * 0.02));
-              if ((fx.rel || 0) > 16) audio.impact(Math.min(1, fx.rel / 30));
-              // Mass-scaled knockback: getting hit by a Micro Monster hurts,
-              // getting hit by a Formula barely rocks you.
-              const otherId = fx.a === me ? fx.b : fx.a;
-              const otherPos = fx.a === me ? fx.pb : fx.pa;
-              if (otherPos) {
-                const otherCar = CARS[useStore.getState().players[otherId]?.car] || CARS.balanced;
-                const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
-                // getting hit by an active Ram Mode sends you FLYING
-                const ramBoost = fx.ram === otherId ? 2.2 : 1;
+          case 'bump': {
+            if (fx.a !== me && fx.b !== me) {
+              // spectator view of someone else's collision: sparks at impact
+              if (fx.kind === 'hit' && fx.at) {
+                burst([fx.at[0], (fx.at[1] || 0) + 0.3, fx.at[2]], { count: 10, color: ['#ffe27a', '#ffb347', '#ffffff'], speed: 6, size: 0.07, ttl: 0.4, up: 2 });
                 const p = body.translation();
-                const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
-                const len = Math.hypot(dx, dz) || 1;
-                body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio * ramBoost, y: mass * 1.1 * ramBoost, z: (dz / len) * mass * 3.2 * ratio * ramBoost }, true);
+                const d = Math.hypot(p.x - fx.at[0], p.z - fx.at[2]);
+                if (d < 25) audio.impact(Math.max(0.1, 0.4 - d * 0.015));
               }
+              break;
             }
+            if (fx.kind === 'rub') { S.shake = Math.max(S.shake, 0.1); break; }
+            // Ram Mode: the rammer doesn't even feel it
+            if (fx.ram === me) { S.shake = Math.max(S.shake, 0.15); break; }
+            // shake scales with the server-computed relative speed, and a
+            // really big shunt gets an extra meaty clonk on top of the
+            // collision sound both clients already played
+            S.shake = Math.max(S.shake, Math.min(1, 0.25 + (fx.rel || 0) * 0.02));
+            if ((fx.rel || 0) > 16) audio.impact(Math.min(1, fx.rel / 30));
+            const nowMs = performance.now();
+            const otherId = fx.a === me ? fx.b : fx.a;
+            const ramBoost = fx.ram === otherId ? 2.2 : 1;
+            // If we already applied this knockback locally at contact time,
+            // the server echo is confirmation only — don't double-shove.
+            // Being hit by an active Ram Mode always lands in full.
+            if (ramBoost === 1 && nowMs - (S.selfBump.get(otherId) || 0) < 900) break;
+            if (nowMs < S.protectUntil) break;
+            // Mass-scaled knockback: getting hit by a Micro Monster hurts,
+            // getting hit by a Formula barely rocks you.
+            const otherPos = fx.a === me ? fx.pb : fx.pa;
+            if (otherPos) {
+              const ratio = Math.min(1.8, Math.max(0.55, remoteMass(otherId) / car.mass));
+              const p = body.translation();
+              const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
+              const len = Math.hypot(dx, dz) || 1;
+              body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio * ramBoost, y: mass * 1.1 * ramBoost, z: (dz / len) * mass * 3.2 * ratio * ramBoost }, true);
+            }
+            break;
+          }
+          case 'tag':
+            if (fx.id === me) {
+              S.shake = Math.max(S.shake, 0.4);
+              audio.blip(880, 0.25, 0.25);
+            }
+            break;
+          case 'sumo_out':
+            if (fx.id === me) {
+              S.shake = Math.max(S.shake, 0.8);
+              audio.stun();
+            }
+            break;
+          case 'sumo_round':
+            audio.blip(660, 0.15, 0.2);
+            break;
+          case 'zone_hop':
+            audio.blip(520, 0.12, 0.18);
             break;
           case 'fake':
             if (fx.id === me) audio.blip(180, 0.3, 0.2);
@@ -332,7 +401,10 @@ export default function LocalCar() {
         // point velocity along suspension
         const pv = body.velocityAtPoint ? body.velocityAtPoint({ x: _p.x, y: _p.y, z: _p.z }) : vel;
         const velAlong = pv.x * _up.x + pv.y * _up.y + pv.z * _up.z;
-        let f = (SUSPENSION_STIFFNESS * compression - SUSPENSION_DAMPING * velAlong) * (mass / 4);
+        // spring/damper rates carry the suspension notch: stiff springs turn in
+        // harder and skip over bumps, soft springs soak up desk edges
+        let f = (SUSPENSION_STIFFNESS * car.springMul * compression
+          - SUSPENSION_DAMPING * car.dampMul * velAlong) * (mass / 4);
         f = Math.max(0, Math.min(f, mass * 90));
         body.applyImpulseAtPoint(
           { x: _up.x * f * dt, y: _up.y * f * dt, z: _up.z * f * dt },
@@ -353,8 +425,21 @@ export default function LocalCar() {
 
     const stunned = nowMs < S.stunnedUntil;
     const shrunk = nowMs < S.shrinkUntil;
-    const frozen = st.phase === PHASE.COUNTDOWN && Date.now() < st.countdownEnd;
+    const frozen = (st.phase === PHASE.COUNTDOWN && Date.now() < st.countdownEnd) || nowMs < S.frozenUntil;
     const carrying = (net.flags.get(net.myId) || 0) & 32;
+
+    // Safe-pose ring buffer: remember where we recently drove on solid ground
+    // so a race respawn can put us right back instead of rooms away.
+    if (grounded && S.groundedTime > SAFE_POSE_MIN_GROUNDED_S && pos.y > -0.5
+        && nowMs - S.lastSafeAt > SAFE_POSE_INTERVAL_MS) {
+      S.lastSafeAt = nowMs;
+      S.safePoses.push([
+        Math.round(pos.x * 100) / 100,
+        Math.round(pos.z * 100) / 100,
+        Math.round(Math.atan2(_fwd.x, _fwd.z) * 100) / 100,
+      ]);
+      if (S.safePoses.length > SAFE_POSE_BUFFER) S.safePoses.shift();
+    }
 
     // ---------------- puddles & event modifiers
     let gripMul = 1, speedMul = 1;
@@ -567,6 +652,31 @@ export default function LocalCar() {
     if (!S.boosting && grounded) {
       S.boost = Math.min(BOOST_MAX, S.boost + BOOST_REGEN * dt);
     }
+
+    // ---------------- safety rails
+    // Speed-proportional downforce glues the car down at speed (pressed along
+    // car-down so it also works on ramps).
+    if (grounded) {
+      const df = DOWNFORCE * car.downforceMul * Math.abs(fwdSpeed) * mass * dt;
+      body.applyImpulse({ x: -_up.x * df, y: -_up.y * df, z: -_up.z * df }, true);
+    }
+    // Hard caps: no impulse stack (bump + rocket + spring + wind) may launch
+    // the car past these — bounded chaos keeps the anti-teleport check happy.
+    {
+      const lv = body.linvel();
+      const sp = Math.hypot(lv.x, lv.y, lv.z);
+      if (sp > SPEED_HARD_CAP) {
+        const s = SPEED_HARD_CAP / sp;
+        body.setLinvel({ x: lv.x * s, y: lv.y * s, z: lv.z * s }, true);
+      }
+      const av = body.angvel();
+      const am = Math.hypot(av.x, av.y, av.z);
+      if (am > ANGVEL_CAP) {
+        const s = ANGVEL_CAP / am;
+        body.setAngvel({ x: av.x * s, y: av.y * s, z: av.z * s }, true);
+      }
+    }
+    S.lastFwdSpeed = fwdSpeed;
     telemetry.boosting = S.boosting || freeBoost;
     telemetry.boost = S.boost;
     telemetry.speed = S.speed;
@@ -670,6 +780,28 @@ export default function LocalCar() {
       if (Math.abs(camera.fov - S.fov) > 0.05) { camera.fov = S.fov; camera.updateProjectionMatrix(); }
     }
 
+    // ---------------- body lean from measured acceleration
+    // Weight transfer the suspension can't produce (every force is applied at
+    // the centre of mass): derive lateral/longitudinal G from the velocity
+    // delta and tilt the visual shell — outward roll in curves, squat on
+    // throttle, dive on the brakes. Decays to neutral on its own.
+    if (dt > 0.001) {
+      _right.set(1, 0, 0).applyQuaternion(_q);
+      const ax = (vel.x - (S.pvx ?? vel.x)) / dt;
+      const az = (vel.z - (S.pvz ?? vel.z)) / dt;
+      S.pvx = vel.x; S.pvz = vel.z;
+      const clampA = (n) => Math.max(-60, Math.min(60, n));
+      const aLat = clampA(ax * _right.x + az * _right.z);
+      const aLong = clampA(ax * _fwd.x + az * _fwd.z);
+      const tRoll = grounded ? Math.max(-0.14, Math.min(0.14, aLat * 0.0032)) : 0;
+      const tPitch = grounded ? Math.max(-0.09, Math.min(0.09, -aLong * 0.0035)) : 0;
+      const k = Math.min(1, dt * 7);
+      leanRef.current.roll += (tRoll - leanRef.current.roll) * k;
+      leanRef.current.pitch += (tPitch - leanRef.current.pitch) * k;
+      telemetry.roll = leanRef.current.roll;
+      telemetry.pitch = leanRef.current.pitch;
+    }
+
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
     audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
@@ -691,7 +823,8 @@ export default function LocalCar() {
       const cur = visual.current.scale.x;
       visual.current.scale.setScalar(cur + (targetScale - cur) * Math.min(1, dt * 6));
     }
-    flagsRef.current = (nowMs < S.shieldUntil ? 8 : 0) | (carrying ? 32 : 0) | (stunned ? 4 : 0);
+    flagsRef.current = (nowMs < S.shieldUntil ? 8 : 0) | (carrying ? 32 : 0) | (stunned ? 4 : 0)
+      | (nowMs < S.protectUntil ? 64 : 0);
   });
 
   const startSpawn = SPAWNS[0];
@@ -708,23 +841,74 @@ export default function LocalCar() {
         linearDamping={0.05}
         userData={{ playerId: 'me' }}
         onCollisionEnter={(e) => {
-          const otherId = e.other.rigidBody?.userData?.playerId;
+          const other = e.other.rigidBody;
+          const ud = other?.userData;
           const nowMs = performance.now();
-          if (otherId && otherId !== 'me' && nowMs - S.lastBumpSend > 350) {
-            S.lastBumpSend = nowMs;
-            send({ t: MSG.BUMP, target: otherId });
-            S.shake = Math.max(S.shake, 0.3);
-            audio.impact(0.6);
+          const body = rb.current;
+          if (!body || !ud) return;
+          if (ud.playerId && ud.playerId !== 'me') {
+            // --- car contact
+            if (nowMs - S.lastBumpSend > 350) {
+              S.lastBumpSend = nowMs;
+              send({ t: MSG.BUMP, target: ud.playerId });
+            }
+            // Classify locally (own velocity vs the remote's interpolated
+            // velocity) and apply our own knockback NOW instead of waiting a
+            // round-trip for the server echo — that echo is skipped later.
+            const rv = remoteVelocity(ud.playerId) || [0, 0, 0];
+            const lv = body.linvel();
+            const rel = Math.hypot(lv.x - rv[0], lv.z - rv[2]);
+            const isHit = rel >= BUMP_REL_SPEED;
+            if (isHit && nowMs > S.protectUntil && nowMs - (S.selfBump.get(ud.playerId) || 0) > 900) {
+              S.selfBump.set(ud.playerId, nowMs);
+              const otherPos = other.translation();
+              const ratio = Math.min(1.8, Math.max(0.55, remoteMass(ud.playerId) / car.mass));
+              const p = body.translation();
+              const dx = p.x - otherPos.x, dz = p.z - otherPos.z;
+              const len = Math.hypot(dx, dz) || 1;
+              body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
+              S.shake = Math.max(S.shake, 0.35);
+              audio.impact(0.6);
+            } else {
+              S.shake = Math.max(S.shake, 0.12);
+              audio.impact(0.25);
+            }
+            // Forgiveness: contact with another car never costs more than
+            // (1 − BUMP_MIN_FWD_KEEP) of the forward speed we carried in.
+            if (S.lastFwdSpeed > 6) {
+              const rot = body.rotation();
+              _q.set(rot.x, rot.y, rot.z, rot.w);
+              _fwd.set(0, 0, 1).applyQuaternion(_q);
+              const v2 = body.linvel();
+              const cur = v2.x * _fwd.x + v2.z * _fwd.z;
+              const keep = S.lastFwdSpeed * BUMP_MIN_FWD_KEEP;
+              if (cur < keep) {
+                const add = keep - cur;
+                body.setLinvel({ x: v2.x + _fwd.x * add, y: v2.y, z: v2.z + _fwd.z * add }, true);
+              }
+            }
           }
+          // shared prop scatter goes through Props.jsx's MSG.PROP momentum
+          // relay — the prop side of the contact queues itself there
         }}
       >
-        <CuboidCollider args={[HALF.x, HALF.y, HALF.z]} mass={mass} friction={0.25} restitution={0.15} />
+        {/* mass split: most of it rides in a low ballast box so the centre of
+            mass sits near the floorpan — the main anti-rollover lever */}
+        <CuboidCollider args={[HALF.x, HALF.y, HALF.z]} mass={mass * 0.35} friction={0.25} restitution={0.15} />
+        <CuboidCollider
+          args={[HALF.x * 0.6, HALF.y * 0.35, HALF.z * 0.6]}
+          position={[0, -HALF.y * 0.65, 0]}
+          mass={mass * 0.65}
+          friction={0.25}
+          restitution={0.15}
+        />
         <group ref={visual}>
           <CarModel
             carId={carId}
             paint={paint}
             cosmetics={myCos}
             style={style}
+            tune={tune}
             name={myName}
             isLocal
             speedRef={speedRef}
@@ -732,6 +916,7 @@ export default function LocalCar() {
             boostingRef={boostingRef}
             flagsRef={flagsRef}
             wheelYRef={wheelYRef}
+            leanRef={leanRef}
           />
         </group>
       </RigidBody>

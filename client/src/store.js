@@ -1,10 +1,12 @@
 // UI-level state (React re-renders). High-frequency net data lives in net.js.
 import { create } from 'zustand';
-import { UNLOCKS, sanitizeStyle } from '@rc/shared';
+import { UNLOCKS, sanitizeStyle, sanitizeTune, STOCK_TUNE, TUNE_PRESETS } from '@rc/shared';
 
 const saved = (() => {
   try { return JSON.parse(localStorage.getItem('rc-mayhem') || '{}'); } catch { return {}; }
 })();
+
+let focusTimer = null;
 
 export const useStore = create((set, get) => ({
   // (exposed below as window.__rcStore for headless testing / debugging,
@@ -23,6 +25,10 @@ export const useStore = create((set, get) => ({
   teamScores: [0, 0],
   raceProgress: {}, // id → [lap, cp]
   myBeans: 0,
+  itId: null, // tag mode: who is It
+  sumoRound: 0,
+  sumoOutLeft: null, // seconds until elimination while outside the sumo zone
+  sumoDead: false, // eliminated for the current sumo round
   feed: [], // [{ key, text }]
   event: null, // { id, name, icon, desc, until }
   podium: null,
@@ -44,6 +50,10 @@ export const useStore = create((set, get) => ({
   cup: null, // { round, total, standings?, final? } — Office Cup progress
   abilityReadyAt: 0, // my special-ability cooldown (server-stamped)
   printerFlashUntil: 0, // blinded by the printer until this timestamp
+  // Garage preview: which part of the car the bench camera is looking at.
+  // Set when you change a bolt-on, cleared a few seconds later so the
+  // turntable goes back to its slow spin.
+  focus: null, // 'front' | 'rear' | 'side' | 'roof' | 'wheel' | null
 
   // profile / progression
   name: saved.name || '',
@@ -51,6 +61,7 @@ export const useStore = create((set, get) => ({
   paint: saved.paint || null,
   cos: saved.cos || {}, // equipped cosmetics: { hat, antenna, trail }
   style: sanitizeStyle(saved.style), // wheels/spoiler/vinyl/underglow build
+  tune: sanitizeTune(saved.tune), // gearing/tyres/springs/wing/ballast sheet
   xp: saved.xp || 0,
 
   set,
@@ -58,9 +69,23 @@ export const useStore = create((set, get) => ({
     set((s) => ({ style: sanitizeStyle({ ...s.style, ...patch }) }));
     get().save();
   },
+  setTune(patch) {
+    set((s) => ({ tune: sanitizeTune({ ...s.tune, ...patch }) }));
+    get().save();
+  },
+  applyTunePreset(id) {
+    const preset = TUNE_PRESETS[id];
+    set({ tune: sanitizeTune(preset ? preset.tune : STOCK_TUNE) });
+    get().save();
+  },
   save() {
-    const { name, car, paint, cos, style, xp, muted, autoGas } = get();
-    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, xp, muted, autoGas }));
+    const { name, car, paint, cos, style, tune, xp, muted, autoGas } = get();
+    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas }));
+  },
+  setFocus(region) {
+    set({ focus: region });
+    clearTimeout(focusTimer);
+    if (region) focusTimer = setTimeout(() => set({ focus: null }), 4200);
   },
   equip(slot, value) {
     set((s) => ({ cos: { ...s.cos, [slot]: value || undefined } }));
