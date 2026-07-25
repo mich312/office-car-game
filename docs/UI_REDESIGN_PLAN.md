@@ -381,3 +381,12 @@ clips it, and carries a tight-falloff private fill light (skipped on
 `?lowfx`). Phones keep the DOM cluster — screen space there is scarcer than
 theme points. Scoreboard/lobby/timers intentionally stay flat 2D: they are
 glanced at under time pressure, where diegetic rendering costs legibility.
+
+Second pass ("MK-II"): rounded two-tone shell (drei RoundedBox), printed
+faceplate (brand line + Q/E keycap labels on a static canvas texture),
+corner screws, stick gaiters, brighter self-lit knobs — and the powerup (E)
+and ability (Q) moved onto the transmitter as physical lit buttons: emoji
+icon faces on small canvas textures, an amber "armed" ring / green "ready"
+ring on the emissive collar, a radial cooldown wipe, and a press-dip
+animation when fired (detected from store transitions). Icon-only, Mario
+Kart style; the DOM action tray now shows only on coarse pointers.

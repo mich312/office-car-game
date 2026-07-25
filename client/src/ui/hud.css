@@ -65,9 +65,12 @@
   align-items: flex-end;
   gap: 0.7rem;
 }
-/* fine pointers get the in-world RC transmitter instead (ControllerHUD.jsx) */
+/* fine pointers get the in-world RC transmitter instead (ControllerHUD.jsx),
+   which also carries the powerup/ability buttons (.hud prefix outranks the
+   later .action-tray display rule) */
 @media (pointer: fine) {
-  .drive-cluster { display: none; }
+  .hud .drive-cluster { display: none; }
+  .hud .action-tray { display: none; }
 }
 .boost-ring {
   position: relative;
