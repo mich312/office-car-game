@@ -238,6 +238,32 @@
   .badge.pick { color: var(--good); border-color: rgba(74, 222, 128, 0.45); }
   .badge.parked { color: var(--text-3); }
 
+  .kind {
+    position: absolute;
+    bottom: 0.7rem;
+    left: 0.8rem;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 0.12rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(11, 14, 22, 0.72);
+    color: var(--text-3);
+    pointer-events: none;
+  }
+
+  .reframe {
+    border-left: 2px solid var(--amber);
+    padding: 0.2rem 0 0.2rem 1.4rem;
+    margin: clamp(1rem, 3vw, 2rem) 0 clamp(2rem, 5vw, 3rem);
+    max-width: 68ch;
+  }
+  .reframe p { color: var(--text-2); font-size: 1.02rem; }
+  .reframe em { color: var(--text-1); font-style: italic; }
+  .reframe strong { color: var(--amber); font-weight: 600; }
+
   .card-body {
     padding: 1.2rem 1.4rem 1.5rem;
     display: flex;
@@ -387,23 +413,47 @@
 
   <section>
     <div class="section-head">
-      <h2>The board</h2>
+      <h2>First pass — what survives the constraints</h2>
       <p class="hint">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 7 4 12l4 5M16 7l4 5-4 5"/></svg>
         Drag across any frame to wipe back to today's build
       </p>
     </div>
-    <div class="board" id="board"></div>
+    <div class="board" id="board-1"></div>
+  </section>
+
+  <section>
+    <div class="reframe">
+      <p>
+        Everything above was picked by asking <em>what won’t break?</em> — twelve
+        cars at 60 fps, zero external assets, readability as a mechanic. That
+        filter is honest and it is also how you end up with a competent look
+        nobody recognises. So: the same question asked the other way round —
+        <strong>what would make a screenshot of this game unmistakable?</strong>
+        Two of these are house styles. Three are layers that sit on top of
+        whichever house style wins.
+      </p>
+    </div>
+    <div class="section-head">
+      <h2>Second pass — what would be unmistakable</h2>
+    </div>
+    <div class="board" id="board-2"></div>
   </section>
 
   <section class="close">
     <div>
       <h2>Where this lands</h2>
       <p style="margin-top:1rem">
-        <strong style="color:var(--text-1)">Tabletop After Dark</strong> is the
-        recommendation: it fixes the missing scale cue, agrees with the UI that's
-        already shipped, and it is camera, light and post — no material rewrite.
-        Full write-up, references and the phased prototype plan live in
+        <strong style="color:var(--text-1)">Tabletop After Dark</strong> is the safe
+        pick — it fixes the missing scale cue, agrees with the shipped UI, and it's
+        camera, light and post with no material rewrite.
+        <strong style="color:var(--text-1)">Copier Room</strong> costs about the same
+        (one fullscreen pass, no material knowledge at all) at much higher variance,
+        and it's the only entry here that would make someone repost a screenshot.
+        <strong style="color:var(--text-1)">On Twos</strong> is close to free and
+        composes with either, so it isn't really competing — if only one thing gets
+        built, there's an argument it should be that.
+        Full write-up and references in
         <code>docs/visual-style-exploration.md</code>.
       </p>
     </div>
@@ -428,6 +478,8 @@
   const STYLES = [
     {
       id: 'now',
+      group: 1,
+      kind: 'House style',
       name: 'Today’s build',
       badge: { text: 'Shipping', cls: 'now' },
       cardCls: 'is-current',
@@ -444,6 +496,8 @@
     },
     {
       id: 'tabletop',
+      group: 1,
+      kind: 'House style',
       name: 'Tabletop After Dark',
       badge: { text: 'Recommended', cls: 'pick' },
       cardCls: 'is-pick',
@@ -460,6 +514,8 @@
     },
     {
       id: 'ink',
+      group: 1,
+      kind: 'House style',
       name: 'Ink & Fluoro',
       badge: { text: 'Highest ceiling', cls: '' },
       cardCls: '',
@@ -476,6 +532,8 @@
     },
     {
       id: 'plan',
+      group: 1,
+      kind: 'Layer / mode',
       name: 'Facilities Plan',
       badge: { text: 'Mode overlay', cls: '' },
       cardCls: '',
@@ -492,6 +550,8 @@
     },
     {
       id: 'rec97',
+      group: 1,
+      kind: 'House style',
       name: 'Rec Room ’97',
       badge: { text: 'Toggle, not default', cls: '' },
       cardCls: '',
@@ -508,6 +568,8 @@
     },
     {
       id: 'painterly',
+      group: 1,
+      kind: 'Layer / photo mode',
       name: 'Painterly',
       badge: { text: 'Parked — photo mode', cls: 'parked' },
       cardCls: '',
@@ -521,6 +583,106 @@
         accent: '#e8a33d', glass: '#7e97b4', ink: '#2b2f3a', tyre: '#3a3a44'
       },
       post: { grad: 1, ink: 0.8, bloom: 0.18, vignette: 0.44, sat: 1.05, soft: 2.4, posterize: 6, paper: 1 }
+    },
+
+    // ── Second pass: chosen for identity rather than for safety ───────────
+
+    {
+      id: 'copier',
+      group: 2,
+      kind: 'House style',
+      name: 'Copier Room',
+      badge: { text: 'Most distinctive', cls: 'pick' },
+      cardCls: 'is-pick',
+      refs: 'Risograph & spot-ink print · zine halftone · the office’s own copier',
+      pitch: 'Let the machine in the printer nook render the game. Three spot inks, rotated halftone screens, registration that drifts on every impact, paper grain underneath. No racer looks like this — and spot inks are the most separable palette there is, so twelve cars stay readable.',
+      meters: [['Cost', 0.35, 'One pass'], ['Perf', 0.45, 'Screen'], ['Risk', 0.5, 'Shimmer']],
+      pal: {
+        sky: '#22305a', wallTop: '#1d2950', wall: '#2b3a63', win: '#8fc4f0',
+        floorFar: '#767f92', floor: '#99a2b0', deskTop: '#d89830', desk: '#95631f',
+        light: '#fff4d0', paper: '#f6f2e6', mug: '#f0ece0', car: '#ff3b6b',
+        accent: '#ffd23f', glass: '#9fd8ff', ink: '#1b2450', tyre: '#2a3050'
+      },
+      post: {
+        grad: 1, ink: 0, bloom: 0, vignette: 0.16, sat: 1.1,
+        riso: [
+          { r: 30, g: 60, b: 160, a: 0.9 },
+          { r: 255, g: 72, b: 140, a: 0.88 },
+          { r: 255, g: 200, b: 40, a: 0.8 }
+        ]
+      }
+    },
+    {
+      id: 'nightshift',
+      group: 2,
+      kind: 'Layer / mode',
+      name: 'Night Shift',
+      badge: { text: 'On the nose', cls: '' },
+      cardCls: '',
+      refs: 'Lethal Company · Content Warning · found-footage horror · the game’s own drone cam',
+      pitch: 'The fiction is already “after everyone has gone home”. Fixed room cameras with burn-in, IR wash where the lights are out, an interlace crawl. Presence for almost nothing — but fixed cameras in a twelve-car race is a design change, not a skin. Spectator and Last Car Standing first.',
+      meters: [['Cost', 0.4, 'Camera rig'], ['Perf', 0.2, 'Grade'], ['Risk', 0.7, 'Design, not skin']],
+      pal: {
+        sky: '#2c3632', wallTop: '#242c28', wall: '#3e4a44', win: '#7a9c8c',
+        floorFar: '#39433c', floor: '#586258', deskTop: '#8a8a72', desk: '#5c5c48',
+        light: '#e8fff0', paper: '#b8bcb0', mug: '#c4ccbc', car: '#b0bca6',
+        accent: '#d8ffe4', glass: '#46544c', ink: '#141a16', tyre: '#2a302a'
+      },
+      post: { grad: 1, ink: 0, bloom: 0.5, vignette: 0.78, sat: 0.2, cctv: 1 }
+    },
+    {
+      id: 'scale64',
+      group: 2,
+      kind: 'House style',
+      name: 'Scale 1:64',
+      badge: { text: 'Solves scale outright', cls: '' },
+      cardCls: '',
+      refs: 'Model railway layouts · wargame terrain · weathering & static grass',
+      pitch: 'The office isn’t an office, it’s a layout on someone’s workbench. Model-paint finishes with brush texture, weathering washes in the corners, and the world simply ending at a plywood edge. The scale problem stops being a lighting trick and becomes the premise.',
+      meters: [['Cost', 0.55, 'Materials'], ['Perf', 0.5, 'Medium'], ['Risk', 0.45, 'Reads quiet']],
+      pal: {
+        sky: '#6a5238', wallTop: '#2e3038', wall: '#3f4550', win: '#6f8fc0',
+        floorFar: '#4a4436', floor: '#6b6250', deskTop: '#9a6f42', desk: '#63452a',
+        light: '#ffeec4', paper: '#d8d0bc', mug: '#c4c8d0', car: '#c4432f',
+        accent: '#e0a038', glass: '#4a5a6e', ink: '#1a1610', tyre: '#22201c'
+      },
+      post: { grad: 1, ink: 1, bloom: 0.14, vignette: 0.6, sat: 0.88, warm: 0.03, model: 1, paper: 1 }
+    },
+    {
+      id: 'twos',
+      group: 2,
+      kind: 'Layer — composes with any',
+      name: 'On Twos',
+      badge: { text: 'Timing, not shading', cls: '' },
+      cardCls: '',
+      refs: 'Harold Halibut · The Neverhood · Armikrog · animation on 2s',
+      pitch: 'Not a shading style at all: sample everything except your own car and the camera at 12 fps while physics keeps running at 60. Slow Bros found real stop-motion “too restrictive” and faked it in-engine — this is the free version of that, and it costs nothing in fill rate.',
+      meters: [['Cost', 0.15, 'Sample-hold'], ['Perf', 0, 'Free'], ['Risk', 0.4, 'Carve-out']],
+      pal: {
+        sky: '#3a4258', wallTop: '#333a4e', wall: '#4a5266', win: '#8fb0d8',
+        floorFar: '#4e4a52', floor: '#6e6a70', deskTop: '#b08050', desk: '#7a5636',
+        light: '#ffe8bc', paper: '#e0d8c4', mug: '#d4d8de', car: '#d0503c',
+        accent: '#f0b040', glass: '#6a8098', ink: '#221e22', tyre: '#2e2a2e'
+      },
+      post: { grad: 1, ink: 1.6, bloom: 0.12, vignette: 0.5, sat: 0.95, soft: 0.6, twos: 1, paper: 1 }
+    },
+    {
+      id: 'panel',
+      group: 2,
+      kind: 'Layer — over any house style',
+      name: 'Panel',
+      badge: { text: 'Event layer', cls: '' },
+      cardCls: '',
+      refs: 'Comix Zone · Ultimate Spider-Man · Spider-Verse halftone',
+      pitch: 'Speed lines, impact stars and onomatopoeia thrown into the world by the collision code that already classifies rub vs. hit. Exhausting for forty minutes as a house style; excellent for the two seconds after someone gets punted off the balcony.',
+      meters: [['Cost', 0.3, 'Hooks exist'], ['Perf', 0.3, 'Sprites'], ['Risk', 0.55, 'Fatigue']],
+      pal: {
+        sky: '#2e4270', wallTop: '#26375e', wall: '#38507f', win: '#8fd8ff',
+        floorFar: '#4a5468', floor: '#6d7a8e', deskTop: '#e8a442', desk: '#a86c24',
+        light: '#fff2b8', paper: '#f6f1e2', mug: '#f2ede0', car: '#ff3b30',
+        accent: '#ffd23f', glass: '#9fe0ff', ink: '#0a0d14', tyre: '#191d28'
+      },
+      post: { grad: 0, ink: 3, bloom: 0.14, vignette: 0.3, sat: 1.15, posterize: 6, panel: 1 }
     }
   ];
 
@@ -655,14 +817,20 @@
     poly(g, [[534, 396], [550, 394], [538, 406]], solid(P.paper), ink);
 
     // ── the car, foreground, three-quarter rear ──
-    const cx = 92, cy = 300, sc = 1.32;
+    // On Twos holds the pose for two frames, so a still of it catches the
+    // previous hold still on screen — that strobe IS the style.
+    const sc = 1.32;
+    const POSES = S.twos ? [[-38, 11, 0.34], [-19, 5, 0.55], [0, 0, 1]] : [[0, 0, 1]];
+    for (const [pdx, pdy, pa] of POSES) {
+    const cx = 92 + pdx, cy = 300 + pdy;
     const at = (x, y) => [cx + x * sc, cy + y * sc];
+    g.globalAlpha = pa;
 
-    if (!wire) { // contact shadow
+    if (!wire && pa === 1) { // contact shadow
       g.save(); g.globalAlpha = 0.42; g.fillStyle = '#000';
       g.beginPath(); g.ellipse(cx + 74 * sc, cy + 96 * sc, 78, 14, 0, 0, Math.PI * 2); g.fill(); g.restore();
     }
-    if (!wire && S.bloom > 0.3) { // underglow
+    if (!wire && pa === 1 && S.bloom > 0.3) { // underglow
       const ug = g.createRadialGradient(cx + 74 * sc, cy + 94 * sc, 4, cx + 74 * sc, cy + 94 * sc, 92);
       ug.addColorStop(0, P.accent); ug.addColorStop(1, 'rgba(0,0,0,0)');
       g.save(); g.globalAlpha = 0.3; g.globalCompositeOperation = 'lighter';
@@ -702,12 +870,14 @@
     poly(g, [at(6, -66), at(30, -60), at(8, -50)], wire ? P.wall : P.accent, ink);
 
     // headlight cone thrown forward past the mug
-    if (!wire) {
+    if (!wire && pa === 1) {
       const hl = g.createLinearGradient(cx + 150 * sc, cy + 40 * sc, cx + 330, cy + 20);
       hl.addColorStop(0, P.light); hl.addColorStop(1, 'rgba(0,0,0,0)');
       g.save(); g.globalAlpha = 0.22; g.globalCompositeOperation = 'lighter';
       poly(g, [at(148, 34), [cx + 380, cy - 20], [cx + 390, cy + 130], at(150, 74)], hl, null);
       g.restore();
+    }
+    g.globalAlpha = 1;
     }
 
     // dust motes at toy scale
@@ -823,6 +993,156 @@
     g.restore();
   }
 
+  // Spot-ink separation: luminance drives the structure ink, redness and
+  // yellowness drive the other two, each screened on its own rotated grid
+  // and nudged off-register the way a real two-drum pass never quite lines up.
+  function risoPass(cv, inks) {
+    const g = cv.getContext('2d');
+    const w = cv.width, h = cv.height;
+    const d = g.getImageData(0, 0, w, h).data;
+    const n = w * h;
+    const cov = inks.map(() => new Float32Array(n));
+    const cl = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      const r = d[i] / 255, gg = d[i + 1] / 255, b = d[i + 2] / 255;
+      const l = 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+      cov[0][p] = Math.pow(cl(1 - l), 2.3) * 0.98;
+      if (cov[1]) cov[1][p] = cl((r - (gg + b) / 2) * 2.8);
+      if (cov[2]) cov[2][p] = cl(((r + gg) / 2 - b) * 2.4);
+    }
+    const out = g.createImageData(w, h), o = out.data;
+    const cell = Math.max(5, Math.round(w / 88));
+    const ANG = [0.26, 1.05, 1.92];
+    const OFF = [[0, 0], [cell * 0.5, -cell * 0.34], [-cell * 0.42, cell * 0.5]];
+    const paper = [243, 239, 228];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let R = paper[0], G = paper[1], B = paper[2];
+        for (let k = 0; k < inks.length; k++) {
+          const ca = Math.cos(ANG[k]), sa = Math.sin(ANG[k]);
+          const sx = x + OFF[k][0], sy = y + OFF[k][1];
+          const u = sx * ca - sy * sa, v = sx * sa + sy * ca;
+          const cu = Math.floor(u / cell) * cell + cell / 2;
+          const cvv = Math.floor(v / cell) * cell + cell / 2;
+          let bx = Math.round(cu * ca + cvv * sa), by = Math.round(-cu * sa + cvv * ca);
+          bx = bx < 0 ? 0 : bx >= w ? w - 1 : bx;
+          by = by < 0 ? 0 : by >= h ? h - 1 : by;
+          const c = cov[k][by * w + bx];
+          if (c <= 0.03) continue;
+          const rad = Math.sqrt(c) * cell * 0.66;
+          const du = u - cu, dv = v - cvv;
+          if (du * du + dv * dv > rad * rad) continue;
+          const ink = inks[k], a = ink.a;
+          R = R * (1 - a) + (R * ink.r) / 255 * a;
+          G = G * (1 - a) + (G * ink.g) / 255 * a;
+          B = B * (1 - a) + (B * ink.b) / 255 * a;
+        }
+        const q = (y * w + x) * 4;
+        o[q] = R; o[q + 1] = G; o[q + 2] = B; o[q + 3] = 255;
+      }
+    }
+    g.putImageData(out, 0, 0);
+  }
+
+  // Camera-04 grade: crush to phosphor, then lay the interlace crawl over it.
+  function cctvPass(cv) {
+    const g = cv.getContext('2d');
+    g.save();
+    g.globalCompositeOperation = 'multiply';
+    g.fillStyle = '#9fe8c0';
+    g.fillRect(0, 0, cv.width, cv.height);
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 0.16;
+    g.fillStyle = '#000';
+    const step = Math.max(2, Math.round(cv.height / 150));
+    for (let y = 0; y < cv.height; y += step * 2) g.fillRect(0, y, cv.width, step);
+    g.restore();
+  }
+
+  // Burn-in. Drawn after the grade so it stays crisp, like a real overlay.
+  function cctvBurnIn(cv) {
+    const g = cv.getContext('2d');
+    const s = cv.width / 800;
+    g.save();
+    g.fillStyle = 'rgba(230,255,240,0.85)';
+    g.font = `${Math.round(15 * s)}px ui-monospace, Menlo, monospace`;
+    g.fillText('CAM 04  OPEN PLAN — POD C', 18 * s, 30 * s);
+    g.textAlign = 'right';
+    g.fillText('23:41:07', cv.width - 18 * s, cv.height - 16 * s);
+    g.fillText('REC', cv.width - 34 * s, 30 * s);
+    g.fillStyle = '#ff4a4a';
+    g.beginPath(); g.arc(cv.width - 22 * s, 25 * s, 5 * s, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }
+
+  // Workbench cues: the layout simply ends, and the paint has been weathered in.
+  function modelPass(cv) {
+    const g = cv.getContext('2d');
+    const s = cv.width / 800;
+    g.save();
+    g.fillStyle = '#6a5238';
+    g.fillRect(0, 0, cv.width, 26 * s);
+    g.fillStyle = '#4a3826';
+    g.fillRect(0, 24 * s, cv.width, 4 * s);
+    g.fillStyle = 'rgba(20,14,8,0.35)';
+    for (let i = 0; i < 90; i++) {
+      g.fillRect(((i * 137) % 800) * s, ((i * 61) % 22) * s, 6 * s, 1.4 * s);
+    }
+    // weathering wash pooling in the corners
+    const wash = g.createRadialGradient(
+      cv.width * 0.5, cv.height * 0.45, cv.width * 0.2,
+      cv.width * 0.5, cv.height * 0.45, cv.width * 0.72
+    );
+    wash.addColorStop(0, 'rgba(60,44,24,0)');
+    wash.addColorStop(1, 'rgba(48,34,18,0.32)');
+    g.fillStyle = wash;
+    g.fillRect(0, 0, cv.width, cv.height);
+    g.restore();
+  }
+
+  // Comic furniture, thrown by the collision that already knows rub from hit.
+  function panelPass(cv) {
+    const g = cv.getContext('2d');
+    const s = cv.width / 800;
+    const ox = 200 * s, oy = 330 * s;
+    g.save();
+    g.globalAlpha = 0.5;
+    g.strokeStyle = '#0a0d14';
+    for (let i = 0; i < 34; i++) {
+      const a = (i / 34) * Math.PI * 2 + 0.2;
+      g.lineWidth = (0.8 + (i % 3)) * s;
+      g.beginPath();
+      g.moveTo(ox + Math.cos(a) * 150 * s, oy + Math.sin(a) * 92 * s);
+      g.lineTo(ox + Math.cos(a) * 620 * s, oy + Math.sin(a) * 380 * s);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+    // impact star at the mug
+    const sx = 372 * s, sy = 292 * s;
+    g.beginPath();
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      const r = (i % 2 ? 26 : 58) * s;
+      const fn = i ? 'lineTo' : 'moveTo';
+      g[fn](sx + Math.cos(a) * r, sy + Math.sin(a) * r * 0.8);
+    }
+    g.closePath();
+    g.fillStyle = '#ffd23f'; g.fill();
+    g.lineWidth = 3 * s; g.strokeStyle = '#0a0d14'; g.stroke();
+    g.font = `900 ${Math.round(30 * s)}px 'Barlow Condensed', Arial Narrow, sans-serif`;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#0a0d14';
+    g.save();
+    g.translate(sx, sy); g.rotate(-0.18);
+    g.fillText('KLONK', 0, 0);
+    g.restore();
+    // panel border
+    g.lineWidth = 7 * s;
+    g.strokeStyle = '#0a0d14';
+    g.strokeRect(4 * s, 4 * s, cv.width - 8 * s, cv.height - 8 * s);
+    g.restore();
+  }
+
   function vignettePass(cv, amount) {
     const g = cv.getContext('2d');
     const v = g.createRadialGradient(
@@ -857,6 +1177,10 @@
     if (S.tilt) tiltPass(target, S.tilt);
     if (S.bloom) bloomPass(target, S.bloom);
     pixelOps(target, S);
+    if (S.model) modelPass(target);
+    if (S.riso) risoPass(target, S.riso);
+    if (S.cctv) cctvPass(target);
+    if (S.panel) panelPass(target);
 
     if (S.pixel) {
       const mg = cv.getContext('2d');
@@ -867,11 +1191,12 @@
     }
     if (S.paper) paperGrain(cv);
     vignettePass(cv, S.vignette);
+    if (S.cctv) cctvBurnIn(cv);
   }
 
   // ── Cards ───────────────────────────────────────────────────────────────
 
-  const board = document.getElementById('board');
+  const boards = { 1: document.getElementById('board-1'), 2: document.getElementById('board-2') };
   const NOW = STYLES[0];
 
   const meterColour = (label, v) =>
@@ -901,6 +1226,11 @@
     badge.textContent = st.badge.text;
     frame.append(badge);
 
+    const kind = document.createElement('span');
+    kind.className = 'kind';
+    kind.textContent = st.kind;
+    frame.append(kind);
+
     const swatchKeys = ['floor', 'desk', 'car', 'accent', 'light', 'ink'];
     const body = document.createElement('div');
     body.className = 'card-body';
@@ -917,7 +1247,7 @@
     body.querySelector('.pitch').textContent = st.pitch;
 
     card.append(frame, body);
-    board.append(card);
+    boards[st.group].append(card);
     cards.push({ st, frame, base, styled, seam });
 
     if (st.id !== 'now') {

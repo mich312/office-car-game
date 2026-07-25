@@ -5,7 +5,12 @@ that are actually available to a browser game with zero external assets, say
 which ones real games have proven out, and cost each one against this codebase.
 
 Companion visual board: `docs/style-board.html` (open it, or the published
-artifact) renders the same office-floor scene under six of these treatments.
+artifact) renders the same office-floor scene under eleven of these treatments,
+with a drag-to-wipe against today's build.
+
+It comes in two passes. §4 is what survives the constraints; §5 is the same
+question asked for identity instead of safety, and is where the more interesting
+answers are.
 
 ---
 
@@ -200,7 +205,7 @@ Constraints that eliminate otherwise-good directions:
 
 ---
 
-## 4. Four directions worth prototyping
+## 4. First pass — four directions that survive the constraints
 
 ### 1. Tabletop After Dark — *toy diorama, macro camera* (recommended)
 B + H, with A's plastic materials. Keep physically-based shading, but make the
@@ -253,7 +258,121 @@ is choosing not to choose.
 
 ---
 
-## 5. Wins that apply whichever direction wins
+## 5. Second pass — five directions chosen for identity
+
+Everything above was selected by asking *what won't break?* — twelve cars at
+60 fps, zero external assets, readability as a mechanic. That filter is honest,
+and it is also exactly how a project ends up with a competent look nobody
+recognises. Section 2's survey was a survey of **other games' genres**. This
+section asks the question the other way round: what is native to *an office*,
+*a toy*, or *this specific fiction* — and what would make a screenshot
+unmistakable?
+
+One distinction the first pass missed and that matters more than any single
+entry: **not all of these are house styles.** Three of the five are *layers*
+that sit on top of whichever house style wins, which means they are not
+competing with section 4 at all and can be built alongside it.
+
+### 5.1 Copier Room — the office's own machine renders the game
+> Risograph and spot-ink printing · zine halftone · the printer nook that's already in the map
+
+Riso is a limited palette of spot inks (fluorescent pink, federal blue,
+sunflower yellow) laid down one drum at a time, with imprecise registration —
+each colour is a separate pass on a flexible master, so 0–3 mm of drift is
+inherent, not a defect. Add halftone screens rotated per ink, dot gain, ink
+spread and paper grain and you get a look that reads as *printed* rather than
+rendered.
+
+- *Why here:* the game already has a copier that blasts paper at passers-by,
+  whiteboard-marker UI, and a printer nook room. This is the office rendering
+  itself. Nobody has shipped a riso racer.
+- *Readability:* counter-intuitively **excellent** — three spot inks is the most
+  separable palette available, and the game only needs twelve cars to be
+  distinguishable, not photoreal.
+- *Tech:* a single fullscreen pass — luminance and channel-dominance drive three
+  ink coverages, each screened on its own rotated grid with a per-ink UV offset.
+  The registration drift can be driven by collision impulses, which is a free
+  and very good-looking gameplay tie-in.
+- *Risk:* halftone screens shimmer under motion unless the dot grid is stable in
+  screen space. This is the one real engineering question.
+
+### 5.2 Night Shift — after-hours security footage
+> Lethal Company · Content Warning · found-footage horror · the drone spectator cam already in the build
+
+The premise is literally "after everyone has gone home", and the game already
+has a drone spectator cam and thirteen discrete rooms. Fixed room cameras with
+burn-in timestamps, IR wash where lights are out, an interlace crawl, and a
+camera that cuts as you cross a doorway.
+
+- *Why here:* the cheapest possible route to *presence* — found-footage framing
+  makes a space feel real for almost no fidelity, which is why the co-op horror
+  wave leans on it.
+- *Risk, and it's real:* fixed cameras in a twelve-car race is a **design
+  change, not a skin**. Ship it where it costs nothing first — the spectator
+  cam, Last Car Standing eliminations, the lobby, the replay.
+
+### 5.3 Scale 1:64 — the office is a layout on a workbench
+> Model railway layouts · wargame terrain · weathering, washes and static grass
+
+Stop pretending it's an office. It's a hobby diorama: model-paint finishes with
+visible brush texture, weathering washes pooling in corners, static grass, and
+the world simply *ending* at a plywood baseboard edge with the hobby room
+beyond.
+
+- *Why here:* this is the only direction that makes finding #2 disappear
+  entirely. Every other option signals miniature-ness optically; this one makes
+  it the premise, so the camera doesn't have to lie.
+- *Tech:* materials and procedural textures plus a baseboard boundary. No shader
+  research, but the most texture-authoring of the second pass.
+- *Risk:* the quietest and brownest of the set — model realism is a muted
+  palette by nature, and this is a game about mayhem.
+
+### 5.4 On Twos — a timing style, not a shading style
+> Harold Halibut · The Neverhood · Armikrog · animation on 2s
+
+Sample every transform except your own car and the camera at 12 fps while
+physics keeps running at 60. Nothing about the shading changes; the *cadence*
+does, and cadence is what actually reads as handmade. Slow Bros tried real
+stop-motion for Harold Halibut, found it "too restrictive", and faked the look
+in-engine with scanned physical assets and rigged puppets — this is the free
+version of the same decision.
+
+- *Why here:* it is nearly free (a sample-and-hold in `RemoteCars.jsx` /
+  `Props.jsx`), costs **nothing** in fill rate, composes with literally any
+  direction above, and no other browser racer feels like this.
+- *Risk:* the carve-out is weird but non-negotiable — your own car and the
+  camera must stay at 60 or the game feels broken. That's exactly how animated
+  film handles it, so it has precedent.
+
+### 5.5 Panel — comic furniture on the existing hit classifier
+> Comix Zone · Ultimate Spider-Man · Spider-Verse halftone
+
+Speed lines, impact stars and onomatopoeia thrown into the world. The server
+already classifies rub-vs-hit and the client already has a rivalry tracker and
+a kill-cam — the triggers exist, nothing new needs detecting.
+
+- *Why here:* a *layer*, not a style. Exhausting for forty minutes; ideal for
+  the two seconds after someone gets punted over the balcony railing.
+
+**Also considered, briefly:** voxel (cheap and readable, but generic);
+blacklight glow-in-the-dark toys (fun, thin); sticker-book decals; and an
+IKEA-style exploded instruction diagram for the **garage specifically** — the
+PARTS tab is already that idea and doesn't know it.
+
+### What this changes about the recommendation
+
+- **Tabletop After Dark** (§4.1) is still the right *safe* pick: lowest risk,
+  fixes the scale gap, days of work.
+- **Copier Room** (§5.1) is the right pick if identity matters more than safety.
+  Similar cost — one fullscreen pass — much higher variance, and it is the only
+  entry on either list that would make people repost a screenshot.
+- **On Twos** (§5.4) is close to free and composes with either, so it isn't
+  really a competing choice. If only one thing gets built, there's an argument
+  it should be this.
+
+---
+
+## 6. Wins that apply whichever direction wins
 
 These are worth doing before the style question is even settled:
 
@@ -273,7 +392,7 @@ These are worth doing before the style question is even settled:
 
 ---
 
-## 6. How to prototype without committing
+## 7. How to prototype without committing
 
 The material sites are inline JSX across nine files, so a full style-swap
 architecture is a real refactor. Sequence it so the cheap evidence comes first:
@@ -284,9 +403,14 @@ architecture is a real refactor. Sequence it so the cheap evidence comes first:
 - **Phase 1 — palette module.** Hoist the hardcoded hexes into a per-style
   palette, since every direction wants different colours out of the same
   geometry.
-- **Phase 2 — material shim.** Only if Ink & Fluoro (direction 2) wins: replace
-  the ~163 `<meshStandardMaterial>` sites with a `<Surface>` component that
-  resolves material type from the active style.
+- **Phase 2 — material shim.** Only if Ink & Fluoro (§4.2) or Scale 1:64 (§5.3)
+  wins: replace the ~163 `<meshStandardMaterial>` sites with a `<Surface>`
+  component that resolves material type from the active style.
+
+Two second-pass entries sidestep this sequence entirely, which is part of their
+appeal: **Copier Room** is a single post pass that needs no material knowledge
+at all, and **On Twos** is a sample-and-hold on transforms that touches no
+materials and no shaders.
 
 ---
 
@@ -304,3 +428,15 @@ architecture is a real refactor. Sequence it so the cheap evidence comes first:
 - [Why low-poly works so well for horror — indie devs, GamesRadar](https://www.gamesradar.com/games/survival-horror/indie-devs-discuss-why-low-poly-works-so-well-for-horror-i-actually-think-those-limitations-encourage-weird-unique-compromises/)
 - [How indie horror games are bringing back retro grime — Rolling Stone](https://www.rollingstone.com/culture/rs-gaming/horror-game-renaissance-playstation-retro-1235134578/)
 - [Small-scale games: 16 intimate videogame worlds — AV Club](https://www.avclub.com/small-scale-games)
+
+Second pass:
+
+- [The risograph aesthetic — spot inks, misregistration, dot gain](https://freedesignmd.com/lexicon/risograph)
+- [RISO print guide — halftone and bitmap processing, Out of the Blueprint](https://outoftheblueprint.org/files/)
+- [Harold Halibut: a handmade stop-motion-aesthetic game — PC Gamer](https://www.pcgamer.com/harold-halibut-is-a-handmade-stop-motion-aesthetic-adventure-about-friendship-and-home-in-a-giant-spaceship-trapped-beneath-an-alien-sea/)
+- [How Slow Bros built Harold Halibut from scanned physical assets — Vice](https://www.vice.com/en/article/stop-motion-animation-video-game-harold-halibut/)
+- [Videogames that simulate stop-motion animation — list](https://namelessplanetworld.wordpress.com/2021/04/16/list-videogames-that-use-stop-motion-animation/)
+- [Horror games that use security-camera mechanics — Game Rant](https://gamerant.com/best-horror-games-security-camera-mechanics/)
+- [Content Warning — found-footage co-op, Wikipedia](https://en.wikipedia.org/wiki/Content_Warning)
+- [Miniature scale reference for model railroads and tabletop wargames — Tangible Day](https://tangibleday.com/scale-reference-model-rail-road-and-tabletop-miniature-games/)
+- [Miniature model (gaming) — Wikipedia](https://en.wikipedia.org/wiki/Miniature_model_(gaming))
