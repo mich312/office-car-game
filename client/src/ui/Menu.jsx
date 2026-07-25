@@ -59,7 +59,9 @@ function GarageScene() {
 
   return (
     <>
-      <Environment resolution={64} frames={1}>
+      {/* the garage is where players inspect metal flake and pearl coat up
+          close, so it wants the sharper cubemap even more than the office */}
+      <Environment resolution={256} frames={1}>
         <color attach="background" args={['#141a2c']} />
         <Lightformer form="rect" intensity={4} color="#dfe8ff" position={[0, 5, -6]} scale={[12, 4, 1]} />
         <Lightformer form="rect" intensity={2.5} color="#ffd9a8" position={[5, 3, 3]} rotation-y={-Math.PI / 2} scale={[6, 3, 1]} />

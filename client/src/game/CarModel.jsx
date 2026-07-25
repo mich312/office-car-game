@@ -121,11 +121,33 @@ const TINTS = {
 // Paint. Gloss keeps the toon ramp the whole art direction is built on; the
 // other finishes switch shading model so flake and pearl actually catch the
 // office strip lights (both scenes ship an Environment, so metals reflect).
+// Fresnel rim. At night a dark shell on a dark floor is the least readable
+// thing in the frame, which is backwards — the car is the one object you must
+// always be able to find. This adds a grazing-angle term to a shader that is
+// already running: no extra light, no extra draw call, one uniform per car.
+// `material.userData.rim` is the handle the car's frame loop writes to.
+const RIM_INJECT = /* glsl */ `
+  float rimF = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition)));
+  outgoingLight += uRim * pow(rimF, 3.0);
+`;
+const _rimTarget = new THREE.Color();
+function withRim(mat) {
+  const rim = { value: new THREE.Color(0, 0, 0) };
+  mat.userData.rim = rim;
+  mat.onBeforeCompile = (s) => {
+    s.uniforms.uRim = rim;
+    s.fragmentShader = s.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uRim;')
+      .replace('#include <opaque_fragment>', `${RIM_INJECT}#include <opaque_fragment>`);
+  };
+  return mat;
+}
+
 function paintMat(color, finishId) {
   const f = FINISHES[finishId] || FINISHES.gloss;
-  if (f.toon) return new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() });
+  if (f.toon) return withRim(new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() }));
   if (f.clearcoat !== undefined || f.iridescence !== undefined) {
-    return new THREE.MeshPhysicalMaterial({
+    return withRim(new THREE.MeshPhysicalMaterial({
       color,
       roughness: f.roughness,
       metalness: f.metalness,
@@ -134,11 +156,11 @@ function paintMat(color, finishId) {
       iridescence: f.iridescence ?? 0,
       iridescenceIOR: 1.4,
       envMapIntensity: 1.15,
-    });
+    }));
   }
-  return new THREE.MeshStandardMaterial({
+  return withRim(new THREE.MeshStandardMaterial({
     color, roughness: f.roughness, metalness: f.metalness, envMapIntensity: 1,
-  });
+  }));
 }
 
 // ---------------------------------------------------------------- shells
@@ -278,6 +300,16 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
     const speed = speedRef?.current ?? 0;
     const steer = steerRef?.current ?? 0;
     const t = state.clock.elapsedTime;
+    // Rim tint: cool and strong in the dark where the shell needs separating
+    // from the floor, a warm whisper by day, and the boost colour while lit —
+    // so a boost reads on the car and not only at the screen edges.
+    if (mats.body.userData.rim) {
+      _rimTarget.set(boostingRef?.current ? '#7ad8ff' : dark ? '#6f90e0' : '#ffd9a8')
+        .multiplyScalar(boostingRef?.current ? 0.85 : dark ? 0.5 : 0.14);
+      const rk = Math.min(1, dt * 6);
+      mats.body.userData.rim.value.lerp(_rimTarget, rk);
+      mats.trim.userData.rim.value.lerp(_rimTarget, rk);
+    }
     spin.current += (speed / 0.14) * dt;
     wheels.current.forEach((w, i) => {
       if (!w) return;
@@ -386,7 +418,9 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
         {[-kit.tail[0], kit.tail[0]].map((x) => (
           <mesh key={x} position={[x, kit.tail[1], bounds.tailZ + 0.012]}>
             <boxGeometry args={[0.08, 0.05, 0.03]} />
-            <meshStandardMaterial color="#3d0505" emissive="#ff2222" emissiveIntensity={1.2} toneMapped={false} />
+            {/* tails were at a third of the headlights' output, so they never
+                bloomed and never read as "the car in front is right there" */}
+            <meshStandardMaterial color="#3d0505" emissive="#ff2222" emissiveIntensity={dark ? 3 : 1.4} toneMapped={false} />
           </mesh>
         ))}
         {isLocal && dark && (

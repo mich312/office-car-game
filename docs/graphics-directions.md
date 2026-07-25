@@ -1,5 +1,8 @@
 # Graphics update — directions, cheap first
 
+> **Status.** Bundles 1 and 2 have shipped — §A, §B and §E are done and
+> measured (see §4a). §C, §D, §F, §G and the §H identity fork are still open.
+
 Scope: how the game *looks*. Shading, lighting, post. Written against the
 renderer as it stands (`client/src/game/Lighting.jsx`, `Effects.jsx`,
 `SpeedFX.jsx`, `Office.jsx`, `CarModel.jsx`, `textures.js`) and against a
@@ -88,7 +91,7 @@ budget should be spent.
 
 ---
 
-## A. Free wins that are already-existing numbers
+## A. Free wins that are already-existing numbers — **[shipped]**
 
 Half an hour, no new code, meaningful.
 
@@ -102,11 +105,25 @@ Half an hour, no new code, meaningful.
 Nothing here is a direction so much as a debt payment. Do it first so the
 directions below are evaluated against a fair baseline.
 
+**What shipping it taught us:** the bloom threshold could not simply stay
+where it was. Under the old LDR buffer every value was clipped at 1.0, so a
+threshold of 0.82 was a threshold *within the clipped range*. With an HDR
+buffer, lit surfaces sit above 1.0 too, and the first attempt (`0.6`) veiled
+the whole frame in milk — the white kitchen floor bloomed as hard as the
+lamps. It landed at `1.05`: above what a fully lit white floor reaches, below
+the emissives. The lesson generalises to §D — **switching to HDR silently
+rescales every threshold in the post stack**, so re-tune them together, and
+look at a bright frame, not just a dark one.
+
+The garage (`Menu.jsx`) got the same environment bump. It is where players
+inspect metal flake and pearl coat at arm's length, so it wanted it more than
+the office did.
+
 ---
 
-## B. Make the shadow box follow the car
+## B. Make the shadow box follow the car — **[shipped]**
 
-**Cost: ~2 h. Saves several hundred draw calls and makes shadows ~3× sharper.**
+**Cost: ~2 h. Measured at −17% draw calls and −17% triangles, 1.75× sharper.**
 
 The sun's shadow camera is `[-105, 105, 75, -75]` — a 210 × 150 unit box, i.e.
 47 × 34 metres, covering the entire office. At `2048²` that is **2.3 cm per
@@ -117,18 +134,24 @@ Shrink the box to ~60 units centred on the player and it becomes 0.65 cm per
 texel — and the ortho frustum culls most of the office out of the shadow pass,
 which is where the draw-call saving comes from.
 
-```jsx
-// Lighting.jsx — sun follows the local car, box shrinks to what's on screen
-const cam = useRef();
-useFrame(() => {
-  if (!sun.current) return;
-  const { x, z } = telemetry;          // already exported from LocalCar.jsx
-  sun.current.position.set(x + 60, 90, z + 140);
-  sun.current.target.position.set(x, 0, z);
-  sun.current.target.updateMatrixWorld();
-  cam.current.updateProjectionMatrix();  // box stays [-30,30,22,-22]
-});
-```
+As shipped it centres on **the floor point the camera is aimed at**, not on the
+local car. That was the one design change against the original sketch, and it
+matters: centring on `telemetry` breaks the moment the player is dead and
+watching the spectator drone, or parked in the photo orbit. Centring on the
+camera's own aim works for all three cameras without any of them knowing the
+shadow rig exists.
+
+The other thing the sketch missed: **texel snapping**. A box that slides
+continuously resamples the shadow map every frame and the edges visibly crawl.
+Quantising the box centre to shadow-map texels fixes it for three lines, and it
+is not optional — without it this direction is a downgrade in motion even
+though every still frame looks better.
+
+The knob is `SHADOW_HALF`, shipped at 60. Smaller is sharper and cheaper, but
+geometry outside the box stops casting; 60 covers ~75 units ahead of the chase
+cam, past every sightline the office's walls actually leave open. This is the
+inherent single-cascade trade — range for sharpness — and at 22 cm car scale
+the shadows worth having are the contact ones.
 
 Two variants worth prototyping side by side:
 
@@ -139,8 +162,8 @@ Two variants worth prototyping side by side:
    **instanced** blob-shadow quad — one draw call for the whole grid. This is
    the cheapest possible shadowing and it is period-correct for a toy look.
 
-Variant 1 keeps the current fidelity; variant 2 buys the most budget. Either
-funds everything in §D–§F.
+Variant 1 shipped. Variant 2 is still the bigger prize and is now the obvious
+`?lowfx` shadow path, which currently has none at all.
 
 ---
 
@@ -225,7 +248,7 @@ that needs to *not* be fogged — `Outside`'s skyline currently opts out with
 
 ---
 
-## E. Rim light on the cars
+## E. Rim light on the cars — **[shipped]**
 
 **Cost: ~2 h. Fixes the readability problem in the night frame. Zero draw calls.**
 
@@ -250,10 +273,17 @@ Tint `uRim` cool at night, warm by day, and flash it to the boost colour while
 screen edges, which `SpeedFX.jsx` currently handles alone. Same trick applies
 to the toon material; `MeshToonMaterial` compiles from the same chunk names.
 
-While in there: the taillights at `emissiveIntensity 1.2` are half the strength
-of the headlights at 3.5. Raise them and let §A's lower bloom threshold do the
-rest — brake lights that bloom are the cheapest "this car is braking in front
-of me" signal in a party racer.
+Shipped on both painted materials (body and trim), so a two-tone car rims in
+both colours, and on every finish — `withRim()` wraps the toon, standard and
+physical branches of `paintMat()` alike. The uniform is per material, held on
+`material.userData.rim`, and the car's existing frame loop lerps it. The boost
+tint made it in: `boostingRef` already reaches `CarModel`, so a boost now reads
+on the car as well as at the screen edges, where `SpeedFX` had it alone.
+
+While in there: the taillights were at `emissiveIntensity 1.2` against
+headlights at 3.5, so they never bloomed. Now `dark ? 3 : 1.4` — brake lights
+that bloom are the cheapest "the car in front of me is right there" signal in a
+party racer, and with §A's HDR buffer they finally key the threshold.
 
 ---
 
@@ -361,8 +391,8 @@ it is a fifth of the work.
 
 | Bundle | Contents | Effort | What the player notices |
 |--------|----------|--------|------------------------|
-| **1 — an afternoon** | §A (four numbers), §E (rim light + brake lights) | 0.5 d | Reflections exist; the car is readable at night |
-| **2 — the budget** | §B (follow-box shadows) | 0.5 d | Sharp contact shadows, and several hundred draw calls back in the bank |
+| **1 — an afternoon** ✅ | §A (four numbers), §E (rim light + brake lights) | 0.5 d | Reflections exist; the car is readable at night |
+| **2 — the budget** ✅ | §B (follow-box shadows) | 0.5 d | Sharp contact shadows, and 17% of the frame back in the bank |
 | **3 — the look** | §D (grade + height fog), §F (cones, flicker, bounce tint) | 1.5 d | Day and night become different films; the office feels lit |
 | **4 — the identity** | §H1 (tilt-shift), then §C (world outlines) | 2 d | It reads as a miniature |
 | **5 — the surfaces** | §G | 1.5 d | The floor stops being paper |
@@ -370,12 +400,46 @@ it is a fifth of the work.
 Bundles 1 and 2 pay for 3–5: the shadow work returns more budget than the post
 work spends.
 
+## 4a. What bundles 1 and 2 actually cost
+
+Measuring this needed a method note, because the obvious measurement lies.
+Draw-call counts swing by ±20% between page loads — a different voted mode, a
+different spawn, different props still alive — which is wide enough to swamp
+the effect being measured. The first before/after comparison came out
+*backwards* for exactly that reason.
+
+The controlled version: one build, a temporary `?fixedsun` flag selecting the
+old shadow rig, the mode pinned to Desk Dash by clicking the card, and `R`
+pressed to normalise the spawn. Both legs then sample 14 frames from the same
+world position and take the median. Only the shadow rig differs.
+
+| Shadow rig (everything else identical) | Draw calls | Triangles |
+|---|---:|---:|
+| Fixed 210 × 150 box | 1 389 | 74 462 |
+| Follows the camera, `SHADOW_HALF = 60` | **1 155** | **61 730** |
+| | **−17%** | **−17%** |
+
+The `?fixedsun` flag was scaffolding and has been removed; the procedure above
+is the reproduction recipe. The `?lowfx` scene pass is unchanged at ~775 draw
+calls, as it must be — none of bundle 1 or 2 touches it except the rim light,
+which is a shader term rather than an object.
+
+Two claims from §1–§3 survived contact and are worth keeping:
+
+- **Fragment work really is free here.** The rim light, the HDR buffer and the
+  tightened AO cost nothing measurable in draw calls, which was the whole
+  premise of the budget rule.
+- **The shadow pass really was the fat.** It is the only change that moved the
+  numbers, and it moved them by more than the entire post stack costs.
+
 ## 5. Guardrails
 
-- **Re-measure after every bundle**, same method as §1: `window.__glStats` in
-  a live match, and `window.__glInfo()` under `?lowfx`. The numbers in §1 are
-  the regression baseline. Any bundle that pushes scene draw calls above ~800
-  has spent budget it did not earn.
+- **Re-measure after every bundle**, and measure it the way §4a describes, not
+  the way §1 does. `window.__glStats` in a live match and `window.__glInfo()`
+  under `?lowfx` are the right counters, but a raw before/after across two page
+  loads is noise: pin the mode, normalise the spawn, sample a dozen frames, take
+  the median, and change one thing at a time. Any bundle that pushes the
+  `?lowfx` scene pass above ~800 draw calls has spent budget it did not earn.
 - **`?lowfx` must stay playable.** Post-only directions (§C, §D, §H1) vanish
   there by construction; §E and §G survive; §B needs its own low path (variant
   2's blob shadows are a good `?lowfx` default).
