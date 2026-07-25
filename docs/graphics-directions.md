@@ -2,6 +2,8 @@
 
 > **Status.** Bundles 1 and 2 have shipped — §A, §B and §E are done and
 > measured (see §4a). §C, §D, §F, §G and the §H identity fork are still open.
+> §I–§M are a second, deeper pass: normal maps, faked depth, load-time
+> lighting, and the draw-call problem the rest of the doc keeps working around.
 
 Scope: how the game *looks*. Shading, lighting, post. Written against the
 renderer as it stands (`client/src/game/Lighting.jsx`, `Effects.jsx`,
@@ -387,6 +389,237 @@ it is a fifth of the work.
 
 ---
 
+# Second pass — surfaces, fakery, and the draw-call problem
+
+§A–§H were the cheap-first sweep. §I–§M are the deeper directions: what to do
+about surfaces that have no relief at all, how to fake depth that isn't there,
+how to get lighting that looks computed rather than declared, and — the one the
+rest of this doc keeps stepping around — how to actually spend down the 780
+draw calls.
+
+A fact worth stating plainly, because it explains §2's flat-white floor better
+than anything else in this document: **the project contains no `normalMap`, no
+`roughnessMap`, no `aoMap`, no vertex colours, and no `bumpMap`.** Not one, in
+any material, anywhere. Every surface in the game is albedo × lighting. That is
+the whole finding.
+
+---
+
+## I. Normal maps — one helper, every surface
+
+**Cost: ~0.5 d for the helper and the first four surfaces. Zero draw calls.**
+
+The leverage is that `textures.js` funnels every texture in the game through a
+single `canvasTex()`. One `normalFrom(canvas)` alongside it — a Sobel of the
+drawing we already did, run once at load — and every material in the game can
+opt into relief with one line.
+
+```js
+// textures.js — derive relief from the drawing we already did
+function normalFrom(canvas, strength = 2) {
+  const g = canvas.getContext('2d'), { width: w, height: h } = canvas;
+  const src = g.getImageData(0, 0, w, h).data, out = new Uint8ClampedArray(w * h * 4);
+  const lum = (x, y) => { const i = (((y + h) % h) * w + ((x + w) % w)) * 4;
+    return (src[i] * 0.299 + src[i + 1] * 0.587 + src[i + 2] * 0.114) / 255; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = (lum(x + 1, y) - lum(x - 1, y)) * strength;
+    const dy = (lum(x, y + 1) - lum(x, y - 1)) * strength;
+    const l = Math.hypot(dx, dy, 1), i = (y * w + x) * 4;
+    out[i]     = (-dx / l * 0.5 + 0.5) * 255;
+    out[i + 1] = (-dy / l * 0.5 + 0.5) * 255;
+    out[i + 2] = ( 1  / l * 0.5 + 0.5) * 255;
+    out[i + 3] = 255;
+  }
+  // → DataTexture carrying the same wrap and repeat as its albedo
+}
+```
+
+Carpet fibre, concrete aggregate, wood grain, tile grout, drywall orange-peel —
+and the same pass gives §G its roughness maps, because a Sobel that knows where
+the grout is also knows where the water would sit.
+
+Three things that will bite:
+
+- **Sobel-from-albedo confuses colour for height.** `tileTex` draws a white
+  highlight rectangle that would come out as a bump. For the surfaces that
+  matter, draw a second greyscale *height* canvas in the same draw function
+  rather than inferring one. The drawing code is the cheapest code in the
+  project; spend it.
+- **The 61 walls are one instanced box, non-uniformly scaled.** Their UVs
+  stretch per instance, so a normal map smears differently on every wall. Needs
+  triplanar sampling or a per-instance UV-scale attribute. This is the detail
+  that turns a two-hour job into a day if it arrives as a surprise.
+- **Do not normal-map the toon cars.** The gradient ramp quantises `N·L`, so
+  perturbing the normal yields banding noise rather than detail. The exception
+  is thematically perfect: a high-frequency sparkle normal on **Metal Flake** is
+  literally what flake is, and the backlogged Carbon Fibre finish is a weave
+  normal map by definition.
+
+For the large floor planes specifically, consider skipping the texture and
+perturbing the normal with two octaves of value noise in `onBeforeCompile`:
+costs ALU instead of bandwidth, and never tiles.
+
+---
+
+## J. Fake 3D
+
+**Cost: 0.5–1 d each, independently shippable.**
+
+### J1. Interior mapping on the skyline — the best wow-per-line in the doc
+The city past the north glass is one flat `skylineTex` plane. Interior mapping
+raytraces a box per window in the fragment shader, so every window in those
+towers becomes a room with real parallax as you drive past. One material, one
+plane, no new geometry, and the world outside stops being a poster taped over
+the window. This is the single most "how did they do that" idea available here.
+
+### J2. Parallax occlusion on the floors
+A grazing-angle chase camera over a large flat surface is POM's ideal case, and
+at 22 cm car scale, grout that is genuinely recessed sells "real floor, tiny
+car" better than anything else on the list. See the fill-rate warning in §5 —
+this is the one idea that could falsify the budget rule.
+
+### J3. Parallax interiors for the machines
+The vending machine currently models twelve individual can meshes behind its
+glass. A parallax box behind one plane is 1 mesh and reads deeper. Same trick
+for the fridge, the drawers, and the grilles on the server racks.
+
+### J4. Depth-fade the light cards
+`LightShafts` and `LightPools` cut hard intersection lines into the floor and
+walls. A soft-particle depth fade against the depth buffer is a few lines and
+is the difference between "a quad" and "volume". Do this before adding any more
+cards in §F — it is what makes the whole card technique hold up.
+
+### J5. Impostors for distant props
+Fake 3D as a *perf* technique. The 145 props are the draw-call problem; distant
+ones can swap to a single instanced camera-facing quad atlas, the same way cars
+already swap to `CarProxy` at 28 units. Feeds directly into §L.
+
+---
+
+## K. Real lighting, with tricks
+
+**Cost: 1 d for the cheap version, 2–3 d for the probe grid.**
+
+### K1. Bake the static lighting at load
+The office never moves. Compute per-vertex irradiance once at startup from the
+six ceiling lights and the sun, store it in a vertex attribute, bake it twice
+(day and night) and lerp with a uniform. It is computed, not shipped, so the
+zero-asset rule holds. The payoff is that `Lighting.jsx`'s own comment — *"light
+count is the #1 fragment cost"* — stops being a constraint on everything else.
+
+### K2. The probe grid — the actual answer to "real lighting"
+Sample irradiance on a coarse 3D grid at load, store SH-L1 in a 3D texture, and
+have props and cars read it. A mug in the server room is then lit blue and a mug
+in the kitchen is lit warm, without either being in range of a real light. One
+texture fetch at runtime. This is what would make 145 props feel like they
+belong to the rooms they are standing in.
+
+**Start with the poor-man's version**, which is nearly free: `roomAt()` already
+exists, so tint the hemisphere light by the room the camera is in and lerp on
+transitions. One uniform, and the carpet colour bleeds onto the car.
+
+### K3. Specular occlusion from the AO buffer
+The underside of every desk currently reflects the sky at full strength.
+Multiplying `envMapIntensity` by the AO term is one multiply and removes a
+surprising amount of the flatness.
+
+### K4. Gobo the fixture cards
+The floor pools are plain radial glows. Give them the fixture's actual grille
+pattern and the light acquires a source. Free — same quad, better canvas.
+
+### K5. Remote cars have no headlights
+`CarModel.jsx:426` gates the beam on `isLocal && dark`, so at night every rival
+drives blacked out. Twelve real spotlights is not affordable; a cone card plus a
+floor pool is ~2 draws per car and is what makes a pack of cars read as a pack.
+This is a bug wearing a feature's clothes.
+
+### K6. Fake GI from the bloom buffer
+Sample a low mip of the bloom target and add it back as tinted ambient. Not GI,
+but bright surfaces bleed onto their neighbours for one fetch in a pass that is
+already running.
+
+### K7. Worth one prototype: `RectAreaLight`
+Two or three area lights for the window wall and the main ceiling grid may look
+dramatically better than six point lights at comparable cost. Measure before
+believing it — area lights are not cheap — but the shapes are right.
+
+---
+
+## L. The draw-call problem, attacked directly
+
+**Cost: 2–4 d. This is the direction that pays for every other direction.**
+
+Every section above is rationed by the same number: ~780 scene draw calls for
+45 k triangles, which is 17 triangles per call. That is not a lighting problem
+or a shading problem, it is a submission problem, and three things fix it:
+
+- **Merge the static furniture.** 76 pieces × ~6 meshes each, almost all
+  sharing a handful of materials. `BufferGeometryUtils.mergeGeometries()` per
+  material turns that into a handful of draws. This was already written down as
+  A3 in `IMPROVEMENT_PLAN.md` — *"one merged-geometry pass… so the added
+  car/prop detail is GPU-free overall"* — and never finished. It is the largest
+  single structural win left in the renderer.
+- **Instance the repeated props.** 21 chairs, 14 mugs, 13 boxes, 12 pens, 11
+  plants, 11 stacks: 80-odd objects that want to be five instanced meshes. They
+  move, but that is what `InstancedRigidBodies` in `@react-three/rapier` is
+  for — the transforms come back from the physics world every frame anyway.
+- **A room PVS.** The map is 13 rooms with hand-authored walls, and `roomAt()`
+  already exists. A hand-built room-adjacency visibility table is genuinely
+  tractable at this size and would cull everything behind a wall — which, in an
+  office, is most of the building most of the time. Frustum culling cannot do
+  this; it has no idea the wall is opaque.
+
+The honest framing: §I–§K make the frame prettier, §L makes them affordable.
+If only one thing gets done, this is the one with compounding returns.
+
+---
+
+## M. Scale, motion and stylisation — the grab bag
+
+Small ideas, each cheap, each pulling toward "tiny cars in a real office".
+
+**Scale cues**
+- **Wrapped diffuse on the paint.** Toys are translucent plastic; a remapped
+  `N·L` (`(N·L + w) / (1 + w)`) reads as plastic rather than painted metal. One
+  line in the toon ramp, and it is the cheapest identity change on this list.
+- **Sheen on the fabric.** The office is full of it — sofas, booths, carpet,
+  the foosball felt. Fresnel-based fake sheen, no new maps needed.
+- **Anisotropic highlights** on the brushed-metal desk legs and the fridge.
+- **Camera-locked dust layer** with parallax, in front of the existing
+  `Sparkles`. Near-field particles are a macro-photography cue.
+
+**Motion**
+- **Reprojection motion blur.** Depth plus the previous view-projection matrix
+  is enough for camera-motion blur in one pass. It sells speed harder than the
+  radial zoom in `SpeedFX` and composes with it.
+- **Wheel blur** driven by the existing spin value — a radial smear on the rim
+  texture, not real motion blur.
+- **Squash and stretch** on landings, in the vertex shader. Free, and it is the
+  single most toy-like thing a toy car can do.
+- **Afterimage on boost**: redraw the shell offset and additive at low alpha.
+  One extra draw on one car.
+- **FOV kick** with speed — different from the existing zoom blur, and cheaper.
+
+**Stylisation**
+- **Per-room colour grades** blended by `roomAt()`, on top of §D. The kitchen
+  warm, the server room cold cyan, the balcony blue. Rooms become *places*, and
+  it costs two uniforms.
+- **Film grain and dithering.** Three lines, kills residual banding, and adds
+  the texture that procedural-canvas worlds tend to lack.
+- **Chromatic aberration at the frame edge** during boost — merges into the
+  existing pass.
+- **Screen-space god rays** from the sun's projected position when it is visible
+  through the north glass. The 2007 trick, one radial pass, and this map has a
+  literal wall of windows to justify it.
+
+**Insurance**
+- **Dynamic resolution.** Measure frame time and scale `dpr` between 0.75 and
+  1.5 to hold 60. This is also the honest mitigation for the fill-rate
+  uncertainty in §5 — it makes being wrong about POM survivable instead of
+  fatal.
+
+---
+
 ## 4. Suggested order
 
 | Bundle | Contents | Effort | What the player notices |
@@ -395,10 +628,16 @@ it is a fifth of the work.
 | **2 — the budget** ✅ | §B (follow-box shadows) | 0.5 d | Sharp contact shadows, and 17% of the frame back in the bank |
 | **3 — the look** | §D (grade + height fog), §F (cones, flicker, bounce tint) | 1.5 d | Day and night become different films; the office feels lit |
 | **4 — the identity** | §H1 (tilt-shift), then §C (world outlines) | 2 d | It reads as a miniature |
-| **5 — the surfaces** | §G | 1.5 d | The floor stops being paper |
+| **5 — the surfaces** | §I (normal helper) + §G (roughness, tiling) | 2 d | The floor stops being paper |
+| **6 — the budget, properly** | §L (merge, instance, room PVS) | 3 d | Nothing directly — it is what makes 7–8 affordable |
+| **7 — the fakery** | §J1 (interior-mapped skyline), §J4 (depth-faded cards), §J3 | 2 d | The city outside is real; the light has volume |
+| **8 — real lighting** | §K2 (probe grid), §K1 (bake), §K5 (rival headlights) | 3 d | Props belong to their rooms; rivals have lights |
 
-Bundles 1 and 2 pay for 3–5: the shadow work returns more budget than the post
-work spends.
+Bundles 1 and 2 paid for 3–5: the shadow work returned more budget than the post
+work spends. Bundle 6 is the same bet at a larger scale — it produces nothing a
+player can see, and it is the reason 7 and 8 can be afforded at all. §M is a
+grab bag to raid whenever a bundle finishes early; nothing in it is a
+dependency for anything else.
 
 ## 4a. What bundles 1 and 2 actually cost
 
@@ -444,21 +683,35 @@ Two claims from §1–§3 survived contact and are worth keeping:
   there by construction; §E and §G survive; §B needs its own low path (variant
   2's blob shadows are a good `?lowfx` default).
 - **Everything stays procedural.** No LUT PNGs for §D — build the grade from
-  uniforms. No baked normal maps for §G — derive them from the canvases that
-  already exist.
+  uniforms. No shipped normal maps for §G/§I — derive them at load from the
+  canvases that already exist.
 - **The car is the thing you must always see.** Any grade, fog or blur is wrong
   if it costs contrast on the local car against the floor.
+- **"Fragments are free" is measured on draw calls, not on fill.** §3's budget
+  rule came from a submit-bound profile; nothing in this doc has measured fill
+  rate. §J2 (parallax occlusion on the floor — the largest screen area in every
+  frame) and §J1 are where that assumption gets tested, and where it would break
+  first. Before committing to either, run a render-scale sweep at fixed geometry
+  to find the fill ceiling, and treat §M's dynamic resolution as the seatbelt.
 
 ## 6. Explicit non-goals
 
 - **Screen-space reflections / SSGI.** Both want a full depth-normal prepass and
   a lot of fragment work to look like anything. §A's sharper environment map
   gets 80 % of the visible benefit for zero frames.
-- **Real volumetric lighting.** Ray-marched god rays are the classic answer to
-  §F and the wrong one here — the additive cards already read correctly, and
-  they cost six draws instead of a march.
-- **More dynamic lights.** The file's own comment is right.
+- **Ray-marched volumetric lighting.** The classic answer to §F and the wrong
+  one here — the additive cards already read correctly, and they cost six draws
+  instead of a march. (§M's screen-space god rays are a different animal: one
+  radial blur from a projected sun position, no marching. That one is in.)
+- **More dynamic lights.** The file's own comment is right — and §K1/§K2 are the
+  way to get the *look* of more lights without any.
 - **A deferred renderer.** The problem is 780 draw calls of tiny props, not
-  lighting throughput.
-- **Baked lightmaps.** They would look great and they are an asset pipeline,
-  which is the one thing this project has never had.
+  lighting throughput. §L is the answer to that, not a rewrite.
+
+**One non-goal that §K walks back on purpose.** An earlier draft ruled out baked
+lightmaps as "an asset pipeline, which is the one thing this project has never
+had". That reasoning holds for lightmaps *shipped as files* and not for §K1/§K2,
+which compute irradiance at load and keep it in memory. The output is generated,
+never authored and never checked in, which is the same deal `textures.js` has
+always had. The rule was never "no baked lighting" — it was "no assets", and a
+load-time bake does not break it.
