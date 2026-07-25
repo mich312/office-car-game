@@ -267,15 +267,38 @@ function snapshot() {
   };
 }
 
-function Board({ position, rotationY, material }) {
+// Soft baked contact shadow — the cue that couples the board to its wall.
+function useShadowTexture() {
+  return useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const rg = g.createRadialGradient(64, 58, 12, 64, 64, 62);
+    rg.addColorStop(0, 'rgba(8, 10, 14, 0.4)');
+    rg.addColorStop(1, 'rgba(8, 10, 14, 0)');
+    g.fillStyle = rg;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }, []);
+}
+
+// Board surface is 2.05 × 1.28 m (framed ~2.25 × 1.48) — sized so it sits in
+// the wall band between furniture and ceiling with clear air on both sides
+// instead of filling it edge to edge.
+function Board({ position, rotationY, material, shadow }) {
   return (
     <group position={position} rotation-y={rotationY}>
+      {/* contact shadow on the wall, biased downward like the room light */}
+      <mesh position={[0, -0.1 * M, 0.006 * M]}>
+        <planeGeometry args={[2.9 * M, 2.0 * M]} />
+        <meshBasicMaterial map={shadow} transparent depthWrite={false} />
+      </mesh>
       {/* dark rounded frame, stood off the wall for real depth */}
-      <RoundedBox args={[2.82 * M, 1.84 * M, 0.05 * M]} radius={0.018 * M} smoothness={3} position={[0, 0, 0.035 * M]}>
+      <RoundedBox args={[2.25 * M, 1.48 * M, 0.05 * M]} radius={0.018 * M} smoothness={3} position={[0, 0, 0.035 * M]}>
         <meshStandardMaterial color="#232837" metalness={0.15} roughness={0.55} />
       </RoundedBox>
       {/* wall standoffs */}
-      {[[-1.2, 0.75], [1.2, 0.75], [-1.2, -0.75], [1.2, -0.75]].map(([x, y]) => (
+      {[[-0.95, 0.58], [0.95, 0.58], [-0.95, -0.58], [0.95, -0.58]].map(([x, y]) => (
         <mesh key={`${x}${y}`} position={[x * M, y * M, 0.012 * M]} rotation-x={Math.PI / 2}>
           <cylinderGeometry args={[0.02 * M, 0.02 * M, 0.03 * M, 10]} />
           <meshStandardMaterial color="#454f68" metalness={0.7} roughness={0.3} />
@@ -283,35 +306,120 @@ function Board({ position, rotationY, material }) {
       ))}
       {/* the board surface */}
       <mesh material={material} position={[0, 0, 0.062 * M]}>
-        <planeGeometry args={[2.6 * M, 1.62 * M]} />
+        <planeGeometry args={[2.05 * M, 1.28 * M]} />
       </mesh>
       {/* corner caps on the frame */}
-      {[[-1.34, 0.85], [1.34, 0.85], [-1.34, -0.85], [1.34, -0.85]].map(([x, y]) => (
+      {[[-1.06, 0.67], [1.06, 0.67], [-1.06, -0.67], [1.06, -0.67]].map(([x, y]) => (
         <mesh key={`${x}${y}`} position={[x * M, y * M, 0.061 * M]} rotation-x={Math.PI / 2}>
-          <cylinderGeometry args={[0.014 * M, 0.014 * M, 0.006 * M, 10]} />
+          <cylinderGeometry args={[0.013 * M, 0.013 * M, 0.006 * M, 10]} />
           <meshStandardMaterial color="#8f97a6" metalness={0.75} roughness={0.3} />
         </mesh>
       ))}
       {/* marker tray: rail, two markers, eraser */}
-      <mesh position={[0, -0.99 * M, 0.085 * M]}>
-        <boxGeometry args={[1.3 * M, 0.035 * M, 0.13 * M]} />
+      <mesh position={[0, -0.8 * M, 0.08 * M]}>
+        <boxGeometry args={[1.05 * M, 0.032 * M, 0.12 * M]} />
         <meshStandardMaterial color="#2e3548" metalness={0.4} roughness={0.45} />
       </mesh>
-      {[[-0.34, '#b93a2b'], [0.02, '#23509e']].map(([x, c]) => (
-        <mesh key={c} position={[x * M, -0.955 * M, 0.085 * M]} rotation-z={Math.PI / 2}>
-          <cylinderGeometry args={[0.018 * M, 0.018 * M, 0.15 * M, 10]} />
+      {[[-0.28, '#b93a2b'], [0.04, '#23509e']].map(([x, c]) => (
+        <mesh key={c} position={[x * M, -0.77 * M, 0.08 * M]} rotation-z={Math.PI / 2}>
+          <cylinderGeometry args={[0.016 * M, 0.016 * M, 0.14 * M, 10]} />
           <meshStandardMaterial color={c} roughness={0.45} />
         </mesh>
       ))}
-      <mesh position={[0.42 * M, -0.945 * M, 0.085 * M]}>
-        <boxGeometry args={[0.14 * M, 0.05 * M, 0.07 * M]} />
+      <mesh position={[0.36 * M, -0.765 * M, 0.08 * M]}>
+        <boxGeometry args={[0.13 * M, 0.045 * M, 0.065 * M]} />
         <meshStandardMaterial color="#3b4256" roughness={0.7} />
       </mesh>
       {/* sticky note, slightly askew */}
-      <mesh position={[1.16 * M, -0.62 * M, 0.064 * M]} rotation-z={-0.1}>
-        <planeGeometry args={[0.16 * M, 0.16 * M]} />
+      <mesh position={[0.9 * M, -0.48 * M, 0.064 * M]} rotation-z={-0.1}>
+        <planeGeometry args={[0.14 * M, 0.14 * M]} />
         <meshStandardMaterial color="#ffe27a" roughness={0.9} />
       </mesh>
+    </group>
+  );
+}
+
+// Reception wall dressing: a clock and two pinned memos, so the board hangs
+// in company instead of alone on a bare wall.
+function WallClock({ position, rotationY = 0 }) {
+  const face = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = '#eceee8';
+    g.beginPath();
+    g.arc(64, 64, 62, 0, 7);
+    g.fill();
+    g.strokeStyle = '#3a4152';
+    g.lineWidth = 3;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const l = i % 3 === 0 ? 12 : 6;
+      g.beginPath();
+      g.moveTo(64 + Math.cos(a) * 54, 64 + Math.sin(a) * 54);
+      g.lineTo(64 + Math.cos(a) * (54 - l), 64 + Math.sin(a) * (54 - l));
+      g.stroke();
+    }
+    // stuck at 2:37 — nobody has reset it since the office emptied
+    g.lineWidth = 5;
+    g.lineCap = 'round';
+    g.beginPath(); g.moveTo(64, 64); g.lineTo(64 + 26 * Math.cos(-0.55), 64 + 26 * Math.sin(-0.55)); g.stroke();
+    g.lineWidth = 3.5;
+    g.beginPath(); g.moveTo(64, 64); g.lineTo(64 + 42 * Math.cos(1.85), 64 + 42 * Math.sin(1.85)); g.stroke();
+    g.strokeStyle = '#b93a2b';
+    g.lineWidth = 1.8;
+    g.beginPath(); g.moveTo(64, 64); g.lineTo(64 + 46 * Math.cos(3.6), 64 + 46 * Math.sin(3.6)); g.stroke();
+    g.fillStyle = '#232837';
+    g.beginPath(); g.arc(64, 64, 4, 0, 7); g.fill();
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }, []);
+  return (
+    <group position={position} rotation-y={rotationY}>
+      <mesh rotation-x={Math.PI / 2} position={[0, 0, 0.02 * M]}>
+        <cylinderGeometry args={[0.17 * M, 0.17 * M, 0.045 * M, 24]} />
+        <meshStandardMaterial color="#232837" metalness={0.2} roughness={0.5} />
+      </mesh>
+      <mesh position={[0, 0, 0.044 * M]}>
+        <circleGeometry args={[0.15 * M, 24]} />
+        <meshStandardMaterial map={face} emissive="#ffffff" emissiveMap={face} emissiveIntensity={0.08} roughness={0.6} />
+      </mesh>
+    </group>
+  );
+}
+
+function Memos({ position, rotationY = 0 }) {
+  const sheet = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = 96;
+    c.height = 136;
+    const g = c.getContext('2d');
+    g.fillStyle = '#f3f4ee';
+    g.fillRect(0, 0, 96, 136);
+    g.fillStyle = '#b93a2b';
+    g.fillRect(10, 10, 52, 8);
+    g.fillStyle = 'rgba(35, 39, 44, 0.42)';
+    for (let i = 0; i < 8; i++) g.fillRect(10, 30 + i * 12, 26 + ((i * 37) % 50), 4);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }, []);
+  return (
+    <group position={position} rotation-y={rotationY}>
+      {[[0, 0, -0.045], [0.27, -0.14, 0.06]].map(([x, y, rot], i) => (
+        <group key={i} position={[x * M, y * M, 0.012 * M]} rotation-z={rot}>
+          <mesh>
+            <planeGeometry args={[0.21 * M, 0.297 * M]} />
+            <meshStandardMaterial map={sheet} roughness={0.9} />
+          </mesh>
+          {/* push pin */}
+          <mesh position={[0, 0.13 * M, 0.008 * M]}>
+            <sphereGeometry args={[0.012 * M, 8, 8]} />
+            <meshStandardMaterial color={i ? '#3a7bd0' : '#e05a4d'} roughness={0.4} />
+          </mesh>
+        </group>
+      ))}
     </group>
   );
 }
@@ -349,12 +457,18 @@ export default function OfficeBoard() {
     texture.needsUpdate = true;
   });
 
+  const shadow = useShadowTexture();
+
   return (
     <>
-      {/* meeting room, east wall beside the TV, facing into the room */}
-      <Board position={[20.86 * M, 1.5 * M, 3.5 * M]} rotationY={-Math.PI / 2} material={material} />
-      {/* reception, south wall above the big desk, greets the spawn area */}
-      <Board position={[-17.5 * M, 1.95 * M, -11.87 * M]} rotationY={0} material={material} />
+      {/* meeting room, east wall beside the TV (tops aligned), facing in */}
+      <Board position={[20.86 * M, 1.41 * M, 3.65 * M]} rotationY={-Math.PI / 2} material={material} shadow={shadow} />
+      {/* reception, south wall above the big desk, centered in the band
+          between desk and ceiling */}
+      <Board position={[-17.5 * M, 2.0 * M, -11.87 * M]} rotationY={0} material={material} shadow={shadow} />
+      {/* reception wall dressing so the board hangs in company */}
+      <WallClock position={[-19.15 * M, 2.32 * M, -11.87 * M]} />
+      <Memos position={[-16.05 * M, 1.95 * M, -11.88 * M]} />
     </>
   );
 }
