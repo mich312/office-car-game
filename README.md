@@ -60,12 +60,71 @@ on your wheels. Climbing assist keeps ramps drivable at full grade.
 
 The main menu is a 3D workshop: your car sits on a turntable on someone's
 desk, lit by the desk lamp. The **bench monitor** runs the tuning software —
-car pick, stats, paint, and the full NFS-style visual catalog: six wheel
-styles, three bolt-on spoilers, five vinyl wraps with eight wrap colors, and
-underglow in six colors (brightest after dark). A **clipboard** propped
-against a coffee mug holds the controls cheat-sheet, and the big red button
-on the desk starts the game. Your build is saved locally and synced to every
-player in the lobby — the bots roll their own builds too.
+car pick and stats (CAR), the bolt-on catalogue (PARTS), paint and wraps
+(PAINT), the handling sheet (SETUP) and earned cosmetics (GEAR). Between them:
+ten fitted part slots, six wheel styles, four spoilers, five vinyl wraps with
+eight wrap colours, four paint finishes (toon gloss, matte wrap, metal flake,
+pearl coat), a trim colour for splitter/mirrors/wing/helmet, three glass tints,
+underglow in six colours (brightest after dark) and a licence plate you can
+write yourself. A **clipboard** propped against a coffee mug holds the controls
+cheat-sheet, and the big red button on the desk starts the game. Your build is
+saved locally and synced to every player in the lobby — the bots roll their own
+builds too, parts included.
+
+### Bolt-on parts
+
+The **PARTS** tab is the garage proper: ten fitted slots, each cycled with
+‹ › arrows so the car changes under you as you click.
+
+| Slot | Options |
+| --- | --- |
+| Front end | stock bumper · splitter lip · bull bar · winch bumper |
+| Hood | smooth · ram scoop · twin vents · bonnet pins |
+| Roof | bare · cargo rack (with a file box) · light bar · stacked inbox trays |
+| Sills | clean · side skirts · running boards |
+| Arches | stock lip · widebody (wider track to match) |
+| Tyres | road · knobbly · slicks |
+| Exhaust | single tip · twin tips · side pipes · stacks |
+| Glass | clear · smoked · limo black |
+| Wheels | six rim styles |
+| Spoiler | clean deck · ducktail · GT wing · Park Bench XXL |
+
+Every part fits every body, because they mount off surfaces measured from each
+shell rather than hand-placed per car — so the bull bar lands on the Micro
+Monster's blunt nose and the Formula's needle alike. Your plate takes seven
+characters of your own text, or your driver name if you leave it blank.
+`🎲 SURPRISE ME` rolls a whole build; `STRIP TO STOCK` puts it back.
+
+**The bench camera does the previewing.** Fit a bumper and the turntable swings
+the nose round and the camera dollies in on it; change the sills and it drops to
+a side view; change tyres and it crouches at a wheel. Four seconds later the
+car goes back to its slow showroom spin.
+
+### The setup sheet
+
+The **SETUP** tab is the other kind of tuning — handling, not parts. Five axes — gearing, tyres,
+suspension, downforce, ballast — each a −2…+2 notch that gives with one hand
+and takes with the other: tall gears buy top speed with acceleration, soft
+tyres buy grip with slide, ballast buys shove with agility. There's no budget
+to spend and nothing to unlock, because a maxed sheet is a *specialised* car,
+never a stronger one. Suspension really does change the spring and damper
+rates in the 4-ray suspension, and ballast really does change rigid-body mass,
+so a loaded car wins the shoving matches (the server scores bumps with both
+sheets in hand).
+
+Everything previews before you commit:
+
+- the car on the turntable changes **stance, tyre width and wing rake** live,
+  read straight off the same numbers the physics uses;
+- the stat bars show the car **as tuned**, with a tick where stock sits;
+- and the monitor plots a **simulated 6-second slalom** — your sheet solid
+  against stock dashed — by re-running a 2-D copy of the real driving model
+  from shared code, with top speed (in scale km/h), 0→top, turn rate, how far
+  off the line it wanders, mass and ground covered, each against stock.
+
+Five named presets (Corridor Sprint, Cubicle Carver, Sideways Special,
+Open-Plan Bruiser, plus Stock) are one click away. Design notes and the
+backlog live in `docs/car-design-brainstorm.md`.
 
 ## Game modes (lobby votes)
 

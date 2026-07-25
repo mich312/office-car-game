@@ -111,29 +111,138 @@ export const VINYL_IDS = Object.keys(VINYL_STYLES);
 export const VINYL_COLORS = ['#f5f5f5', '#17181c', '#ffd166', '#ff5c5c', '#7ab8ff', '#b967ff', '#2eff8f', '#ff6bf0'];
 export const GLOW_COLORS = [null, '#7ab8ff', '#b967ff', '#2eff8f', '#ff5c5c', '#ffd166', '#ff6bf0'];
 
-export const DEFAULT_STYLE = { wheels: 'stock', spoiler: 'none', vinyl: 'none', vinylColor: '#f5f5f5', glow: null };
+// Paint finish changes the shading model itself, not just the hue: gloss keeps
+// the banded toon look the whole art direction is built on, the rest reach for
+// PBR so a metallic flake or a pearl clearcoat actually catches the office
+// strip lights. `toon: false` is the client's cue to switch material class.
+export const FINISHES = {
+  gloss: { name: 'Toy Gloss', toon: true },
+  matte: { name: 'Matte Wrap', toon: false, roughness: 0.85, metalness: 0.05 },
+  metal: { name: 'Metal Flake', toon: false, roughness: 0.3, metalness: 0.85 },
+  pearl: { name: 'Pearl Coat', toon: false, roughness: 0.16, metalness: 0.35, clearcoat: 1, iridescence: 0.55 },
+};
+export const FINISH_IDS = Object.keys(FINISHES);
+
+// Accent package: trim colour for splitter, mirror caps, wing blade, roll cage
+// and the driver's helmet. `null` = painted body colour, i.e. no two-tone.
+export const ACCENT_COLORS = [null, '#f5f5f5', '#17181c', '#ffd166', '#ff5c5c', '#7ab8ff', '#2eff8f', '#d4af37'];
+
+// ---------------------------------------------------------------------------
+// Bolt-on parts. This is the tuning that matters in a garage: a bumper, a
+// hood, a roof, a pipe, sills, arches, rubber and glass. Every option is pure
+// visuals — nothing here touches handling — and every option fits every body,
+// because the parts mount off surfaces measured from each shell rather than
+// hand-placed per car.
+//
+// Slot order is the order they appear in the garage, front of the car to back.
+export const PART_SLOTS = [
+  {
+    id: 'front',
+    name: 'Front end',
+    focus: 'front',
+    options: {
+      stock: 'Stock bumper',
+      splitter: 'Splitter lip',
+      bar: 'Bull bar',
+      winch: 'Winch bumper',
+    },
+  },
+  {
+    id: 'hood',
+    name: 'Hood',
+    focus: 'front',
+    options: { stock: 'Smooth', scoop: 'Ram scoop', vents: 'Twin vents', pins: 'Pinned' },
+  },
+  {
+    id: 'roof',
+    name: 'Roof',
+    focus: 'roof',
+    options: { none: 'Bare', rack: 'Cargo rack', lightbar: 'Light bar', tray: 'Inbox tray' },
+  },
+  {
+    id: 'skirts',
+    name: 'Sills',
+    focus: 'side',
+    options: { none: 'Clean', skirt: 'Side skirts', steps: 'Running boards' },
+  },
+  {
+    id: 'flares',
+    name: 'Arches',
+    focus: 'side',
+    options: { stock: 'Stock arches', wide: 'Widebody' },
+  },
+  {
+    id: 'tyre',
+    name: 'Tyres',
+    focus: 'wheel',
+    options: { road: 'Road', knobby: 'Knobbly', slick: 'Slicks' },
+  },
+  {
+    id: 'exhaust',
+    name: 'Exhaust',
+    focus: 'rear',
+    options: { single: 'Single tip', twin: 'Twin tips', side: 'Side pipes', stacks: 'Stacks' },
+  },
+  {
+    id: 'tint',
+    name: 'Glass',
+    focus: 'side',
+    options: { clear: 'Clear', smoke: 'Smoked', limo: 'Limo black' },
+  },
+];
+
+export const PART_SLOT_IDS = PART_SLOTS.map((s) => s.id);
+const PART_DEFAULTS = {
+  front: 'stock', hood: 'stock', roof: 'none', skirts: 'none',
+  flares: 'stock', tyre: 'road', exhaust: 'single', tint: 'clear',
+};
+
+// Plate text: 7 characters of facilities-issue asset tag. Empty = fall back to
+// the driver name, which is what shipped before plates were editable.
+export const PLATE_MAX = 7;
+export function sanitizePlate(s) {
+  return String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').slice(0, PLATE_MAX).trim();
+}
+
+export const DEFAULT_STYLE = {
+  wheels: 'stock', spoiler: 'none', vinyl: 'none', vinylColor: '#f5f5f5', glow: null,
+  finish: 'gloss', accent: null, plate: '', ...PART_DEFAULTS,
+};
 
 // Server-side (and load-time) validation: any unknown value falls back to stock.
 export function sanitizeStyle(s) {
   const st = s && typeof s === 'object' ? s : {};
+  const parts = {};
+  for (const slot of PART_SLOTS) {
+    parts[slot.id] = slot.options[st[slot.id]] ? st[slot.id] : PART_DEFAULTS[slot.id];
+  }
   return {
+    ...parts,
+    plate: sanitizePlate(st.plate),
     wheels: WHEEL_STYLES[st.wheels] ? st.wheels : 'stock',
     spoiler: SPOILER_STYLES[st.spoiler] ? st.spoiler : 'none',
     vinyl: VINYL_STYLES[st.vinyl] ? st.vinyl : 'none',
     vinylColor: VINYL_COLORS.includes(st.vinylColor) ? st.vinylColor : '#f5f5f5',
     glow: GLOW_COLORS.includes(st.glow) ? st.glow : null,
+    finish: FINISHES[st.finish] ? st.finish : 'gloss',
+    accent: ACCENT_COLORS.includes(st.accent) ? st.accent : null,
   };
 }
 
 // Bots roll a random build so the lobby looks like a car meet.
 export function randomStyle() {
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const parts = {};
+  for (const slot of PART_SLOTS) parts[slot.id] = pick(Object.keys(slot.options));
   return {
+    ...parts,
     wheels: pick(WHEEL_IDS),
     spoiler: pick(SPOILER_IDS),
     vinyl: pick(VINYL_IDS),
     vinylColor: pick(VINYL_COLORS),
     glow: pick(GLOW_COLORS),
+    finish: pick(FINISH_IDS),
+    accent: pick(ACCENT_COLORS),
   };
 }
 

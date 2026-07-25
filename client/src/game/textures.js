@@ -147,6 +147,33 @@ export function makeScreen(kind = 'code') {
   return { tex, tick };
 }
 
+// Licence plate: an office-issue asset tag. The driver name is squeezed onto
+// the plate (uppercased, punctuation stripped), so every car in the lobby
+// carries its owner's name in 12 px of chrome-ish plastic.
+export const plateTex = (text) => {
+  const label = (String(text || 'RC')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, '')
+    .trim() || 'RC').slice(0, 7);
+  return canvasTex(`plate-${label}`, 192, 96, (g, w, h) => {
+    g.fillStyle = '#eef1f6';
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#8d97a8';
+    g.lineWidth = 6;
+    g.strokeRect(6, 6, w - 12, h - 12);
+    // blue euro-plate stripe with a tiny office motif
+    g.fillStyle = '#1e4fa8';
+    g.fillRect(6, 6, 26, h - 12);
+    g.fillStyle = '#ffd166';
+    for (let i = 0; i < 3; i++) g.fillRect(15, 22 + i * 18, 8, 6);
+    g.fillStyle = '#14161c';
+    g.font = 'bold 46px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(label, (w + 26) / 2, h / 2 + 3, w - 56);
+  });
+};
+
 // Soft radial glow — floor light pools under the ceiling fixtures. Painting
 // the light's "cast" into cheap additive quads fakes many lights for free.
 export const glowTex = () =>

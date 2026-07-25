@@ -1,5 +1,6 @@
 export * from './constants.js';
 export * from './cars.js';
+export * from './tuning.js';
 export * from './powerups.js';
 export * from './modes.js';
 export * from './map.js';

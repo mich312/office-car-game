@@ -7,7 +7,7 @@ import { RigidBody, CuboidCollider, useRapier, useBeforePhysicsStep } from '@rea
 import * as THREE from 'three';
 import {
   CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP, BOOST_TOP_MULT,
-  SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, SUSPENSION_SETTLE, SPAWN_Y,
+  SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, SPAWN_Y,
   UPRIGHT_ASSIST, SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
@@ -15,6 +15,7 @@ import {
   SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
+  tunedStats,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
@@ -57,11 +58,22 @@ export default function LocalCar() {
   const paint = useStore((s) => s.paint);
   const myCos = useStore((s) => s.cos);
   const style = useStore((s) => s.style);
+  const tune = useStore((s) => s.tune);
   const myName = useStore((s) => s.name);
-  const car = CARS[carId] || CARS.balanced;
+  const baseCar = CARS[carId] || CARS.balanced;
+  // The garage setup sheet is the car we actually drive: gearing, tyres,
+  // springs, wing and ballast all resolve into these numbers (see
+  // shared/src/tuning.js). Stock sheet → identical to the roster stats.
+  const car = useMemo(() => tunedStats(baseCar, tune), [baseCar, tune]);
   // Per-car mass is real physics now: heavy cars shove light ones in bumps.
   // Forces scale with mass so acceleration curves stay identical per car.
-  const mass = BASE_MASS * (car.mass || 1);
+  const mass = BASE_MASS * car.mass;
+  // A rival's mass includes their ballast notch — that's what ballast is FOR,
+  // so knockback ratios have to see it on both sides of the contact.
+  const remoteMass = (id) => {
+    const p = useStore.getState().players[id];
+    return tunedStats(CARS[p?.car] || CARS.balanced, p?.tune).mass;
+  };
 
   const S = useRef({
     boost: BOOST_MAX,
@@ -111,7 +123,7 @@ export default function LocalCar() {
   const leanRef = useRef({ roll: 0, pitch: 0 });
   // per-wheel visual Y (local) so the wheels follow the suspension rays
   const wheelR = carId === 'monster' ? 0.18 : 0.13;
-  const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - SUSPENSION_SETTLE + wheelR));
+  const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - car.settle + wheelR));
 
   const teleport = (x, y, z, rotY) => {
     const body = rb.current;
@@ -269,8 +281,7 @@ export default function LocalCar() {
             // getting hit by a Formula barely rocks you.
             const otherPos = fx.a === me ? fx.pb : fx.pa;
             if (otherPos) {
-              const otherCar = CARS[useStore.getState().players[otherId]?.car] || CARS.balanced;
-              const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
+              const ratio = Math.min(1.8, Math.max(0.55, remoteMass(otherId) / car.mass));
               const p = body.translation();
               const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
               const len = Math.hypot(dx, dz) || 1;
@@ -390,7 +401,10 @@ export default function LocalCar() {
         // point velocity along suspension
         const pv = body.velocityAtPoint ? body.velocityAtPoint({ x: _p.x, y: _p.y, z: _p.z }) : vel;
         const velAlong = pv.x * _up.x + pv.y * _up.y + pv.z * _up.z;
-        let f = (SUSPENSION_STIFFNESS * compression - SUSPENSION_DAMPING * velAlong) * (mass / 4);
+        // spring/damper rates carry the suspension notch: stiff springs turn in
+        // harder and skip over bumps, soft springs soak up desk edges
+        let f = (SUSPENSION_STIFFNESS * car.springMul * compression
+          - SUSPENSION_DAMPING * car.dampMul * velAlong) * (mass / 4);
         f = Math.max(0, Math.min(f, mass * 90));
         body.applyImpulseAtPoint(
           { x: _up.x * f * dt, y: _up.y * f * dt, z: _up.z * f * dt },
@@ -643,7 +657,7 @@ export default function LocalCar() {
     // Speed-proportional downforce glues the car down at speed (pressed along
     // car-down so it also works on ramps).
     if (grounded) {
-      const df = DOWNFORCE * Math.abs(fwdSpeed) * mass * dt;
+      const df = DOWNFORCE * car.downforceMul * Math.abs(fwdSpeed) * mass * dt;
       body.applyImpulse({ x: -_up.x * df, y: -_up.y * df, z: -_up.z * df }, true);
     }
     // Hard caps: no impulse stack (bump + rocket + spring + wind) may launch
@@ -846,8 +860,7 @@ export default function LocalCar() {
             if (isHit && nowMs > S.protectUntil && nowMs - (S.selfBump.get(ud.playerId) || 0) > 900) {
               S.selfBump.set(ud.playerId, nowMs);
               const otherPos = other.translation();
-              const otherCar = CARS[useStore.getState().players[ud.playerId]?.car] || CARS.balanced;
-              const ratio = Math.min(1.8, Math.max(0.55, (otherCar.mass || 1) / (car.mass || 1)));
+              const ratio = Math.min(1.8, Math.max(0.55, remoteMass(ud.playerId) / car.mass));
               const p = body.translation();
               const dx = p.x - otherPos.x, dz = p.z - otherPos.z;
               const len = Math.hypot(dx, dz) || 1;
@@ -893,6 +906,7 @@ export default function LocalCar() {
             paint={paint}
             cosmetics={myCos}
             style={style}
+            tune={tune}
             name={myName}
             isLocal
             speedRef={speedRef}

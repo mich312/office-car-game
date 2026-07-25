@@ -7,7 +7,7 @@ import {
   OFFICE_EVENT_INTERVAL, BOTS_FILL_TO, MAX_PLAUSIBLE_SPEED, BUMP_RADIUS,
   BUMP_REL_SPEED, BUMP_RUB_COOLDOWN_MS, BUMP_HIT_COOLDOWN_MS,
   SPAWN_PROTECT_MS, RESPAWN_FREEZE_MS, NUDGE_MAX_SPEED,
-  MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS, sanitizeStyle,
+  MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS, sanitizeStyle, sanitizeTune, tunedStats,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
   SPAWNS, POWERUP_PADS, ROBOT_PATH, MAP_BOUNDS, M, EMOTES, COSMETIC_IDS,
   PROPS, VENDING, PRINTER, ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
@@ -210,6 +210,7 @@ export class Room {
       paint: typeof msg.paint === 'string' ? msg.paint.slice(0, 9) : null,
       cos,
       style: sanitizeStyle(msg.style),
+      tune: sanitizeTune(msg.tune),
       ready: false,
       p: [spawn.x, 1, spawn.z], q: [0, 0, 0, 1], v: [0, 0, 0],
       drifting: false, grounded: true,
@@ -605,7 +606,9 @@ export class Room {
     const aRam = a.ramUntil > t, bRam = b.ramUntil > t;
     const shove = (victim, attacker, attackerRams, victimRams) => {
       if (!victim.bot || !victim.kick || victimRams) return;
-      const mR = ((CARS[attacker.car]?.mass) || 1) / ((CARS[victim.car]?.mass) || 1);
+      // ballast counts here too: a loaded setup sheet shoves harder
+      const mR = tunedStats(CARS[attacker.car] || CARS.balanced, attacker.tune).mass
+        / tunedStats(CARS[victim.car] || CARS.balanced, victim.tune).mass;
       const dx = victim.p[0] - attacker.p[0], dz = victim.p[2] - attacker.p[2];
       const len = Math.hypot(dx, dz) || 1;
       const mag = Math.min(20, 5 + rel * 0.6) * Math.min(1.8, Math.max(0.55, mR)) * (attackerRams ? 2.2 : 1);
@@ -777,7 +780,7 @@ export class Room {
   }
 
   publicPlayer(p) {
-    return { id: p.id, name: p.name, car: p.car, paint: p.paint, cos: p.cos, style: p.style, ready: p.ready, bot: p.bot, team: p.team };
+    return { id: p.id, name: p.name, car: p.car, paint: p.paint, cos: p.cos, style: p.style, tune: p.tune, ready: p.ready, bot: p.bot, team: p.team };
   }
   publicPlayers() { return [...this.players.values()].map((p) => this.publicPlayer(p)); }
 

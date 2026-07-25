@@ -88,6 +88,7 @@ const RemoteCar = memo(function RemoteCar({ player }) {
             paint={player.paint}
             cosmetics={player.cos}
             style={player.style}
+            tune={player.tune}
             name={player.name}
             team={useStore.getState().modeId === 'soccer' ? player.team : undefined}
             speedRef={speedRef}

@@ -3,7 +3,7 @@
 // doubles as a corridor graph), grab powerups and generally cause trouble.
 import {
   BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER,
-  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle,
+  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
 } from '@rc/shared';
 
 const BOT_NAMES = [
@@ -55,7 +55,7 @@ export class Bots {
     const id = `bot${++this.n}`;
     const name = BOT_NAMES[(this.n - 1) % BOT_NAMES.length];
     const car = CAR_IDS[Math.floor(Math.random() * CAR_IDS.length)];
-    const p = this.room.makePlayer(id, null, { name: `🤖 ${name}`, car, style: randomStyle() });
+    const p = this.room.makePlayer(id, null, { name: `🤖 ${name}`, car, style: randomStyle(), tune: randomTune() });
     p.bot = true;
     p.ready = true;
     // bots dress up too — hats and paints keep a bot lobby colorful
@@ -242,7 +242,9 @@ export class Bots {
   }
 
   drive(p, target, dt) {
-    const car = CARS[p.car];
+    // bots run their own setup sheet, so a ballasted bot really is slower.
+    // Resolved once per bot — car and sheet are fixed for its lifetime.
+    const car = p.tuned || (p.tuned = tunedStats(CARS[p.car] || CARS.balanced, p.tune));
     const desired = Math.atan2(target.x - p.p[0], target.z - p.p[2]);
     let dh = desired - p.heading;
     while (dh > Math.PI) dh -= Math.PI * 2;
