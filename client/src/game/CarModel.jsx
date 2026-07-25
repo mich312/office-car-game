@@ -43,37 +43,40 @@ const DECAL_FIT = {
 // the difference between "extruded shape" and "model of a car": lamps that sit
 // on the actual nose instead of floating off it, arches over the wheels,
 // a splitter, mirrors, a pipe and an asset-tag plate.
-// Coordinates are body-space (+z = nose, +y = up), authored against each
-// shell's side profile above:
+// Only the numbers that are genuinely per-body live here — heights, widths and
+// which parts a body has at all. The fore/aft mounting planes are measured off
+// the shell instead (see `shellBounds`): the extrude bevel grows every hull
+// ~0.03 past its authored profile, so hand-written z values end up buried
+// inside the bodywork.
 //   arch: [radius over the tyre, y at the axle line] — null on open-wheelers
-//   head/tail: [x, y, z] lamp pairs, mirrored across x
-//   splitter: [y, z, halfWidth] · grille: [y, z, halfWidth, halfHeight]
-//   mirrors: [x, y, z] · exhaust: [x, y, z] tips · plate: [y, z, width]
+//   head/tail: [x, y] lamp pairs, mirrored across x · splitter: [y, halfWidth]
+//   grille: [y, halfWidth, halfHeight] · mirrors: [y, z] · exhaust: [x, y] tips
+//   plate: [y, width]
 const KIT = {
   buggy: {
-    arch: [0.04, -0.13], head: [0.16, 0.06, 0.435], tail: [0.15, 0.08, -0.43],
-    splitter: null, grille: [0.05, 0.44, 0.15, 0.045], mirrors: null,
-    exhaust: [[0.2, -0.02, -0.45]], plate: [0.0, -0.45, 0.24],
+    arch: [0.04, -0.13], head: [0.16, 0.06], tail: [0.15, 0.08],
+    splitter: null, grille: [0.05, 0.15, 0.045], mirrors: null,
+    exhaust: [[0.2, -0.02]], plate: [0.0, 0.24],
   },
   drift: {
-    arch: [0.04, -0.135], head: [0.18, 0.02, 0.475], tail: [0.18, 0.04, -0.475],
-    splitter: [-0.055, 0.465, 0.26], grille: [-0.005, 0.482, 0.16, 0.045], mirrors: [0.29, 0.115, 0.135],
-    exhaust: [], plate: [-0.01, -0.482, 0.26],
+    arch: [0.04, -0.135], head: [0.18, 0.02], tail: [0.18, 0.04],
+    splitter: [-0.055, 0.26], grille: [-0.005, 0.16, 0.045], mirrors: [0.115, 0.135],
+    exhaust: [], plate: [-0.01, 0.26],
   },
   monster: {
-    arch: [0.05, -0.08], head: [0.15, 0.12, 0.39], tail: [0.15, 0.12, -0.39],
-    splitter: null, grille: [0.11, 0.4, 0.16, 0.045], mirrors: [0.28, 0.3, 0.12],
-    exhaust: [], plate: [0.1, -0.4, 0.26],
+    arch: [0.05, -0.08], head: [0.15, 0.12], tail: [0.15, 0.12],
+    splitter: null, grille: [0.11, 0.16, 0.045], mirrors: [0.3, 0.12],
+    exhaust: [], plate: [0.1, 0.26],
   },
   formula: {
-    arch: null, head: [0.09, 0.04, 0.44], tail: [0.07, 0.05, -0.46],
-    splitter: null, grille: null, mirrors: [0.11, 0.11, 0.02],
-    exhaust: [[0.0, 0.02, -0.47]], plate: [0.13, -0.47, 0.18],
+    arch: null, head: [0.09, 0.04], tail: [0.07, 0.05],
+    splitter: null, grille: null, mirrors: [0.11, 0.02],
+    exhaust: [[0.0, 0.02]], plate: [0.13, 0.18],
   },
   balanced: {
-    arch: [0.04, -0.135], head: [0.18, 0.02, 0.475], tail: [0.18, 0.05, -0.475],
-    splitter: [-0.06, 0.465, 0.26], grille: [0.0, 0.482, 0.17, 0.05], mirrors: [0.29, 0.155, 0.115],
-    exhaust: [[0.16, -0.04, -0.478]], plate: [-0.01, -0.482, 0.26],
+    arch: [0.04, -0.135], head: [0.18, 0.02], tail: [0.18, 0.05],
+    splitter: [-0.06, 0.26], grille: [0.0, 0.17, 0.05], mirrors: [0.155, 0.115],
+    exhaust: [[0.16, -0.04]], plate: [-0.01, 0.26],
   },
 };
 
@@ -162,6 +165,20 @@ function shellGeo(carId) {
   geo.rotateY(-Math.PI / 2); // profile length → world +z (car forward)
   shellCache.set(carId, geo);
   return geo;
+}
+
+// Real outer surfaces of a shell, bevel included: where the nose, tail and
+// flanks actually are. Cached alongside the geometry, and the single source of
+// truth for bolting the detail kit on so nothing ends up inside the body.
+const boundsCache = new Map();
+function shellBounds(carId) {
+  if (boundsCache.has(carId)) return boundsCache.get(carId);
+  const geo = shellGeo(carId);
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const b = { noseZ: bb.max.z, tailZ: bb.min.z, halfW: bb.max.x, topY: bb.max.y, botY: bb.min.y };
+  boundsCache.set(carId, b);
+  return b;
 }
 
 // The tiny driver: helmet, visor, torso. Leans into corners via driverRef.
@@ -297,12 +314,13 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const restY = -0.05 - T.settle + wheelR;
   const decal = DECAL_FIT[carId] || DECAL_FIT.balanced;
   const kit = KIT[carId] || KIT.balanced;
+  const bounds = shellBounds(carId);
 
   return (
     <group>
       <group ref={bodyRef}>
         <Body carId={carId} mats={mats} driverRef={driverRef} />
-        <Kit kit={kit} mats={mats} name={name || 'RC'} wheelR={wheelR} />
+        <Kit kit={kit} mats={mats} name={name || 'RC'} wheelR={wheelR} bounds={bounds} />
         {st.vinyl !== 'none' && <Vinyl id={st.vinyl} color={st.vinylColor} fit={decal} />}
         {st.spoiler !== 'none' && (
           <Spoiler
@@ -312,16 +330,16 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
             wing={tu.wing}
           />
         )}
-        {/* lamps, sitting on the nose/tail this body actually has */}
+        {/* lamps, let into the nose and tail this body actually has */}
         {[-kit.head[0], kit.head[0]].map((x) => (
-          <mesh key={x} position={[x, kit.head[1], kit.head[2]]}>
-            <boxGeometry args={[0.09, 0.06, 0.02]} />
+          <mesh key={x} position={[x, kit.head[1], bounds.noseZ - 0.012]}>
+            <boxGeometry args={[0.09, 0.06, 0.03]} />
             <meshStandardMaterial color="#fffce0" emissive="#fff6c0" emissiveIntensity={dark ? 3.5 : 0.4} toneMapped={false} />
           </mesh>
         ))}
         {[-kit.tail[0], kit.tail[0]].map((x) => (
-          <mesh key={x} position={[x, kit.tail[1], kit.tail[2]]}>
-            <boxGeometry args={[0.08, 0.05, 0.02]} />
+          <mesh key={x} position={[x, kit.tail[1], bounds.tailZ + 0.012]}>
+            <boxGeometry args={[0.08, 0.05, 0.03]} />
             <meshStandardMaterial color="#3d0505" emissive="#ff2222" emissiveIntensity={1.2} toneMapped={false} />
           </mesh>
         ))}
@@ -438,35 +456,52 @@ function Wheel({ style, r, w, mats, innerRef }) {
       <mesh rotation-z={Math.PI / 2} castShadow material={mats.tire}>
         <cylinderGeometry args={[r, r, w, 14]} />
       </mesh>
-      {/* hub */}
+      {/* Everything below is the RIM FACE, and every piece of it is sized to
+          reach past both sidewalls (the tyre is a solid cylinder — anything
+          narrower than `w` is buried inside it and the wheel style becomes
+          invisible, which is exactly what used to happen). */}
+      {/* hub / centre cap */}
       <mesh rotation-z={Math.PI / 2} material={mats.rim}>
-        <cylinderGeometry args={[r * (style.disc ? 0.72 : 0.2), r * (style.disc ? 0.72 : 0.2), w + 0.012, style.disc ? 18 : 8]} />
+        <cylinderGeometry args={[r * (style.disc ? 0.72 : 0.24), r * (style.disc ? 0.72 : 0.24), w + 0.03, style.disc ? 18 : 8]} />
       </mesh>
       {/* spokes radiate in the wheel plane (yz) */}
       {spokes.map((a, i) => (
         <group key={i} rotation-x={a}>
           <mesh position={[0, r * 0.36, 0]} material={mats.rim}>
-            <boxGeometry args={[w * 0.55, r * 0.75, 0.045]} />
+            <boxGeometry args={[w + 0.024, r * 0.75, 0.05]} />
           </mesh>
         </group>
       ))}
-      {/* outer ring ties the spokes together */}
+      {/* outer ring ties the spokes together (scale runs before the rotation,
+          so local z is what ends up across the car's width) */}
       {!style.disc && style.spokes > 0 && (
-        <mesh rotation-y={Math.PI / 2} material={mats.rim}>
+        <mesh rotation-y={Math.PI / 2} scale={[1, 1, (w + 0.024) / 0.044]} material={mats.rim}>
           <torusGeometry args={[r * 0.68, 0.022, 6, 18]} />
         </mesh>
       )}
       {/* deep-dish lip */}
       {style.lip && (
-        <mesh rotation-y={Math.PI / 2} material={mats.rim}>
+        <mesh rotation-y={Math.PI / 2} scale={[1, 1, (w + 0.03) / 0.07]} material={mats.rim}>
           <torusGeometry args={[r * 0.6, 0.035, 6, 18]} />
         </mesh>
       )}
-      {/* stock steelie keeps the simple flat cap */}
+      {/* stock steelie keeps the simple flat cap, with four wheel nuts */}
       {!style.disc && !style.spokes && (
-        <mesh rotation-z={Math.PI / 2} material={mats.rim}>
-          <cylinderGeometry args={[r * 0.55, r * 0.55, w + 0.01, 8]} />
-        </mesh>
+        <>
+          <mesh rotation-z={Math.PI / 2} material={mats.rim}>
+            <cylinderGeometry args={[r * 0.55, r * 0.55, w + 0.024, 10]} />
+          </mesh>
+          {[0, 1, 2, 3].map((i) => (
+            <mesh
+              key={i}
+              rotation-z={Math.PI / 2}
+              position={[0, Math.cos((i / 4) * Math.PI * 2) * r * 0.34, Math.sin((i / 4) * Math.PI * 2) * r * 0.34]}
+              material={mats.dark}
+            >
+              <cylinderGeometry args={[r * 0.07, r * 0.07, w + 0.032, 6]} />
+            </mesh>
+          ))}
+        </>
       )}
     </group>
     </>
@@ -533,9 +568,8 @@ const ARCH_ARC = Math.PI * 0.68;
 // Fender flares, front splitter, grille, mirrors, exhaust tip and the office
 // asset-tag plate. Table-driven (see KIT) so every body gets the same parts
 // fitted to its own silhouette.
-function Kit({ kit, mats, name, wheelR }) {
-  const plate = kit.plate;
-  const plateW = plate ? plate[2] : 0;
+function Kit({ kit, mats, name, wheelR, bounds }) {
+  const { noseZ, tailZ, halfW } = bounds;
   return (
     <group>
       {/* fender flares arching over each wheel. The wrapper does the turn
@@ -551,46 +585,46 @@ function Kit({ kit, mats, name, wheelR }) {
           </mesh>
         </group>
       ))}
-      {/* front splitter */}
+      {/* front splitter, jutting out under the nose */}
       {kit.splitter && (
-        <mesh castShadow material={mats.trim} position={[0, kit.splitter[0], kit.splitter[1]]} rotation-x={-0.06}>
-          <boxGeometry args={[kit.splitter[2] * 2, 0.018, 0.1]} />
+        <mesh castShadow material={mats.trim} position={[0, kit.splitter[0], noseZ - 0.03]} rotation-x={-0.06}>
+          <boxGeometry args={[kit.splitter[1] * 2, 0.018, 0.11]} />
         </mesh>
       )}
-      {/* grille: dark mesh panel with two chrome bars */}
+      {/* grille: dark panel let into the nose, with two chrome bars */}
       {kit.grille && (
-        <group position={[0, kit.grille[0], kit.grille[1]]}>
+        <group position={[0, kit.grille[0], noseZ - 0.012]}>
           <mesh material={mats.dark}>
-            <boxGeometry args={[kit.grille[2] * 2, kit.grille[3] * 2, 0.02]} />
+            <boxGeometry args={[kit.grille[1] * 2, kit.grille[2] * 2, 0.03]} />
           </mesh>
-          {[-kit.grille[3] * 0.55, kit.grille[3] * 0.55].map((y) => (
-            <mesh key={y} material={mats.chrome} position={[0, y, 0.014]}>
-              <boxGeometry args={[kit.grille[2] * 1.8, 0.012, 0.01]} />
+          {[-kit.grille[2] * 0.55, kit.grille[2] * 0.55].map((y) => (
+            <mesh key={y} material={mats.chrome} position={[0, y, 0.02]}>
+              <boxGeometry args={[kit.grille[1] * 1.8, 0.012, 0.012]} />
             </mesh>
           ))}
         </group>
       )}
-      {/* door mirrors on little stalks */}
+      {/* door mirrors on little stalks, hung off the actual flank */}
       {kit.mirrors && [-1, 1].map((s) => (
-        <group key={s} position={[kit.mirrors[0] * s, kit.mirrors[1], kit.mirrors[2]]}>
+        <group key={s} position={[(halfW - 0.005) * s, kit.mirrors[0], kit.mirrors[1]]}>
           <mesh material={mats.dark} rotation-z={Math.PI / 2}>
             <cylinderGeometry args={[0.008, 0.008, 0.05, 5]} />
           </mesh>
-          <mesh castShadow material={mats.trim} position={[0.035 * s, 0.012, 0]}>
-            <boxGeometry args={[0.035, 0.028, 0.05]} />
+          <mesh castShadow material={mats.trim} position={[0.04 * s, 0.014, 0]}>
+            <boxGeometry args={[0.04, 0.03, 0.055]} />
           </mesh>
         </group>
       ))}
-      {/* exhaust tip */}
-      {kit.exhaust?.map(([x, y, z], i) => (
-        <mesh key={i} material={mats.chrome} position={[x, y, z]} rotation-x={Math.PI / 2}>
-          <cylinderGeometry args={[0.026, 0.03, 0.09, 8]} />
+      {/* exhaust tip poking out of the tail */}
+      {kit.exhaust?.map(([x, y], i) => (
+        <mesh key={i} material={mats.chrome} position={[x, y, tailZ + 0.02]} rotation-x={Math.PI / 2}>
+          <cylinderGeometry args={[0.026, 0.03, 0.1, 8]} />
         </mesh>
       ))}
       {/* asset-tag plate: your driver name, issued by facilities */}
-      {plate && (
-        <mesh position={[0, plate[0], plate[1] - 0.004]} rotation-y={Math.PI}>
-          <planeGeometry args={[plateW, plateW * 0.5]} />
+      {kit.plate && (
+        <mesh position={[0, kit.plate[0], tailZ - 0.003]} rotation-y={Math.PI}>
+          <planeGeometry args={[kit.plate[1], kit.plate[1] * 0.5]} />
           <meshStandardMaterial map={plateTex(name)} roughness={0.55} />
         </mesh>
       )}
