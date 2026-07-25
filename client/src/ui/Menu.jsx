@@ -1,8 +1,9 @@
-// The garage is a real 3D place now: your RC car sits on a workbench desk
-// under a lamp, surrounded by tools. Everything you used to click in a flat
-// menu lives inside the world — stats & tuning on the bench monitor, the
+// The garage is a real 3D place: your RC car sits on a workbench desk under
+// a lamp, surrounded by tools. Stats & tuning live on the bench monitor, the
 // controls cheat-sheet on a propped clipboard, and a big red RACE button.
-import { useState, useRef, Suspense, useMemo } from 'react';
+// Clicking the monitor or clipboard docks the camera onto it (focus mode) so
+// the projected DOM is stable, straight and readable — Esc backs out.
+import { useState, useRef, useEffect, Suspense, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment, Lightformer, ContactShadows, Html } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
@@ -16,6 +17,7 @@ import { useStore } from '../store.js';
 import { audio } from '../audio.js';
 import CarModel from '../game/CarModel.jsx';
 import { woodTex } from '../game/textures.js';
+import Icon from './Icon.jsx';
 
 const play = () => {
   audio.start();
@@ -27,24 +29,68 @@ const play = () => {
 };
 
 export default function Menu() {
+  const [focus, setFocus] = useState(null); // null | 'monitor' | 'clipboard'
+  const xp = useStore((s) => s.xp);
+  const nextUnlock = UNLOCKS.find((u) => u.xp > xp);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') setFocus(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="garage3d">
-      <Canvas dpr={[1, 2]} shadows camera={{ position: [0, 2.6, 5.2], fov: 42 }} gl={{ antialias: true }}>
+      <Canvas
+        dpr={[1, 2]}
+        shadows
+        camera={{ position: [0, 2.6, 5.2], fov: 42 }}
+        gl={{ antialias: true }}
+        onPointerMissed={() => setFocus(null)}
+      >
         <color attach="background" args={['#0a0d18']} />
         <fog attach="fog" args={['#0a0d18', 9, 18]} />
         <Suspense fallback={null}>
-          <GarageScene />
+          <GarageScene focus={focus} setFocus={setFocus} />
         </Suspense>
       </Canvas>
-      <div className="garage-overlay">
-        <h1>TINY <span>RC</span> MAYHEM</h1>
-        <p>the workshop · 2–12 players · one giant office</p>
+
+      <div className={`garage-overlay ${focus ? 'dim' : ''}`}>
+        <div className="logo">
+          <span className="logo-tiny">TINY RC</span>
+          <span className="logo-mayhem">MAYHEM</span>
+        </div>
+        <p className="logo-sub label">the workshop · 2–12 players · one giant office</p>
       </div>
+
+      <div className="garage-xp chip">
+        <span className="label">career</span>
+        <span>{xp} XP</span>
+        {nextUnlock && <span className="label">next · {nextUnlock.name} @ {nextUnlock.xp}</span>}
+      </div>
+
+      {focus ? (
+        <button className="chip focus-back" onClick={() => setFocus(null)}>
+          <Icon name="chevron-left" size={15} /> back to the bench <kbd>ESC</kbd>
+        </button>
+      ) : (
+        <>
+          <p className="garage-help label">tap the monitor to tune your car · smack the red button to race</p>
+          {/* portrait phones can't reach the in-world monitor/button — give
+              them real controls instead of a scavenger hunt */}
+          <div className="garage-actions">
+            <button className="btn btn-ghost" onClick={() => setFocus('monitor')}>
+              <Icon name="wrench" size={16} /> Tune
+            </button>
+            <button className="btn btn-primary" onClick={play}>RACE →</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function GarageScene() {
+function GarageScene({ focus, setFocus }) {
   const carId = useStore((s) => s.car);
   const paint = useStore((s) => s.paint);
   const style = useStore((s) => s.style);
@@ -63,7 +109,7 @@ function GarageScene() {
       <directionalLight position={[3, 6, 4]} intensity={1.1} color="#dfe6ff" />
       <pointLight position={[-3.5, 2.5, -1]} intensity={9} color="#6a8bff" />
 
-      <Rig />
+      <Rig focus={focus} />
       <Desk />
       <Backdrop />
 
@@ -77,8 +123,18 @@ function GarageScene() {
       <primitive object={lampTarget} position={[0, 0.3, 0]} />
       <DeskLamp position={[-2.3, 0, -1.6]} target={lampTarget} />
 
-      <Monitor position={[2.35, 0, -0.7]} rotation={[0, -0.55, 0]} />
-      <Clipboard position={[-2.05, 0, 0.55]} rotation={[0, 0.62, 0]} />
+      <Monitor
+        position={[2.35, 0, -0.7]}
+        rotation={[0, -0.55, 0]}
+        active={focus === 'monitor'}
+        onFocus={() => setFocus('monitor')}
+      />
+      <Clipboard
+        position={[-2.05, 0, 0.55]}
+        rotation={[0, 0.62, 0]}
+        active={focus === 'clipboard'}
+        onFocus={() => setFocus('clipboard')}
+      />
       <StartButton position={[1.75, 0, 1.35]} />
       <Tools />
 
@@ -90,12 +146,47 @@ function GarageScene() {
   );
 }
 
-// Subtle head-tracking parallax so the desk feels like a diorama.
-function Rig() {
-  useFrame(({ camera, pointer }) => {
-    camera.position.x += (pointer.x * 0.45 - camera.position.x) * 0.04;
-    camera.position.y += (2.6 + pointer.y * 0.25 - camera.position.y) * 0.04;
-    camera.lookAt(0.1, 0.75, 0);
+// Camera rig: subtle head-tracking parallax while roaming the bench, and a
+// docked head-on pose while a surface has focus (so the projected DOM is
+// stable and legible — the old always-on parallax made the monitor's buttons
+// physically chase the cursor).
+const POSES = {
+  monitor: {
+    center: new THREE.Vector3(2.34, 1.28, -0.68),
+    normal: new THREE.Vector3(-0.522, 0, 0.852),
+    halfW: 1.6, halfH: 1.1,
+  },
+  clipboard: {
+    center: new THREE.Vector3(-2.05, 0.98, 0.68),
+    normal: new THREE.Vector3(0.55, 0.31, 0.77),
+    halfW: 0.85, halfH: 1.0,
+  },
+};
+function Rig({ focus }) {
+  const look = useRef(new THREE.Vector3(0.1, 0.75, 0));
+  const tmpPos = useRef(new THREE.Vector3());
+  const tmpLook = useRef(new THREE.Vector3());
+  useFrame(({ camera, pointer }, delta) => {
+    const pose = POSES[focus];
+    let targetPos, targetLook;
+    if (pose) {
+      // dock on the surface's normal axis, far enough back that the whole
+      // panel fits the current viewport (portrait phones need more distance)
+      const tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      const tanH = tanV * camera.aspect;
+      const d = Math.max((pose.halfH * 1.12) / tanV, (pose.halfW * 1.12) / tanH);
+      targetPos = tmpPos.current.copy(pose.normal).multiplyScalar(d).add(pose.center);
+      targetLook = pose.center;
+    } else {
+      targetPos = tmpPos.current.set(pointer.x * 0.45, 2.6 + pointer.y * 0.25, 5.2);
+      targetLook = tmpLook.current.set(0.1, 0.75, 0);
+    }
+    // exponential damping — frame-rate independent, so the dock takes the
+    // same ~0.6 s on a 30 fps laptop and a 144 Hz monitor
+    const dt = Math.min(delta, 0.1);
+    camera.position.lerp(targetPos, 1 - Math.exp(-(pose ? 7 : 2.5) * dt));
+    look.current.lerp(targetLook, 1 - Math.exp(-(pose ? 8 : 3) * dt));
+    camera.lookAt(look.current);
   });
   return null;
 }
@@ -207,9 +298,16 @@ function DeskLamp({ position, target }) {
   );
 }
 
-// The bench monitor runs the tuning software — the whole old menu UI lives
-// on this screen, projected into the world via a CSS3D transform.
-function Monitor({ position, rotation }) {
+// The bench monitor runs the tuning software — the menu UI lives on this
+// screen, projected into the world via a CSS3D transform.
+function Monitor({ position, rotation, active, onFocus }) {
+  const grab = (e) => {
+    e.stopPropagation();
+    onFocus();
+    document.body.style.cursor = '';
+  };
+  const over = (e) => { e.stopPropagation(); if (!active) document.body.style.cursor = 'pointer'; };
+  const out = () => { document.body.style.cursor = ''; };
   return (
     <group position={position} rotation={rotation}>
       {/* stand */}
@@ -218,7 +316,7 @@ function Monitor({ position, rotation }) {
         <meshStandardMaterial color="#22262f" metalness={0.6} roughness={0.4} />
       </mesh>
       {/* frame */}
-      <mesh position={[0, 1.28, -0.05]} castShadow>
+      <mesh position={[0, 1.28, -0.05]} castShadow onClick={grab} onPointerOver={over} onPointerOut={out}>
         <boxGeometry args={[3.05, 2.05, 0.1]} />
         <meshStandardMaterial color="#191d26" metalness={0.4} roughness={0.5} />
       </mesh>
@@ -228,7 +326,7 @@ function Monitor({ position, rotation }) {
         <meshBasicMaterial color="#0c1322" toneMapped={false} />
       </mesh>
       <Html transform position={[0, 1.28, 0.02]} distanceFactor={1.63}>
-        <MonitorUI />
+        <MonitorUI active={active} onFocus={onFocus} />
       </Html>
       {/* sticky note on the frame */}
       <mesh position={[1.28, 0.2, 0.02]} rotation-z={-0.12}>
@@ -239,7 +337,21 @@ function Monitor({ position, rotation }) {
   );
 }
 
-function MonitorUI() {
+// Stat bars are calibrated against the roster min/max so cars actually
+// differ on screen (raw values normalized ~0.8–1.0 and every bar looked full).
+const STAT_DEFS = [
+  ['Speed', (c) => c.topSpeed],
+  ['Accel', (c) => c.accel],
+  ['Handling', (c) => c.handling],
+  ['Drift', (c) => 1 - c.drift],
+  ['Boost', (c) => c.boost],
+];
+const STAT_RANGES = STAT_DEFS.map(([label, get]) => {
+  const vals = CAR_IDS.map((id) => get(CARS[id]));
+  return { label, get, min: Math.min(...vals), max: Math.max(...vals) };
+});
+
+function MonitorUI({ active, onFocus }) {
   const store = useStore();
   const [tab, setTab] = useState('car');
   const [carIdx, setCarIdx] = useState(Math.max(0, CAR_IDS.indexOf(store.car)));
@@ -262,10 +374,13 @@ function MonitorUI() {
 
   return (
     <div className="monitor-ui" onPointerDown={(e) => e.stopPropagation()}>
-      <header>
-        <b>🔧 RC TUNER v2.0</b>
-        <span className="mu-xp">CAREER {store.xp} XP{nextUnlock ? ` · next: ${nextUnlock.name} @ ${nextUnlock.xp}` : ''}</span>
-      </header>
+      <div className="mu-titlebar">
+        <span className="mu-dots"><i /><i /><i /></span>
+        <span className="mu-title"><Icon name="wrench" size={14} /> RC TUNER</span>
+        <span className="mu-career">
+          {nextUnlock ? `next unlock: ${nextUnlock.name} @ ${nextUnlock.xp} xp` : 'v2.1 · all gear unlocked'}
+        </span>
+      </div>
       <nav>
         <button className={tab === 'car' ? 'sel' : ''} onClick={() => setTab('car')}>CAR</button>
         <button className={tab === 'style' ? 'sel' : ''} onClick={() => setTab('style')}>STYLE</button>
@@ -283,14 +398,14 @@ function MonitorUI() {
             <button className="mu-arrow" onClick={() => pick(1)}>›</button>
           </div>
           <div className="mu-stats">
-            <Stat label="Speed" v={car.topSpeed / 20} />
-            <Stat label="Accel" v={car.accel / 16} />
-            <Stat label="Handling" v={car.handling / 4} />
-            <Stat label="Drift" v={1 - car.drift / 0.6} />
-            <Stat label="Boost" v={car.boost / 13} />
+            {STAT_RANGES.map(({ label, get, min, max }) => (
+              <Stat key={label} label={label} v={max > min ? (get(car) - min) / (max - min) : 1} />
+            ))}
           </div>
-          <p className="mu-ability">{ABILITIES[carId]?.icon} <b>{ABILITIES[carId]?.name}</b> · {ABILITIES[carId]?.desc} <kbd>Q</kbd></p>
-          <label className="mu-label">PAINT</label>
+          <p className="mu-ability">
+            <b>{ABILITIES[carId]?.name}</b> · {ABILITIES[carId]?.desc} <kbd>Q</kbd>
+          </p>
+          <label className="label">Paint</label>
           <div className="mu-swatches">
             {paints.map((p) => (
               <button
@@ -309,21 +424,21 @@ function MonitorUI() {
 
       {tab === 'style' && (
         <div className="mu-body">
-          <label className="mu-label">WHEELS</label>
+          <label className="label">Wheels</label>
           <div className="mu-row">
             {WHEEL_IDS.map((id) => (
               <button key={id} className={store.style.wheels === id ? 'sel' : ''}
                 onClick={() => setStyle({ wheels: id })}>{WHEEL_STYLES[id].name}</button>
             ))}
           </div>
-          <label className="mu-label">SPOILER</label>
+          <label className="label">Spoiler</label>
           <div className="mu-row">
             {SPOILER_IDS.map((id) => (
               <button key={id} className={store.style.spoiler === id ? 'sel' : ''}
                 onClick={() => setStyle({ spoiler: id })}>{SPOILER_STYLES[id].name}</button>
             ))}
           </div>
-          <label className="mu-label">VINYL</label>
+          <label className="label">Vinyl</label>
           <div className="mu-row">
             {VINYL_IDS.map((id) => (
               <button key={id} className={store.style.vinyl === id ? 'sel' : ''}
@@ -332,7 +447,7 @@ function MonitorUI() {
           </div>
           <div className="mu-cols">
             <div>
-              <label className="mu-label">VINYL COLOR</label>
+              <label className="label">Vinyl color</label>
               <div className="mu-swatches">
                 {VINYL_COLORS.map((c) => (
                   <button key={c} className={`swatch ${store.style.vinylColor === c ? 'sel' : ''}`}
@@ -341,7 +456,7 @@ function MonitorUI() {
               </div>
             </div>
             <div>
-              <label className="mu-label">UNDERGLOW</label>
+              <label className="label">Underglow</label>
               <div className="mu-swatches">
                 {GLOW_COLORS.map((c) => (
                   <button key={c || 'off'} className={`swatch ${c ? '' : 'none'} ${store.style.glow === c ? 'sel' : ''}`}
@@ -354,14 +469,13 @@ function MonitorUI() {
         </div>
       )}
 
-
       {tab === 'gear' && (
         <div className="mu-body">
-          {[['hat', 'HAT'], ['antenna', 'ANTENNA'], ['trail', 'TRAIL']].map(([slot, label]) => {
+          {[['hat', 'Hat'], ['antenna', 'Antenna'], ['trail', 'Trail']].map(([slot, label]) => {
             const items = unlocked.filter((u) => u.type === slot);
             return (
               <div key={slot}>
-                <label className="mu-label">{label}</label>
+                <label className="label">{label}</label>
                 <div className="mu-row">
                   <button className={!store.cos[slot] ? 'sel' : ''}
                     onClick={() => { store.equip(slot, null); audio.blip(440, 0.05); }}>none</button>
@@ -378,38 +492,54 @@ function MonitorUI() {
       )}
 
       <footer>
-        <input
-          value={store.name}
-          maxLength={16}
-          placeholder="DRIVER NAME"
-          onChange={(e) => useStore.setState({ name: e.target.value })}
-          onKeyDown={(e) => e.key === 'Enter' && play()}
-        />
+        <div className={`mu-driver ${store.name.trim() ? '' : 'attn'}`}>
+          <label className="label" htmlFor="mu-name">driver</label>
+          <input
+            id="mu-name"
+            value={store.name}
+            maxLength={16}
+            placeholder="type your name"
+            onChange={(e) => useStore.setState({ name: e.target.value })}
+            onKeyDown={(e) => e.key === 'Enter' && play()}
+          />
+        </div>
         <label className="mu-auto" title="car accelerates on its own">
           <input type="checkbox" checked={store.autoGas}
             onChange={(e) => { useStore.setState({ autoGas: e.target.checked }); useStore.getState().save(); }} />
           auto-gas
         </label>
-        <button className="mu-play" onClick={play}>ENTER THE OFFICE →</button>
+        <button className="btn btn-primary mu-play" onClick={play}>ENTER THE OFFICE</button>
       </footer>
+
+      {/* while the camera isn't docked, the whole screen is one big
+          "focus me" button — no more clicking tiny moving targets */}
+      {!active && <button className="mu-cover" aria-label="Open the tuner" onClick={onFocus} />}
     </div>
   );
 }
 
 function Stat({ label, v }) {
+  const lit = 1 + Math.round(Math.min(1, Math.max(0, v)) * 4); // 1..5 cells
   return (
     <div className="mu-stat">
       <span>{label}</span>
-      <div className="bar"><div style={{ width: `${Math.round(Math.min(1, v) * 100)}%` }} /></div>
+      <div className="cells">
+        {[0, 1, 2, 3, 4].map((i) => <i key={i} className={i < lit ? 'on' : ''} />)}
+      </div>
     </div>
   );
 }
 
 // Controls cheat-sheet on a clipboard leaning against a coffee mug.
-function Clipboard({ position, rotation }) {
+function Clipboard({ position, rotation, active, onFocus }) {
+  const grab = (e) => { e.stopPropagation(); onFocus(); document.body.style.cursor = ''; };
+  const over = (e) => { e.stopPropagation(); if (!active) document.body.style.cursor = 'pointer'; };
+  const out = () => { document.body.style.cursor = ''; };
   return (
     <group position={position} rotation={rotation}>
-      <group rotation-x={-0.32}>
+      {/* the DOM sheet is click-transparent (read-only), so any click on the
+          board/paper meshes lands here and docks the camera */}
+      <group rotation-x={-0.32} onClick={grab} onPointerOver={over} onPointerOut={out}>
         {/* board */}
         <mesh position={[0, 0.78, 0]} castShadow>
           <boxGeometry args={[1.5, 1.9, 0.04]} />
@@ -425,9 +555,9 @@ function Clipboard({ position, rotation }) {
           <planeGeometry args={[1.34, 1.72]} />
           <meshStandardMaterial color="#f4f1e6" roughness={0.9} />
         </mesh>
-        <Html transform position={[0, 0.76, 0.03]} distanceFactor={1.36}>
+        <Html transform position={[0, 0.76, 0.03]} distanceFactor={1.36} pointerEvents="none">
           <div className="clipboard-ui">
-            <h3>— CONTROLS —</h3>
+            <h3>CONTROLS</h3>
             <div><kbd>WASD</kbd> drive</div>
             <div><kbd>SHIFT</kbd> drift → sparks → mini-turbo</div>
             <div><kbd>SPACE</kbd>/<kbd>B</kbd> boost</div>
@@ -474,8 +604,9 @@ function StartButton({ position }) {
           toneMapped={false}
         />
       </mesh>
+      {/* click-transparent label — the glorious red dome is the button */}
       <Html position={[0, 0.75, 0]} center className="race-tag">
-        <div onClick={play}>RACE!</div>
+        <div className="sticky">RACE →</div>
       </Html>
     </group>
   );

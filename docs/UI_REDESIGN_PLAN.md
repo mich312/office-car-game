@@ -297,7 +297,7 @@ Structure: keep plain CSS (no framework needed at this size) but split
 (chip/panel/button/toast/keycap primitives), and per-surface files.
 Add `ui/Icon.jsx`. Everything below is client-only; zero protocol changes.
 
-### Phase 1 — Foundations (~2 days)
+### Phase 1 — Foundations — ✅ SHIPPED
 | Item | Notes |
 |---|---|
 | Token sheet: colors, spacing, radii, z, motion | replaces `:root` block |
@@ -307,21 +307,21 @@ Add `ui/Icon.jsx`. Everything below is client-only; zero protocol changes.
 | Delete dead CSS (`.garage-view`, `.arrow`, `.cos-*`, `.car-ability`) | -60 lines |
 | Root `clamp()` scaling + 24px HUD safe-area frame | fixes fixed-px HUD |
 
-### Phase 2 — Garage (~2 days)
+### Phase 2 — Garage — ✅ SHIPPED
 Logo lockup · focus-camera for monitor/clipboard + rig freeze · RC TUNER
 app restyle · calibrated segmented stat bars · first-run sticky-note name
 prompt · RACE button tag.
 
-### Phase 3 — Match HUD (~2–3 days)
+### Phase 3 — Match HUD — ✅ SHIPPED
 Timer/objective cluster · speed+boost ring cluster · unified action tray
 with radial cooldowns · minimap v2 + room-name chip · feed restyle ·
 calendar-toast event banners · zap/spectator toasts.
 
-### Phase 4 — Flow screens (~2 days)
+### Phase 4 — Flow screens — ✅ SHIPPED
 Lobby side rail + ballot rows · countdown stamp · scoreboard sheet ·
 podium ceremony · connect/error states.
 
-### Phase 5 — Mobile & a11y polish (~1–2 days)
+### Phase 5 — Mobile & a11y polish — ✅ SHIPPED
 Bottom-sheet lobby · icon touch controls with charge rings · safe-area
 insets · contrast pass to WCAG AA on all chip text (several current
 labels are ~3:1) · `prefers-reduced-motion` · colorblind-check the
@@ -348,3 +348,22 @@ the "amateur" reading since the HUD is where players spend their time.
 - No new HUD information systems (damage numbers, killstreaks…) — this
   plan restyles and repositions what exists; new features ride on the
   gameplay roadmap in `IMPROVEMENT_PLAN.md`.
+
+### Implementation notes (post-ship)
+
+- **Entrance animations are transform-only.** Verified on a software-rendered
+  (SwiftShader) run that under heavy main-thread load the CSS animation
+  timeline can stall at its first frame — an entrance keyframe starting at
+  `opacity: 0` then leaves the element invisible. All entrances now animate
+  transform only, and the Tab scoreboard appears instantly.
+- **drei `<Html transform>` wrappers hit-test as solid.** The inner transform
+  wrapper is `pointer-events: auto` by default, so the read-only clipboard
+  sheet and RACE tag pass `pointerEvents="none"` / CSS `pointer-events: none`
+  and let the 3D meshes take the click (their R3F handlers dock the camera).
+- **Focus camera** uses exponential damping (frame-rate independent) and
+  computes its distance from the camera's live fov/aspect, so the docked
+  panel fits on portrait phones too.
+- **Mobile garage** additionally shows DOM **Tune** / **Race** buttons — in
+  portrait, the in-world monitor and red button sit mostly off-screen.
+- Barlow Condensed ships as two latin-subset woff2 files (~22 KB each,
+  OFL license alongside) — still zero external requests at runtime.

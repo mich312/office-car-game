@@ -64,8 +64,11 @@ car pick, stats, paint, and the full NFS-style visual catalog: six wheel
 styles, three bolt-on spoilers, five vinyl wraps with eight wrap colors, and
 underglow in six colors (brightest after dark). A **clipboard** propped
 against a coffee mug holds the controls cheat-sheet, and the big red button
-on the desk starts the game. Your build is saved locally and synced to every
-player in the lobby — the bots roll their own builds too.
+on the desk starts the game. Click the monitor or clipboard and the camera
+docks onto it head-on for crisp reading (`Esc` backs out); on phones,
+on-screen **Tune** and **Race** buttons stand in for the desk props. Your
+build is saved locally and synced to every player in the lobby — the bots
+roll their own builds too.
 
 ## Game modes (lobby votes)
 
@@ -144,8 +147,9 @@ client/   React 19 + Vite + react-three-fiber + drei + Rapier + zustand
 - Remote cars render through a 120 ms interpolation buffer and are kinematic
   colliders locally, so you physically bounce off your friends.
 - Everything is procedural — materials, textures, the skyline, the audio
-  (synthesized motors, skids, glass and rain via WebAudio). Zero asset files,
-  zero external requests.
+  (synthesized motors, skids, glass and rain via WebAudio). Zero external
+  requests; the only bundled assets are two ~22 KB woff2 files for the UI's
+  display font (Barlow Condensed, OFL — see `client/src/assets/fonts/`).
 
 ## Testing
 

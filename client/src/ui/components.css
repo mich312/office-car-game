@@ -1,0 +1,148 @@
+/* Shared UI primitives: chip, panel, buttons, toast, keycap, sticky note.
+   One visual language — new surfaces compose these instead of hand-rolling. */
+
+/* ------------------------------------------------------------------ chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.chip .icon { color: var(--text-2); flex: none; }
+
+/* ----------------------------------------------------------------- panel */
+.panel {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+/* --------------------------------------------------------------- buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--r-ctl);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.btn:active { transform: translateY(1px); }
+
+.btn-primary {
+  background: var(--amber);
+  color: #1d1305;
+  border: 1px solid var(--amber-deep);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.btn-primary:hover { filter: brightness(1.07); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-1);
+  border: 1px solid var(--line);
+}
+.btn-ghost:hover { border-color: var(--amber); color: var(--amber); }
+
+/* ----------------------------------------------------------------- toast */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  /* entrance animations are transform-only: on weak GPUs the CSS timeline
+     can stall under load, and a stalled opacity animation hides the element */
+  animation: toastin var(--t-slow) var(--ease-pop);
+}
+@keyframes toastin { from { transform: translateY(-12px); } }
+.toast-icon {
+  flex: none;
+  width: 2.2rem;
+  height: 2.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-ctl);
+  background: var(--info-tint);
+  color: var(--info);
+}
+.toast b { display: block; font-size: 0.95rem; letter-spacing: 0.02em; }
+.toast small { display: block; color: var(--text-2); font-size: 0.78rem; line-height: 1.3; }
+.toast .label { display: block; margin-bottom: 1px; }
+
+/* calendar-reminder variant: sticky-note yellow, dark ink */
+.toast-warn { background: var(--note); border-color: rgba(74, 61, 14, 0.35); }
+.toast-warn b { color: var(--note-ink); }
+.toast-warn small { color: rgba(74, 61, 14, 0.75); }
+.toast-warn .label { color: rgba(74, 61, 14, 0.6); }
+.toast-warn .toast-icon { background: rgba(74, 61, 14, 0.12); color: var(--note-ink); }
+
+.toast-bad { border-color: rgba(255, 92, 92, 0.5); background: rgba(58, 16, 20, 0.88); }
+.toast-bad .toast-icon { background: var(--bad-tint); color: var(--bad); }
+
+/* ---------------------------------------------------------------- keycap */
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.3rem;
+  background: linear-gradient(180deg, #323c55, #262e44);
+  border: 1px solid #3c4763;
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+/* ------------------------------------------------------------ sticky note */
+.sticky {
+  display: inline-block;
+  background: var(--note);
+  color: var(--note-ink);
+  padding: 0.35rem 0.7rem;
+  border-radius: 2px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-weight: 700;
+}
+
+/* ------------------------------------------------------------------ misc */
+.hint { font-size: 0.78rem; color: var(--text-3); text-align: center; }
+
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+
+/* animated ellipsis for waiting states */
+.dots::after {
+  content: '…';
+  display: inline-block;
+  animation: dots 1.2s steps(4) infinite;
+  clip-path: inset(0 100% 0 0);
+}
+@keyframes dots { to { clip-path: inset(0 -20% 0 0); } }
