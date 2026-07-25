@@ -124,7 +124,9 @@ Everything previews before you commit:
 
 Five named presets (Corridor Sprint, Cubicle Carver, Sideways Special,
 Open-Plan Bruiser, plus Stock) are one click away. Design notes and the
-backlog live in `docs/car-design-brainstorm.md`.
+backlog live in `docs/car-design-brainstorm.md`. Directions for the next
+graphics pass — shading, lighting and post, priced against a measured frame —
+live in `docs/graphics-directions.md`.
 
 ## Game modes (lobby votes)
 
