@@ -111,7 +111,26 @@ export const VINYL_IDS = Object.keys(VINYL_STYLES);
 export const VINYL_COLORS = ['#f5f5f5', '#17181c', '#ffd166', '#ff5c5c', '#7ab8ff', '#b967ff', '#2eff8f', '#ff6bf0'];
 export const GLOW_COLORS = [null, '#7ab8ff', '#b967ff', '#2eff8f', '#ff5c5c', '#ffd166', '#ff6bf0'];
 
-export const DEFAULT_STYLE = { wheels: 'stock', spoiler: 'none', vinyl: 'none', vinylColor: '#f5f5f5', glow: null };
+// Paint finish changes the shading model itself, not just the hue: gloss keeps
+// the banded toon look the whole art direction is built on, the rest reach for
+// PBR so a metallic flake or a pearl clearcoat actually catches the office
+// strip lights. `toon: false` is the client's cue to switch material class.
+export const FINISHES = {
+  gloss: { name: 'Toy Gloss', toon: true },
+  matte: { name: 'Matte Wrap', toon: false, roughness: 0.85, metalness: 0.05 },
+  metal: { name: 'Metal Flake', toon: false, roughness: 0.3, metalness: 0.85 },
+  pearl: { name: 'Pearl Coat', toon: false, roughness: 0.16, metalness: 0.35, clearcoat: 1, iridescence: 0.55 },
+};
+export const FINISH_IDS = Object.keys(FINISHES);
+
+// Accent package: trim colour for splitter, mirror caps, wing blade, roll cage
+// and the driver's helmet. `null` = painted body colour, i.e. no two-tone.
+export const ACCENT_COLORS = [null, '#f5f5f5', '#17181c', '#ffd166', '#ff5c5c', '#7ab8ff', '#2eff8f', '#d4af37'];
+
+export const DEFAULT_STYLE = {
+  wheels: 'stock', spoiler: 'none', vinyl: 'none', vinylColor: '#f5f5f5', glow: null,
+  finish: 'gloss', accent: null,
+};
 
 // Server-side (and load-time) validation: any unknown value falls back to stock.
 export function sanitizeStyle(s) {
@@ -122,6 +141,8 @@ export function sanitizeStyle(s) {
     vinyl: VINYL_STYLES[st.vinyl] ? st.vinyl : 'none',
     vinylColor: VINYL_COLORS.includes(st.vinylColor) ? st.vinylColor : '#f5f5f5',
     glow: GLOW_COLORS.includes(st.glow) ? st.glow : null,
+    finish: FINISHES[st.finish] ? st.finish : 'gloss',
+    accent: ACCENT_COLORS.includes(st.accent) ? st.accent : null,
   };
 }
 
@@ -134,6 +155,8 @@ export function randomStyle() {
     vinyl: pick(VINYL_IDS),
     vinylColor: pick(VINYL_COLORS),
     glow: pick(GLOW_COLORS),
+    finish: pick(FINISH_IDS),
+    accent: pick(ACCENT_COLORS),
   };
 }
 

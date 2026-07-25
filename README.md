@@ -61,11 +61,40 @@ on your wheels. Climbing assist keeps ramps drivable at full grade.
 The main menu is a 3D workshop: your car sits on a turntable on someone's
 desk, lit by the desk lamp. The **bench monitor** runs the tuning software —
 car pick, stats, paint, and the full NFS-style visual catalog: six wheel
-styles, three bolt-on spoilers, five vinyl wraps with eight wrap colors, and
-underglow in six colors (brightest after dark). A **clipboard** propped
-against a coffee mug holds the controls cheat-sheet, and the big red button
-on the desk starts the game. Your build is saved locally and synced to every
-player in the lobby — the bots roll their own builds too.
+styles, three bolt-on spoilers, five vinyl wraps with eight wrap colors,
+four paint finishes (toon gloss, matte wrap, metal flake, pearl coat), a trim
+colour for splitter/mirrors/wing/helmet, and underglow in six colors
+(brightest after dark). Every car also carries a facilities-issue licence
+plate with your driver name on it. A **clipboard** propped against a coffee
+mug holds the controls cheat-sheet, and the big red button on the desk starts
+the game. Your build is saved locally and synced to every player in the
+lobby — the bots roll their own builds too.
+
+### The setup sheet
+
+The **TUNE** tab is real tuning, not decoration. Five axes — gearing, tyres,
+suspension, downforce, ballast — each a −2…+2 notch that gives with one hand
+and takes with the other: tall gears buy top speed with acceleration, soft
+tyres buy grip with slide, ballast buys shove with agility. There's no budget
+to spend and nothing to unlock, because a maxed sheet is a *specialised* car,
+never a stronger one. Suspension really does change the spring and damper
+rates in the 4-ray suspension, and ballast really does change rigid-body mass,
+so a loaded car wins the shoving matches (the server scores bumps with both
+sheets in hand).
+
+Everything previews before you commit:
+
+- the car on the turntable changes **stance, tyre width and wing rake** live,
+  read straight off the same numbers the physics uses;
+- the stat bars show the car **as tuned**, with a tick where stock sits;
+- and the monitor plots a **simulated 6-second slalom** — your sheet solid
+  against stock dashed — by re-running a 2-D copy of the real driving model
+  from shared code, with top speed (in scale km/h), 0→top, turn rate, how far
+  off the line it wanders, mass and ground covered, each against stock.
+
+Five named presets (Corridor Sprint, Cubicle Carver, Sideways Special,
+Open-Plan Bruiser, plus Stock) are one click away. Design notes and the
+backlog live in `docs/car-design-brainstorm.md`.
 
 ## Game modes (lobby votes)
 

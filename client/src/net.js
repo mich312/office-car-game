@@ -59,7 +59,7 @@ export function connect() {
   net.ws = ws;
 
   ws.onopen = () => {
-    send({ t: MSG.HELLO, name: store.name || 'Intern', car: store.car, paint: store.paint, cos: store.cos, style: store.style });
+    send({ t: MSG.HELLO, name: store.name || 'Intern', car: store.car, paint: store.paint, cos: store.cos, style: store.style, tune: store.tune });
   };
   ws.onmessage = (e) => {
     let msg;
