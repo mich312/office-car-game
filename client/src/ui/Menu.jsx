@@ -566,8 +566,8 @@ function Clipboard({ position, rotation, active, onFocus }) {
             <div><kbd>1-8</kbd> emotes</div>
             <div><kbd>R</kbd> respawn · <kbd>N</kbd> night</div>
             <div><kbd>TAB</kbd> scores · <kbd>M</kbd> mute</div>
-            <div>🎮 gamepad: stick + triggers</div>
-            <div className="cb-note">ramps launch you —<br />land on your wheels ✏️</div>
+            <div><Icon name="gamepad" size={17} className="cb-icon" /> gamepad: stick + triggers</div>
+            <div className="cb-note">ramps launch you —<br />land on your wheels!</div>
           </div>
         </Html>
       </group>

@@ -390,3 +390,15 @@ icon faces on small canvas textures, an amber "armed" ring / green "ready"
 ring on the emissive collar, a radial cooldown wipe, and a press-dip
 animation when fired (detected from store transitions). Icon-only, Mario
 Kart style; the DOM action tray now shows only on coarse pointers.
+
+### Post-ship addition: zero emoji chrome, completed
+
+`ui/iconPaths.js` defines vector glyphs for all 10 powerups and 5 abilities
+as raw SVG path data, consumed by two renderers: Icon.jsx (DOM, as
+`act-<id>` glyphs for the mobile action tray) and the transmitter's canvas
+button faces (via Path2D). Bot names no longer bake a robot emoji into the
+string server-side — DOM surfaces mark bots with the vector icon, and the
+in-world nameplate re-adds its own prefix as world content. The clipboard's
+gamepad emoji became an Icon; client feed templates dropped their leading
+icon-duty emoji. Emoji that remain are content by design: player emotes and
+the personality inside server chat-feed sentences.

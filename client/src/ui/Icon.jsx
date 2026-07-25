@@ -2,6 +2,8 @@
 // 24×24 grid, 2px rounded stroke, recolorable via currentColor. Replaces
 // emoji chrome (emoji survive only as in-game content, e.g. emotes).
 
+import { ACTION_ICON_PATHS } from './iconPaths.js';
+
 const fill = { fill: 'currentColor', stroke: 'none' };
 
 const GLYPHS = {
@@ -167,6 +169,12 @@ const GLYPHS = {
     </>
   ),
 };
+
+// powerup/ability glyphs share their path data with the RC transmitter's
+// canvas-drawn button faces (iconPaths.js) — namespaced as act-<id>
+for (const [id, paths] of Object.entries(ACTION_ICON_PATHS)) {
+  GLYPHS[`act-${id}`] = <>{paths.map((d, i) => <path key={i} d={d} />)}</>;
+}
 
 export default function Icon({ name, size = 18, className = '', ...rest }) {
   const glyph = GLYPHS[name];

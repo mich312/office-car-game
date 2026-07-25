@@ -282,7 +282,7 @@ function MatchHUD() {
         <div className="slot">
           {powerup ? (
             <>
-              <span className="slot-icon">{POWERUPS[powerup]?.icon}</span>
+              <span className="slot-icon"><Icon name={`act-${powerup}`} size={30} /></span>
               <span className="slot-name">{POWERUPS[powerup]?.name}</span>
             </>
           ) : (
@@ -313,7 +313,7 @@ function AbilitySlot({ carId, readyAt }) {
   const frac = Math.min(1, left / (ABILITY_COOLDOWN_S * 1000));
   return (
     <div className={`slot ability ${left > 0 ? '' : 'ready'}`} title={`${ab.name} — ${ab.desc}`}>
-      <span className="slot-icon">{ab.icon}</span>
+      <span className="slot-icon"><Icon name={`act-${ab.id}`} size={28} /></span>
       <span className="slot-name">{ab.name}</span>
       {left > 0 && <div className="slot-cd" style={{ '--frac': frac }} />}
       <span className="keycap">Q</span>

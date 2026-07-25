@@ -346,6 +346,7 @@ button.chip { cursor: pointer; }
   font-size: 14px;
 }
 .cb-note { margin-top: 10px; font-style: italic; opacity: 0.75; font-size: 15px; line-height: 1.4; }
+.cb-icon { vertical-align: -3px; opacity: 0.8; }
 
 .race-tag, .race-tag > div { pointer-events: none; }
 .race-tag > div {

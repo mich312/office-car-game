@@ -13,8 +13,9 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree, createPortal } from '@react-three/fiber';
 import { RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
-import { M, POWERUPS, ABILITIES, ABILITY_COOLDOWN_S } from '@rc/shared';
+import { M, ABILITIES, ABILITY_COOLDOWN_S } from '@rc/shared';
 import { useStore } from '../store.js';
+import { ACTION_ICON_PATHS } from '../ui/iconPaths.js';
 import { telemetry } from './LocalCar.jsx';
 
 const BODY = '#262c3d';
@@ -30,7 +31,6 @@ const AMBER = new THREE.Color('#ffb454');
 const DIM = new THREE.Color('#39445f');
 const LED_COUNT = 8;
 const LOWFX = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('lowfx');
-const EMOJI_FONT = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
 
 const makeCanvasTex = (w, h) => {
   const canvas = document.createElement('canvas');
@@ -70,23 +70,31 @@ function drawDeco({ canvas, g, texture }) {
   texture.needsUpdate = true;
 }
 
-// round button face: emoji icon + state ring + cooldown wipe
-function drawButtonFace({ canvas, g, texture }, icon, { frac = 0, ring = null, dim = false } = {}) {
+// round button face: vector glyph (same path data as Icon.jsx, via Path2D)
+// + state ring + cooldown wipe
+function drawButtonFace({ canvas, g, texture }, glyphId, { frac = 0, ring = null, dim = false, tint = '#eef2fa' } = {}) {
   const S = canvas.width;
   g.clearRect(0, 0, S, S);
   g.fillStyle = '#10141f';
   g.beginPath();
   g.arc(S / 2, S / 2, S / 2 - 2, 0, 7);
   g.fill();
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  if (icon) {
-    g.globalAlpha = dim ? 0.35 : 1;
-    g.font = `52px ${EMOJI_FONT}`;
-    g.fillStyle = '#eef2fa';
-    g.fillText(icon, S / 2, S / 2 + 3);
-    g.globalAlpha = 1;
+  const paths = glyphId && ACTION_ICON_PATHS[glyphId];
+  if (paths) {
+    g.save();
+    g.globalAlpha = dim ? 0.4 : 1;
+    const s = 2.3; // 24-unit grid → ~55px inside the 96px face
+    g.translate(S / 2 - 12 * s, S / 2 - 12 * s);
+    g.scale(s, s);
+    g.strokeStyle = tint;
+    g.lineWidth = 2;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    for (const d of paths) g.stroke(new Path2D(d));
+    g.restore();
   } else {
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
     g.fillStyle = 'rgba(130, 145, 174, 0.45)';
     g.font = '700 46px "Barlow Condensed", "Arial Narrow", sans-serif';
     g.fillText('?', S / 2, S / 2 + 2);
@@ -202,8 +210,8 @@ export default function ControllerHUD() {
     const pwKey = st.powerup || 'none';
     if (powerupFace.key !== pwKey) {
       powerupFace.key = pwKey;
-      drawButtonFace(powerupFace, st.powerup ? POWERUPS[st.powerup]?.icon : null,
-        { ring: st.powerup ? 'rgba(255, 180, 84, 0.9)' : null });
+      drawButtonFace(powerupFace, st.powerup,
+        { ring: st.powerup ? 'rgba(255, 180, 84, 0.9)' : null, tint: '#ffd9a3' });
     }
     if (powerupRim.current) {
       powerupRim.current.emissive.copy(st.powerup ? AMBER : DIM);
@@ -218,10 +226,10 @@ export default function ControllerHUD() {
     const cdLeft = Math.max(0, st.abilityReadyAt - Date.now());
     const cdFrac = Math.min(1, cdLeft / (ABILITY_COOLDOWN_S * 1000));
     const ab = ABILITIES[st.car] || ABILITIES.balanced;
-    const abKey = `${ab.icon}:${cdFrac.toFixed(2)}`;
+    const abKey = `${ab.id}:${cdFrac.toFixed(2)}`;
     if (abilityFace.key !== abKey) {
       abilityFace.key = abKey;
-      drawButtonFace(abilityFace, ab.icon, {
+      drawButtonFace(abilityFace, ab.id, {
         frac: cdFrac,
         ring: cdFrac <= 0 ? 'rgba(74, 222, 128, 0.9)' : null,
         dim: cdFrac > 0,
