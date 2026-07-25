@@ -1,4 +1,10 @@
-# Car design — brainstorm, tuning, and what shipped
+# Car design — brainstorm, parts, and what shipped
+
+> **Note on "tuning".** This doc originally read the brief as handling tuning
+> and built a setup sheet (§3). That was the wrong axis: tuning in a garage
+> means *parts*. §3b is the bolt-on system that answers the brief; the setup
+> sheet stayed because it works and it is honest about trade-offs, but it is now
+> the **SETUP** tab, not the headline.
 
 Scope: the cars themselves. How they look, how they read at 1 world unit long,
 and how much of their behaviour the player gets to author. Written against the
@@ -142,6 +148,52 @@ never enough to make a build mandatory.
   session recorder.
 - **Tyre wear over a match** as an optional mutator — grip decays, a pit-stop
   pad in the kitchen resets it — 1.5 d.
+
+---
+
+## 3b. Bolt-on parts — the tuning that actually belongs in a garage
+
+Ten fitted slots, all cosmetic, all procedural. The leverage that made this
+cheap is `shellBounds()`: because each part mounts off the *measured* nose,
+tail and flank of a shell, one implementation fits all five bodies, and any
+sixth body added later gets the whole catalogue for free.
+
+| Slot | Options | Notes |
+|------|---------|-------|
+| Front end | stock bumper · splitter lip · bull bar · winch bumper | mounts on the measured nose |
+| Hood | smooth · ram scoop · twin vents · bonnet pins | per-body bonnet anchor |
+| Roof | bare · cargo rack + file box · light bar · inbox trays | light bar lamps come up at night |
+| Sills | clean · side skirts · running boards | rocker line per body |
+| Arches | stock lip · widebody | widebody widens the visual track to match |
+| Tyres | road · knobbly · slicks | changes rubber size, tread ring and sheen |
+| Exhaust | single · twin · side pipes · stacks | stacks run up the outside of the rear pillars |
+| Glass | clear · smoked · limo black | swaps the glass material |
+| Wheels | six rim styles | pre-existing, now cycled in the same picker |
+| Spoiler | four | pre-existing, now cycled in the same picker |
+
+Plus a **plate you can write yourself** (7 characters, canvas-drawn), a
+`🎲 SURPRISE ME` full-build roll, and `STRIP TO STOCK`.
+
+Everything travels in `style`, which already syncs through `HELLO` and gets
+sanitised server-side, so rivals see your build and bots roll their own —
+including parts.
+
+### Preview: the bench camera is the feature
+Each slot declares a focus region (`front`, `rear`, `side`, `roof`, `wheel`).
+Fitting a part parks the turntable at that angle and dollies the camera in on
+it, then releases back to the slow showroom spin after four seconds. Cycling
+with ‹ › arrows rather than picking from a list is deliberate: the car changes
+under you while you hold the same button, which is the whole point of previewing
+parts.
+
+### Backlog
+- **Body kits** as a single pick (bumper + skirts + arches + wing in matched
+  sets), the way NFS Underground did it — 0.5 d.
+- **Per-part paint** (a black bonnet on a red car) — needs the shell split into
+  panels, 1.5 d.
+- **Part unlocks tied to XP**, so the catalogue is also progression — 0.5 d, but
+  only once there are more parts than a new player would want at once.
+- **Doors/bonnet that open** in the garage to show the driver — 1 d.
 
 ---
 

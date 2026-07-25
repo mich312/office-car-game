@@ -6,6 +6,8 @@ const saved = (() => {
   try { return JSON.parse(localStorage.getItem('rc-mayhem') || '{}'); } catch { return {}; }
 })();
 
+let focusTimer = null;
+
 export const useStore = create((set, get) => ({
   // (exposed below as window.__rcStore for headless testing / debugging,
   // matching the existing window.__rcTelemetry affordance)
@@ -48,6 +50,10 @@ export const useStore = create((set, get) => ({
   cup: null, // { round, total, standings?, final? } — Office Cup progress
   abilityReadyAt: 0, // my special-ability cooldown (server-stamped)
   printerFlashUntil: 0, // blinded by the printer until this timestamp
+  // Garage preview: which part of the car the bench camera is looking at.
+  // Set when you change a bolt-on, cleared a few seconds later so the
+  // turntable goes back to its slow spin.
+  focus: null, // 'front' | 'rear' | 'side' | 'roof' | 'wheel' | null
 
   // profile / progression
   name: saved.name || '',
@@ -75,6 +81,11 @@ export const useStore = create((set, get) => ({
   save() {
     const { name, car, paint, cos, style, tune, xp, muted, autoGas } = get();
     localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas }));
+  },
+  setFocus(region) {
+    set({ focus: region });
+    clearTimeout(focusTimer);
+    if (region) focusTimer = setTimeout(() => set({ focus: null }), 4200);
   },
   equip(slot, value) {
     set((s) => ({ cos: { ...s.cos, [slot]: value || undefined } }));

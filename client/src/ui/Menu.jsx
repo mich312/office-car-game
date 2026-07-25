@@ -11,7 +11,8 @@ import {
   CARS, CAR_IDS, UNLOCKS, PAINT_COLORS, ABILITIES,
   WHEEL_STYLES, WHEEL_IDS, SPOILER_STYLES, SPOILER_IDS,
   VINYL_STYLES, VINYL_IDS, VINYL_COLORS, GLOW_COLORS,
-  FINISHES, FINISH_IDS, ACCENT_COLORS,
+  FINISHES, FINISH_IDS, ACCENT_COLORS, DEFAULT_STYLE, randomStyle,
+  PART_SLOTS, PLATE_MAX,
   TUNE_AXES, TUNE_MIN, TUNE_MAX, TUNE_PRESETS, TUNE_PRESET_IDS,
   STOCK_TUNE, tunedStats, tuneMetrics, tuneLabel, matchingPreset,
 } from '@rc/shared';
@@ -104,20 +105,61 @@ function GarageScene() {
   );
 }
 
-// Subtle head-tracking parallax so the desk feels like a diorama.
+// Where the bench camera goes, and which way the turntable parks, when you are
+// fitting a part. Every slot in PART_SLOTS names one of these regions, so
+// changing a bumper swings the nose round and pulls the camera in on it.
+const FOCUS_VIEWS = {
+  // angle 0 points the nose at the bench camera; +π turns the tail round
+  front: { angle: -0.35, cam: [0.55, 1.3, 3.1], look: [0, 0.48, 0.15] },
+  rear: { angle: Math.PI - 0.35, cam: [0.5, 1.35, 3.1], look: [0, 0.48, -0.1] },
+  side: { angle: Math.PI / 2, cam: [0.15, 1.2, 2.95], look: [0, 0.46, 0] },
+  roof: { angle: -0.5, cam: [0.4, 2.35, 2.15], look: [0, 0.52, 0] },
+  wheel: { angle: Math.PI / 2 - 0.3, cam: [0.8, 0.92, 2.4], look: [0.1, 0.3, 0.2] },
+};
+const DEFAULT_CAM = [0, 2.6, 5.2];
+const DEFAULT_LOOK = [0.1, 0.75, 0];
+const _camGoal = new THREE.Vector3();
+const _lookGoal = new THREE.Vector3();
+const _look = new THREE.Vector3();
+
+// Head-tracking parallax so the desk feels like a diorama, plus the part-focus
+// dolly: with a focus set the camera eases to that region's viewpoint and the
+// pointer parallax stands down.
 function Rig() {
-  useFrame(({ camera, pointer }) => {
-    camera.position.x += (pointer.x * 0.45 - camera.position.x) * 0.04;
-    camera.position.y += (2.6 + pointer.y * 0.25 - camera.position.y) * 0.04;
-    camera.lookAt(0.1, 0.75, 0);
+  const look = useRef(new THREE.Vector3(...DEFAULT_LOOK));
+  useFrame(({ camera, pointer }, dt) => {
+    const view = FOCUS_VIEWS[useStore.getState().focus];
+    const k = 1 - Math.pow(0.004, Math.min(dt, 0.1));
+    if (view) {
+      _camGoal.set(...view.cam);
+      _lookGoal.set(...view.look);
+    } else {
+      _camGoal.set(DEFAULT_CAM[0] + pointer.x * 0.45, DEFAULT_CAM[1] + pointer.y * 0.25, DEFAULT_CAM[2]);
+      _lookGoal.set(...DEFAULT_LOOK);
+    }
+    camera.position.lerp(_camGoal, k);
+    look.current.lerp(_lookGoal, k);
+    camera.lookAt(look.current);
   });
   return null;
 }
 
 function Turntable({ children }) {
   const ref = useRef();
-  useFrame(({ clock }) => {
-    if (ref.current) ref.current.rotation.y = clock.elapsedTime * 0.4;
+  const spin = useRef(0);
+  useFrame((_, dt) => {
+    if (!ref.current) return;
+    const view = FOCUS_VIEWS[useStore.getState().focus];
+    if (view) {
+      // shortest way round to the parked angle
+      let d = (view.angle - spin.current) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      spin.current += d * Math.min(1, dt * 4.5);
+    } else {
+      spin.current += dt * 0.4; // back to the slow showroom spin
+    }
+    ref.current.rotation.y = spin.current;
   });
   return (
     <group position={[0, 0.09, 0]}>
@@ -265,6 +307,7 @@ function MonitorUI() {
   // the same numbers the physics step will use, recomputed as sliders move
   const tuned = useMemo(() => tunedStats(car, store.tune), [car, store.tune]);
   const activePreset = matchingPreset(store.tune);
+  const buildLabel = fittedLabel(store.style);
 
   const pick = (d) => {
     const i = (carIdx + d + CAR_IDS.length) % CAR_IDS.length;
@@ -272,8 +315,9 @@ function MonitorUI() {
     useStore.setState({ car: CAR_IDS[i] });
     audio.blip(520 + i * 60, 0.06);
   };
-  const setStyle = (patch) => {
+  const setStyle = (patch, focus) => {
     useStore.getState().setStyle(patch);
+    if (focus) useStore.getState().setFocus(focus);
     audio.blip(700, 0.05);
   };
 
@@ -285,8 +329,9 @@ function MonitorUI() {
       </header>
       <nav>
         <button className={tab === 'car' ? 'sel' : ''} onClick={() => setTab('car')}>CAR</button>
-        <button className={tab === 'tune' ? 'sel' : ''} onClick={() => setTab('tune')}>TUNE</button>
-        <button className={tab === 'style' ? 'sel' : ''} onClick={() => setTab('style')}>STYLE</button>
+        <button className={tab === 'parts' ? 'sel' : ''} onClick={() => setTab('parts')}>PARTS</button>
+        <button className={tab === 'paint' ? 'sel' : ''} onClick={() => setTab('paint')}>PAINT</button>
+        <button className={tab === 'tune' ? 'sel' : ''} onClick={() => setTab('tune')}>SETUP</button>
         <button className={tab === 'gear' ? 'sel' : ''} onClick={() => setTab('gear')}>GEAR</button>
       </nav>
 
@@ -310,23 +355,13 @@ function MonitorUI() {
           </div>
           <p className="mu-setup">
             SETUP · <b>{tuneLabel(store.tune)}</b>
-            <button className="mu-linkbtn" onClick={() => setTab('tune')}>tune it →</button>
+            <button className="mu-linkbtn" onClick={() => setTab('tune')}>setup sheet →</button>
           </p>
           <p className="mu-ability">{ABILITIES[carId]?.icon} <b>{ABILITIES[carId]?.name}</b> · {ABILITIES[carId]?.desc} <kbd>Q</kbd></p>
-          <label className="mu-label">PAINT</label>
-          <div className="mu-swatches">
-            {paints.map((p) => (
-              <button
-                key={p.value}
-                className={`swatch ${store.paint === p.value ? 'sel' : ''}`}
-                style={{ background: p.value }}
-                title={p.name}
-                onClick={() => { useStore.setState({ paint: p.value }); useStore.getState().save(); audio.blip(700, 0.05); }}
-              />
-            ))}
-            <button className={`swatch none ${!store.paint ? 'sel' : ''}`} title="Stock paint"
-              onClick={() => { useStore.setState({ paint: null }); useStore.getState().save(); }}>✕</button>
-          </div>
+          <p className="mu-built">
+            BUILD · <b>{buildLabel}</b>
+            <button className="mu-linkbtn" onClick={() => setTab('parts')}>fit parts →</button>
+          </p>
         </div>
       )}
 
@@ -376,34 +411,90 @@ function MonitorUI() {
         </div>
       )}
 
-      {tab === 'style' && (
+      {tab === 'parts' && (
+        <div className="mu-body">
+          <div className="mu-parts">
+            {PART_SLOTS.map((slot) => (
+              <PartRow
+                key={slot.id}
+                label={slot.name}
+                options={slot.options}
+                value={store.style[slot.id]}
+                onPick={(v) => setStyle({ [slot.id]: v }, slot.focus)}
+              />
+            ))}
+            <PartRow
+              label="Wheels"
+              options={WHEEL_NAMES}
+              value={store.style.wheels}
+              onPick={(v) => setStyle({ wheels: v }, 'wheel')}
+            />
+            <PartRow
+              label="Spoiler"
+              options={SPOILER_NAMES}
+              value={store.style.spoiler}
+              onPick={(v) => setStyle({ spoiler: v }, 'rear')}
+            />
+          </div>
+          <div className="mu-plate">
+            <label className="mu-label" htmlFor="platetext">PLATE</label>
+            <input
+              id="platetext"
+              value={store.style.plate}
+              maxLength={PLATE_MAX}
+              placeholder={(store.name || 'driver').toUpperCase().slice(0, PLATE_MAX)}
+              onChange={(e) => setStyle({ plate: e.target.value }, 'rear')}
+            />
+            <button onClick={() => {
+              useStore.getState().setStyle(randomStyle());
+              useStore.getState().setFocus('side');
+              audio.blip(880, 0.08);
+            }}>🎲 SURPRISE ME</button>
+            <button onClick={() => {
+              useStore.getState().setStyle({ ...DEFAULT_STYLE, plate: store.style.plate });
+              useStore.getState().setFocus('side');
+              audio.blip(320, 0.08);
+            }}>STRIP TO STOCK</button>
+          </div>
+          <p className="mu-hint mu-partshint">
+            Every part fits every body · the bench camera swings round to whatever you just fitted
+          </p>
+        </div>
+      )}
+
+      {tab === 'paint' && (
         <div className="mu-body">
           <label className="mu-label">FINISH</label>
           <div className="mu-row">
             {FINISH_IDS.map((id) => (
               <button key={id} className={store.style.finish === id ? 'sel' : ''}
-                onClick={() => setStyle({ finish: id })}>{FINISHES[id].name}</button>
+                onClick={() => setStyle({ finish: id }, 'side')}>{FINISHES[id].name}</button>
             ))}
           </div>
-          <label className="mu-label">WHEELS</label>
-          <div className="mu-row">
-            {WHEEL_IDS.map((id) => (
-              <button key={id} className={store.style.wheels === id ? 'sel' : ''}
-                onClick={() => setStyle({ wheels: id })}>{WHEEL_STYLES[id].name}</button>
+          <label className="mu-label">PAINT</label>
+          <div className="mu-swatches">
+            {paints.map((p) => (
+              <button
+                key={p.value}
+                className={`swatch ${store.paint === p.value ? 'sel' : ''}`}
+                style={{ background: p.value }}
+                title={p.name}
+                onClick={() => {
+                  useStore.setState({ paint: p.value });
+                  useStore.getState().save();
+                  useStore.getState().setFocus('side');
+                  audio.blip(700, 0.05);
+                }}
+              />
             ))}
-          </div>
-          <label className="mu-label">SPOILER</label>
-          <div className="mu-row">
-            {SPOILER_IDS.map((id) => (
-              <button key={id} className={store.style.spoiler === id ? 'sel' : ''}
-                onClick={() => setStyle({ spoiler: id })}>{SPOILER_STYLES[id].name}</button>
-            ))}
+            <button className={`swatch none ${!store.paint ? 'sel' : ''}`} title="Stock paint"
+              onClick={() => { useStore.setState({ paint: null }); useStore.getState().save(); }}>✕</button>
           </div>
           <label className="mu-label">VINYL</label>
           <div className="mu-row">
             {VINYL_IDS.map((id) => (
               <button key={id} className={store.style.vinyl === id ? 'sel' : ''}
-                onClick={() => setStyle({ vinyl: id })}>{VINYL_STYLES[id].name}</button>
+                onClick={() => setStyle({ vinyl: id }, 'side')}>{VINYL_STYLES[id].name}</button>
             ))}
           </div>
           <div className="mu-cols mu-cols3">
@@ -484,6 +575,40 @@ function MonitorUI() {
 
 // A stat bar. With `base` it also draws a tick where the untuned car sits, so
 // the setup sheet's effect is visible at a glance instead of remembered.
+// Fitted-parts summary for the CAR tab: names only the parts you changed.
+function fittedLabel(style) {
+  const parts = [];
+  for (const slot of PART_SLOTS) {
+    const v = style[slot.id];
+    if (v !== DEFAULT_STYLE[slot.id]) parts.push(slot.options[v]);
+  }
+  if (style.wheels !== DEFAULT_STYLE.wheels) parts.push(WHEEL_NAMES[style.wheels]);
+  if (style.spoiler !== DEFAULT_STYLE.spoiler) parts.push(SPOILER_NAMES[style.spoiler]);
+  return parts.length ? parts.join(' · ') : 'Showroom stock';
+}
+
+const WHEEL_NAMES = Object.fromEntries(WHEEL_IDS.map((id) => [id, WHEEL_STYLES[id].name]));
+const SPOILER_NAMES = Object.fromEntries(SPOILER_IDS.map((id) => [id, SPOILER_STYLES[id].name]));
+
+// One fitted part: name, the option you have on, and arrows to flip through the
+// rest. Cycling is the point — the car changes under you as you click.
+function PartRow({ label, options, value, onPick }) {
+  const keys = Object.keys(options);
+  const i = Math.max(0, keys.indexOf(value));
+  const step = (d) => onPick(keys[(i + d + keys.length) % keys.length]);
+  return (
+    <div className="mu-part">
+      <span className="mu-part-label">{label}</span>
+      <button className="mu-part-arrow" onClick={() => step(-1)} aria-label={`previous ${label}`}>‹</button>
+      <span className="mu-part-val" title={options[keys[i]]}>{options[keys[i]]}</span>
+      <button className="mu-part-arrow" onClick={() => step(1)} aria-label={`next ${label}`}>›</button>
+      <span className="mu-part-dots" aria-hidden="true">
+        {keys.map((k, n) => <i key={k} className={n === i ? 'on' : ''} />)}
+      </span>
+    </div>
+  );
+}
+
 function Stat({ label, v, base }) {
   const pct = Math.round(Math.min(1, Math.max(0, v)) * 100);
   const basePct = base === undefined ? null : Math.round(Math.min(1, Math.max(0, base)) * 100);
