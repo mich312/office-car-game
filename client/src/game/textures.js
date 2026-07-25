@@ -1,5 +1,6 @@
 // Procedural canvas textures — no asset files, everything generated.
 import * as THREE from 'three';
+import { FLAGS, isSoftwareRenderer } from './flags.js';
 
 const cache = new Map();
 
@@ -14,7 +15,11 @@ function canvasTex(baseKey, w, h, draw, repeat = [1, 1]) {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(...repeat);
-  tex.anisotropy = 4;
+  // The chase cam looks at the floor at a grazing angle permanently, which is
+  // the textbook case for anisotropic filtering. 4 was a guess; ?aniso A/Bs it.
+  // Software rasterisers pay for each tap in cycles, so they get none — but 4
+  // stays the default elsewhere until somebody measures 16 on real hardware.
+  tex.anisotropy = FLAGS.aniso ?? (isSoftwareRenderer() ? 1 : 4);
   tex.colorSpace = THREE.SRGBColorSpace;
   cache.set(key, tex);
   return tex;

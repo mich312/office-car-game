@@ -15,9 +15,19 @@ import OfficeEvents from './OfficeEvents.jsx';
 import Emotes from './Emotes.jsx';
 import SpectatorCam, { PhotoOrbitCam } from './SpectatorCam.jsx';
 import Effects from './Effects.jsx';
+import { FLAGS, isSoftwareRenderer } from './flags.js';
 
 // Low-effects mode for weak GPUs (and CI): ?lowfx disables shadows + post.
-const LOWFX = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('lowfx');
+// Everything else in FLAGS is a measurement knob — see flags.js.
+//
+// Software rasterisers take the same path automatically. Chrome falls back to
+// SwiftShader silently when there is no usable GPU, and measured on that path
+// the full stack runs at 0.72 fps (1383 ms/frame) — those players were being
+// served ambient occlusion they could not afford and had no way to switch off.
+// `?forcefx` overrides, for when you want to measure the full stack in
+// software on purpose, which is exactly how the numbers above were taken.
+const SOFTWARE = !FLAGS.forcefx && isSoftwareRenderer();
+const LOWFX = FLAGS.lowfx || SOFTWARE;
 
 // Renderer stats hook for perf testing: accumulate across all passes in a
 // frame (autoReset off), publish at end of frame, reset manually.
@@ -52,8 +62,10 @@ export default function Game() {
 
   return (
     <Canvas
-      shadows={!LOWFX}
-      dpr={LOWFX ? [0.75, 1] : [1, 1.5]}
+      shadows={!LOWFX && !FLAGS.noshadow}
+      // Fill is the whole cost in software: same 787 draw calls measured
+      // 633 ms at scale 1.0 and 117 ms at 0.35. Resolution, not geometry.
+      dpr={FLAGS.scale ?? (SOFTWARE ? 0.35 : LOWFX ? [0.75, 1] : [1, 1.5])}
       camera={{ position: [-70, 14, -25], fov: 60, near: 0.1, far: 900 }}
       gl={{ antialias: false, stencil: false, powerPreference: 'high-performance' }}
       style={{ position: 'fixed', inset: 0 }}

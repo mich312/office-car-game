@@ -4,6 +4,9 @@
 > measured (see §4a). §C, §D, §F, §G and the §H identity fork are still open.
 > §I–§M are a second, deeper pass: normal maps, faked depth, load-time
 > lighting, and the draw-call problem the rest of the doc keeps working around.
+> **§4b is the one to read first** — it measures frame *time* rather than
+> counters, corrects two claims in §1 and §3, and ships automatic detection of
+> software rasterisers (0.73 → 8.57 fps for the players on them).
 
 Scope: how the game *looks*. Shading, lighting, post. Written against the
 renderer as it stands (`client/src/game/Lighting.jsx`, `Effects.jsx`,
@@ -35,8 +38,9 @@ Read that as:
   pieces and **145 physics props** (21 chairs, 14 mugs, 13 boxes, 12 pens…),
   and almost every one of them is a little `<group>` of 3–12 separate meshes.
 - The **shadow pass costs ~500 more draw calls** and redraws 23 k triangles.
-  It is the single most expensive thing in the frame and nobody is looking at
-  it directly.
+  ⚠️ An earlier draft called this "the single most expensive thing in the
+  frame". That was never measured — see §4b, where it turns out to be 2.4% of
+  frame time under software rendering. These are counters, not costs.
 - Triangle count is a rounding error. 68 k triangles is roughly one
   mid-2000s character model. There is no vertex or geometry pressure here at
   all.
@@ -69,10 +73,16 @@ Four screenshots, day and night, in-game and `?lowfx`:
 ## 3. The budget rule
 
 > **Draw calls are the constraint. Fragments are nearly free.**
+>
+> ⚠️ **Unverified on a GPU.** See §4b — every measurement behind this rule was
+> taken on a software rasteriser, where the rule is demonstrably *inverted*.
+> The counts are real; "the GPU is sitting idle" was an inference about
+> hardware that was never present. Re-derive with timer queries before pricing
+> more work against it.
 
-780 scene draws against 45 k triangles is a CPU-bound submit profile with a GPU
-sitting idle. That inverts the usual advice and gives a clean rule for this
-project:
+780 scene draws against 45 k triangles looks like a submit-bound profile with a
+GPU sitting idle. If that holds, it inverts the usual advice and gives a clean
+rule for this project:
 
 - **Cheap**: anything that changes an existing material's shader, anything that
   happens in a post pass, anything that reuses a material already bound.
@@ -670,6 +680,104 @@ Two claims from §1–§3 survived contact and are worth keeping:
   premise of the budget rule.
 - **The shadow pass really was the fat.** It is the only change that moved the
   numbers, and it moved them by more than the entire post stack costs.
+
+## 4b. The CPU-only test — and two corrections to §1
+
+Every measurement in this document, including §1's baseline and §4a's A/B, was
+taken in headless Chromium with `--use-gl=swiftshader`: a **CPU software
+rasteriser**. No GPU was involved in any of it. That was incidental to the
+tooling, not a choice, and it has two consequences — one that invalidates a
+claim, and one that turns out to be a shippable finding.
+
+### The numbers
+
+Median frame time over a settled in-match sample, 1280×720, same harness:
+
+| Config | ms/frame | fps | Draw calls | Triangles |
+|---|---:|---:|---:|---:|
+| Full stack | 1383 | 0.72 | 1155 | 61 550 |
+| − shadow map only | 1350 | 0.74 | 922 | 53 222 |
+| − N8AO only | 1000 | 1.00 | 1030 | 52 975 |
+| No post, no shadow | 633 | 1.58 | 787 | 45 045 |
+| `?lowfx` + `scale=0.35` | 117 | 8.58 | 787 | 45 156 |
+| `?lowfx` + `scale=0.25` | 83 | 12.0 | 788 | 45 424 |
+
+Two points fit a clean model for the no-post path:
+
+> **ms ≈ 48 + 567 × scale²**
+
+A fixed ~48 ms of JavaScript, physics and draw submission, plus fill that scales
+with the square of resolution. It predicts the 633 ms measurement at scale 1.0
+to within 3%, which is better agreement than this harness deserves.
+
+### Correction 1: §1 called the shadow pass "the single most expensive thing in the frame"
+
+Removing it saves **33 ms — 2.4%** — while removing 233 draw calls and 8 000
+triangles. §1's claim was a statement about *counters* phrased as a statement
+about *cost*, and no timing existed to support it. The genuinely expensive item
+is **N8AO at 383 ms, 28% of the frame**, and the post stack as a whole is ~717
+ms, or 52%.
+
+This does not retract §4a. The follow-box shadow rig is still sharper and still
+submits 17% less, and on a GPU — where submission is a real cost and a 2048²
+depth rasterise is nearly free — the balance is different. But the honest
+version is: **that optimisation bought counters, and it has never been shown to
+buy milliseconds anywhere.**
+
+### Correction 2: §3's "the GPU is sitting idle"
+
+There was no GPU. The draw-call and triangle counts in §1 are renderer-agnostic
+and stand; the inference that we were *submit-bound with an idle GPU* was never
+observed and could not have been, in this environment. **§3's budget rule
+remains an untested hypothesis about GPU behaviour.** It should be re-derived on
+real hardware with `EXT_disjoint_timer_query_webgl2` before more work is
+priced against it.
+
+### What the CPU case proves, though
+
+The inversion is real and it is stark. `?lowfx&scale=0.35` and "no post, no
+shadow" submit **the same 787 draw calls and the same 45 k triangles**. The only
+difference between them is resolution, and it is worth **5.4×** (633 ms → 117
+ms). On a software rasteriser, fill is everything and draw calls are nearly
+free — the exact opposite of the rule the rest of this doc is built on.
+
+Practical consequences for a CPU-only build:
+
+- **Resolution is the entire lever.** It beats every other item combined.
+- **Anisotropic filtering costs cycles per tap.** `?aniso=16` measured ~5%
+  slower than 4 — suggestive rather than established, since mode variance moves
+  the counters by 1–2% run to run. Software now gets `anisotropy = 1`.
+- **There is a ~48 ms floor** that no resolution change touches: JS, physics and
+  submission. That is a 21 fps ceiling on this machine even with zero pixels,
+  which means a CPU-only build needs §L's object-count work *as well as* low
+  resolution — draw calls matter here after all, just at the submission layer
+  rather than the rasteriser.
+- **§K1's vertex bake is the right shading model for it.** Per-vertex lighting
+  across 45 k triangles is what software rasterisers are good at, and it deletes
+  per-pixel light evaluation entirely.
+- §J1 and §J2 (interior mapping, parallax occlusion) are **disqualified** on this
+  path. Per-pixel raymarching is the worst possible software workload.
+
+### Shipped as a result
+
+Chrome falls back to SwiftShader silently — no GPU, blocklisted driver, VM — so
+players were already running this path and being served ambient occlusion they
+could not afford, with no way to know or to switch it off. `isSoftwareRenderer()`
+in `flags.js` now detects it and takes the lean path automatically:
+
+| | ms/frame | fps |
+|---|---:|---:|
+| Software rasteriser, before | 1367 | 0.73 |
+| Software rasteriser, auto-detected | **117** | **8.57** |
+
+12× for free, for the players least able to ask for it. `?forcefx` opts back in,
+which is how the "before" row was measured.
+
+Still not *playable* — 8.6 fps explains why every driving attempt in this
+harness ended up nose-first against a wall, which was misread as an input bug at
+the time. Getting from there to playable is the §L + §K1 + content-reduction
+work, and the honest framing is that a CPU-only build is a different renderer,
+not a settings preset.
 
 ## 5. Guardrails
 
