@@ -402,3 +402,18 @@ in-world nameplate re-adds its own prefix as world content. The clipboard's
 gamepad emoji became an Icon; client feed templates dropped their leading
 icon-duty emoji. Emoji that remain are content by design: player emotes and
 the personality inside server chat-feed sentences.
+
+### Post-ship addition: the office whiteboard
+
+`client/src/game/OfficeBoard.jsx` — a live in-world display, drawn on one
+shared canvas texture and mounted twice: above the reception desk (facing
+the spawns) and beside the meeting-room TV. During the lobby it reads
+"NEXT MEETING?" with red marker tally strokes per vote and the leader
+circled in amber; during countdown/play it shows live standings (magnet
+dots in each player's paint, your name underlined, red marker clock);
+on the podium it crowns the EMPLOYEE OF THE MATCH. Redraws are hash-gated
+at ≤2.5 Hz, and the material uses the canvas as its own emissive map so
+the board stays readable during lights-out events. The Tab scoreboard
+overlay stays — mid-race glances need flat UI; the board is the world's
+own copy. Photo mode gained a free-camera hook (`window.__rcCamOverride`)
+used by the screenshot tooling.

@@ -15,6 +15,7 @@ import OfficeEvents from './OfficeEvents.jsx';
 import Emotes from './Emotes.jsx';
 import SpectatorCam, { PhotoOrbitCam } from './SpectatorCam.jsx';
 import ControllerHUD from './ControllerHUD.jsx';
+import OfficeBoard from './OfficeBoard.jsx';
 import Effects from './Effects.jsx';
 
 // Low-effects mode for weak GPUs (and CI): ?lowfx disables shadows + post.
@@ -76,6 +77,7 @@ export default function Game() {
           <ModeObjects />
         </Physics>
         <OfficeEvents />
+        <OfficeBoard />
         <Emotes />
         <SpectatorCam />
         <PhotoOrbitCam />

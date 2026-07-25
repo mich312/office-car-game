@@ -57,6 +57,14 @@ export function PhotoOrbitCam() {
   const S = useRef({ t: 0 }).current;
   useFrame((_, dt) => {
     if (!photoMode) return;
+    // free-camera hook for screenshots/tooling: set window.__rcCamOverride
+    // to { x, y, z, tx, ty, tz } while in photo mode to park the camera
+    const o = typeof window !== 'undefined' ? window.__rcCamOverride : null;
+    if (o) {
+      camera.position.set(o.x, o.y, o.z);
+      camera.lookAt(o.tx, o.ty, o.tz);
+      return;
+    }
     S.t += dt * 0.1;
     const az = Math.sin(S.t) * 0.85; // sweep angle around south
     const k = Math.min(1, dt * 2);
