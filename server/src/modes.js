@@ -3,6 +3,7 @@
 import {
   MSG, MODES, CHECKPOINTS, CHECKPOINT_RADIUS, PICKUP_RADIUS,
   BEAN_SPAWNS, COFFEE_MACHINE, BATTERY_SPAWN, SOCCER, WALLS, FURNITURE,
+  KOTH_SPOTS, KOTH_RADIUS, SUMO_ZONE,
   GRAVITY, M, LCS, ROOMS, roomAt, COUNTDOWN_SECONDS, DECOR_TYPES,
 } from '@rc/shared';
 
@@ -15,6 +16,9 @@ export function createMode(id, room) {
     case 'coffee_run': return new CoffeeMode(room);
     case 'battery': return new BatteryMode(room);
     case 'soccer': return new SoccerMode(room);
+    case 'koth': return new KothMode(room);
+    case 'tag': return new TagMode(room);
+    case 'sumo': return new SumoMode(room);
     case 'last_standing': return new LastStandingMode(room);
     case 'free_roam': return new FreeRoamMode(room);
     default: return new RaceMode(room);
@@ -381,6 +385,11 @@ class SoccerMode {
         this.room.feed(`⚽ GOOOAL! ${scorer ? scorer.name : 'Someone'} scores for ${scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue'}!`);
         this.room.broadcast({ t: MSG.EFFECT, type: 'goal', team: scoringTeam, scorer: scorer?.id, teamScores: this.teamScores });
         this.room.scoreChanged();
+        // Score cap: reaching it ends the match after a short victory lap
+        if (this.teamScores[scoringTeam] >= MODES.soccer.goalCap) {
+          this.room.feed(`🏁 ${scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue'} takes the match!`);
+          this.room.endsAt = Math.min(this.room.endsAt, t + 4000);
+        }
         this.resetBall();
         this.freezeUntil = t + 2500;
         break;
@@ -397,5 +406,196 @@ class SoccerMode {
       ball: { p: this.ball.p.map(r2), v: this.ball.v.map(r2), r: r2(this.R) },
       teamScores: this.teamScores,
     };
+  }
+}
+
+// ------------------------------------------------------- Standup Standoff
+// Moving-zone king of the hill: a drive-through meeting zone hops between
+// rooms every hopSeconds; everyone inside scores per second. Large zone and
+// frequent hops keep it a driving mode, not a parking mode.
+class KothMode {
+  constructor(room) {
+    this.room = room;
+    this.cfg = MODES.koth;
+    this.spot = Math.floor(Math.random() * KOTH_SPOTS.length);
+    this.hopAt = 0; // armed on the first playing tick, after the countdown
+    this.acc = 0;
+  }
+  zonePos() { return KOTH_SPOTS[this.spot]; }
+  update(dt) {
+    const t = now();
+    if (!this.hopAt) this.hopAt = t + this.cfg.hopSeconds * 1000;
+    if (t >= this.hopAt) {
+      let next;
+      do { next = Math.floor(Math.random() * KOTH_SPOTS.length); } while (next === this.spot);
+      this.spot = next;
+      this.hopAt = t + this.cfg.hopSeconds * 1000;
+      this.room.broadcast({ t: MSG.EFFECT, type: 'zone_hop' });
+      this.room.feed('📍 The standup moved!');
+    }
+    const z = this.zonePos();
+    let scored = false;
+    for (const p of this.room.players.values()) {
+      if (p.stunUntil > t) continue;
+      if (Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS && Math.abs(p.p[1]) < 4) {
+        p.score += this.cfg.scorePerSecond * dt;
+        scored = true;
+      }
+    }
+    if (scored) {
+      this.acc += dt;
+      if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
+    }
+  }
+  onHit() {}
+  rocketTarget(player) {
+    const z = this.zonePos();
+    const inZone = [...this.room.players.values()]
+      .filter((p) => p.id !== player.id && Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS)
+      .sort((a, b) => b.score - a.score);
+    return inZone[0] || null;
+  }
+  snapshot() {
+    const z = this.zonePos();
+    return { zone: { x: z.x, z: z.z, r: KOTH_RADIUS, until: this.hopAt || undefined } };
+  }
+}
+
+// --------------------------------------------------------------- You're It
+// Inverted tag (Shine Thief logic without the object): the It car scores per
+// second; ANY contact — rub or hit — transfers It, so chasing at matched
+// speeds still tags. Fleeing is the skill, the crown marks the target.
+class TagMode {
+  constructor(room) {
+    this.room = room;
+    this.cfg = MODES.tag;
+    this.it = null;
+    this.lastTagAt = 0;
+    this.acc = 0;
+    const all = [...room.players.values()];
+    if (all.length) this.setIt(all[Math.floor(Math.random() * all.length)], true);
+  }
+  setIt(p, silent = false) {
+    this.it = p.id;
+    this.lastTagAt = now();
+    if (!silent) this.room.broadcast({ t: MSG.EFFECT, type: 'tag', id: p.id });
+    this.room.feed(`🎯 ${p.name} is It!`);
+  }
+  transfer(a, b) {
+    if (now() - this.lastTagAt < this.cfg.tagCooldownMs) return;
+    if (a.id === this.it) this.setIt(b);
+    else if (b.id === this.it) this.setIt(a);
+  }
+  onHit(a, b) { if (a && b) this.transfer(a, b); }
+  onRub(a, b) { this.transfer(a, b); }
+  onLeave(p) { if (p.id === this.it) this.it = null; }
+  update(dt) {
+    let it = this.room.players.get(this.it);
+    if (!it) {
+      const all = [...this.room.players.values()];
+      if (!all.length) return;
+      it = all[Math.floor(Math.random() * all.length)];
+      this.setIt(it);
+    }
+    it.score += this.cfg.scorePerSecond * dt;
+    this.acc += dt;
+    if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
+  }
+  rocketTarget(player) {
+    // everyone hunts the It car; the It car gets nobody special
+    return player.id === this.it ? null : this.room.players.get(this.it) || null;
+  }
+  snapshot() { return this.it ? { it: this.it } : {}; }
+}
+
+// ------------------------------------------------------ Meeting Room Sumo
+// Rounds: the safe zone starts covering most of the office and shrinks to a
+// circle in the open office. Leave it too long (or fall) and you're out for
+// the round. Score by elimination order; last car rolling banks the bonus.
+// Eliminated cars keep driving as mobile chicanes until the next round.
+class SumoMode {
+  constructor(room) {
+    this.room = room;
+    this.cfg = MODES.sumo;
+    this.round = 0;
+    this.roundEndsAt = 0;
+    this.restUntil = 0;
+    this.order = [];
+    this.zone = { x: SUMO_ZONE.x, z: SUMO_ZONE.z, r: SUMO_ZONE.r0 };
+  }
+  startRound() {
+    const t = now();
+    this.round++;
+    this.roundEndsAt = t + this.cfg.roundSeconds * 1000;
+    this.order = [];
+    this.zone.r = SUMO_ZONE.r0;
+    for (const p of this.room.players.values()) { p.sumoDead = false; p.sumoOutAt = 0; }
+    this.room.broadcast({ t: MSG.EFFECT, type: 'sumo_round', round: this.round });
+    this.room.feed(`🥋 Round ${this.round} — stay inside the circle!`);
+  }
+  alive() { return [...this.room.players.values()].filter((p) => !p.sumoDead); }
+  eliminate(p, why) {
+    if (p.sumoDead || this.restUntil) return;
+    p.sumoDead = true;
+    p.sumoOutAt = 0;
+    this.order.push(p.id);
+    p.score += this.cfg.placeScore * (this.order.length - 1);
+    this.room.feed(`💀 ${p.name} is out${why ? ` (${why})` : ''}`);
+    this.room.broadcast({ t: MSG.EFFECT, type: 'sumo_out', id: p.id });
+    this.room.scoreChanged();
+    const alive = this.alive();
+    if (alive.length <= 1) this.endRound(alive);
+  }
+  endRound(survivors) {
+    const nOut = this.order.length;
+    for (const p of survivors) {
+      p.score += this.cfg.placeScore * nOut + this.cfg.winBonus;
+      this.room.feed(`🏆 ${p.name} wins round ${this.round}!`);
+    }
+    this.room.scoreChanged();
+    this.restUntil = now() + this.cfg.restSeconds * 1000;
+  }
+  update() {
+    const t = now();
+    if (!this.round) { this.startRound(); return; }
+    if (this.restUntil) {
+      if (t >= this.restUntil) { this.restUntil = 0; this.startRound(); }
+      return;
+    }
+    // round timeout: everyone still alive shares the win
+    if (t >= this.roundEndsAt) { this.endRound(this.alive()); return; }
+    // linear shrink over the round
+    const frac = 1 - Math.max(0, (this.roundEndsAt - t) / (this.cfg.roundSeconds * 1000));
+    this.zone.r = SUMO_ZONE.r0 + (SUMO_ZONE.r1 - SUMO_ZONE.r0) * frac;
+    for (const p of this.room.players.values()) {
+      if (p.sumoDead) continue;
+      if (Math.hypot(p.p[0] - this.zone.x, p.p[2] - this.zone.z) <= this.zone.r) {
+        p.sumoOutAt = 0;
+      } else if (!p.sumoOutAt) {
+        p.sumoOutAt = t;
+      } else if (t - p.sumoOutAt > this.cfg.outSeconds * 1000) {
+        this.eliminate(p, 'left the ring');
+      }
+    }
+  }
+  onHit() {}
+  onFall(p) { this.eliminate(p, 'gravity'); }
+  onJoin(p) { p.sumoDead = true; } // drop-ins wait for the next round
+  onLeave() {
+    const alive = this.alive();
+    if (this.round && !this.restUntil && alive.length <= 1) this.endRound(alive);
+  }
+  rocketTarget(player) {
+    return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
+  }
+  snapshot() {
+    const t = now();
+    const out = [];
+    for (const p of this.room.players.values()) {
+      if (!p.sumoDead && p.sumoOutAt) {
+        out.push([p.id, Math.max(0, Math.round((this.cfg.outSeconds * 1000 - (t - p.sumoOutAt)) / 100))]);
+      }
+    }
+    return { zone: { x: this.zone.x, z: this.zone.z, r: this.zone.r }, sumo: { round: this.round, out } };
   }
 }

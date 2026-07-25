@@ -73,8 +73,40 @@ export const BOTS_FILL_TO = 6; // server tops the room up to this many racers
 export const PICKUP_RADIUS = 1.6;
 export const CHECKPOINT_RADIUS = 7.0;
 export const BUMP_RADIUS = 1.35;
-export const BUMP_REL_SPEED = 14; // relative speed for a "hit" bump
+export const BUMP_REL_SPEED = 14; // relative speed separating a rub from a hit
 export const RESPAWN_Y = -12; // fell off the balcony / out of world
+
+// Car-vs-car contact. Below BUMP_REL_SPEED a contact is a "rub" — cosmetic,
+// cheap cooldown, no gameplay. At or above it's a "hit": knockback, mode
+// effects (spills, tags), the works. Separate cooldowns so cornering traffic
+// can't eat the budget for real hits.
+export const BUMP_RUB_COOLDOWN_MS = 300;
+export const BUMP_HIT_COOLDOWN_MS = 900;
+// Forgiving online collisions: car contact never costs you more than this
+// fraction of the forward speed you carried into it.
+export const BUMP_MIN_FWD_KEEP = 0.55;
+
+// Post-step safety rails: no impulse stack (bump + rocket + spring + wind)
+// may launch a car past these. Kept under MAX_PLAUSIBLE_SPEED so a capped
+// car never trips the server's anti-teleport check.
+export const SPEED_HARD_CAP = 34; // units/s
+export const ANGVEL_CAP = 7; // rad/s
+// Speed-proportional downforce pressing the car along -up while grounded.
+export const DOWNFORCE = 0.5; // accel per unit of forward speed
+
+// Respawning. The server picks the spot (scored slots in arena modes, the
+// client's safe-pose proposal in races), then grants a short input freeze
+// plus a spawn-protection window that ends early if the spawner attacks.
+export const SPAWN_PROTECT_MS = 2000;
+export const RESPAWN_FREEZE_MS = 900;
+export const SAFE_POSE_INTERVAL_MS = 200; // sampling rate of the pose ring
+export const SAFE_POSE_BUFFER = 12; // ≈2.4 s of history; respawn at oldest
+export const SAFE_POSE_MIN_GROUNDED_S = 0.5; // pose counts only after this
+
+// Shared prop nudges: best-effort scatter sync for gameplay-relevant props.
+export const NUDGE_RATE_MS = 250; // per-prop client send limit
+export const NUDGE_SNAP_DIST = 2.0; // peers hard-snap the prop beyond this
+export const NUDGE_MAX_SPEED = 40; // server clamp on reported car velocity
 
 // Anti-teleport validation: max plausible units/second (boost + shove headroom)
 export const MAX_PLAUSIBLE_SPEED = 35;
