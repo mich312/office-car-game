@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { ROOMS, WALLS, FURNITURE, RAMPS, WALL_HEIGHT, M, MAP_BOUNDS, roomAt } from '@rc/shared';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
+import Practicals from './Practicals.jsx';
 import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex } from './textures.js';
 
 const FLOOR_MATS = {
@@ -31,6 +32,7 @@ export default function Office() {
       <Ambience />
       <LightPools />
       <LightShafts />
+      <Practicals />
     </group>
   );
 }

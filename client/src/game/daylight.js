@@ -38,6 +38,9 @@ export const DAYLIGHT = {
     pool: 0.06,
     panel: 1.1,
     bloom: { intensity: 0.5, threshold: 0.85 },
+    // low sun = grazing angles = acne unless normalBias goes up
+    shadow: { bias: -0.0007, normalBias: 0.55, opacity: 0.72 },
+    practical: 0.18,
     wet: false,
   },
 
@@ -61,6 +64,8 @@ export const DAYLIGHT = {
     pool: 0.03,
     panel: 0.9,
     bloom: { intensity: 0.72, threshold: 0.78 },
+    shadow: { bias: -0.0004, normalBias: 0.28, opacity: 0.9 },
+    practical: 0.06,
     wet: false,
   },
 
@@ -85,6 +90,8 @@ export const DAYLIGHT = {
     pool: 0.05,
     panel: 1.1,
     bloom: { intensity: 1.05, threshold: 0.66 },
+    shadow: { bias: -0.0008, normalBias: 0.62, opacity: 0.6 },
+    practical: 0.3,
     wet: false,
   },
 
@@ -108,6 +115,9 @@ export const DAYLIGHT = {
     pool: 0.3,
     panel: 2.2,
     bloom: { intensity: 0.62, threshold: 0.8 },
+    // the moon barely casts; soft and faint or it looks like a second sun
+    shadow: { bias: -0.0005, normalBias: 0.45, opacity: 0.35 },
+    practical: 1,
     wet: true,
   },
 };
@@ -132,6 +142,10 @@ export const LIGHTS_OUT = {
   pool: 0,
   panel: 0.02,
   bloom: { intensity: 0.5, threshold: 0.86 },
+  shadow: { bias: -0.0005, normalBias: 0.45, opacity: 0.15 },
+  // screens and charger LEDs are on a UPS — in a blackout they are the only
+  // way to read the room, which makes them navigation rather than decoration
+  practical: 0.85,
   wet: true,
 };
 

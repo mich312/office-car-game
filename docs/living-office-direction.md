@@ -10,8 +10,8 @@ brief. The difference between them matters: everything on the board was a
 renderer feature. The office being different on Tuesday than it was on Monday
 is a game feature, and it's the one nobody else has.
 
-**Status:** §1 (time of day) is built and in the branch. §2–§6 are specified,
-not built.
+**Status:** §1 (time of day, directional shadows, practical lights) is built and
+in the branch. §2–§6 are specified, not built.
 
 ---
 
@@ -50,9 +50,8 @@ What actually makes it work:
 
 - **The sun moves.** It's a real `directionalLight` whose position lerps
   between phases, so shadow length falls out of elevation for free — that's
-  the entire Firewatch cue and it costs nothing. The shadow camera had to grow
-  (`±125 × ±95`, far 460) because a low sun throws shadows clean off the old
-  bounds.
+  the entire Firewatch cue and it costs nothing. What it *cost* was the shadow
+  map, which had no resolution to spare for shadows that long — see §1b.
 - **The window shafts swing with it.** `Office.jsx` already had additive slabs
   through the north glass; they now take tilt, yaw, length, colour and opacity
   from the hour. A low golden-hour sun lays them almost flat *along* the floor —
@@ -74,18 +73,67 @@ Two notes for whoever touches this next:
   cheap boolean question (car headlights, audio rain mix, HUD) and none of them
   needed to change.
 
+### 1b. Directional shadows — *built*
+
+The fixed rig covered the whole 42×24 m floor with one 2048 map. That put a
+texel at **~2.7 cm** — and the cars are 18 cm long, so a car's own shadow was
+six texels across and chair legs dissolved. Long shadows were the whole point
+of a low sun and there was no resolution left to draw them with.
+
+The frustum now **follows the player** instead of covering the building: a
+±46-unit box (≈20.7 m, about two rooms) centred nine units ahead of the car,
+which takes a texel to **~4.5 mm — six times finer**. It is still a 2048 map,
+so this costs exactly what it did before; all of the gain is from spending the
+texels where the camera is looking rather than on rooms nobody is in.
+
+Two details that make or break it:
+
+- **Texel snapping.** A frustum that slides under static geometry makes every
+  shadow edge crawl as texels re-quantise. The focus point is transformed into
+  the light's view space, rounded to the texel grid and transformed back, every
+  frame. This is the difference between "follows you" and "shimmers".
+- **Bias is per-hour.** A grazing golden-hour sun needs more than double the
+  `normalBias` of an overhead midday one or it acnes; the moon wants a faint,
+  soft shadow (`shadow.intensity` 0.35) rather than a hard one, or it reads as
+  a second sun.
+
+Sizing is the live trade-off: shadows stop at the box edge, so `SHADOW.half` is
+the dial between crispness and how far a long shadow can reach. 4096 is a
+one-line change if profiling on real hardware allows — it was measurably too
+slow under software rendering, which is a fair stand-in for a weak integrated GPU.
+
+### 1c. Practical lights — *built*
+
+`client/src/game/Practicals.jsx`. Desk lamps, monitor spill, backlit keycaps
+and charger LEDs, all scaled by a `practical` level per hour: 0.06 at midday,
+1.0 at night.
+
+**None of them is a real light.** There are already seven scene lights and
+fragment cost scales with light count, so a dozen more would cost more than the
+entire post chain. Every practical is an additive quad that bloom then blows
+into something reading as a source. Nothing in this room needs a desk lamp to
+cast an accurate shadow, so the cheat is invisible.
+
+- Positions are derived from `PROPS` in the shared map, not retyped — move a
+  desk and its lamp glow moves with it.
+- Monitor spill sits *in front* of the screen (derived from the prop's `rotY`),
+  and each screen flickers on its own offset — eight screens blinking in unison
+  is the tell that gives away fake screen light.
+- Keycaps drift round the hue wheel at 0.045 Hz. The first pass was far too
+  saturated and read as summoning circles on the carpet; it's a tint now.
+- **In a blackout the practicals stay at 0.85.** Screens and charger LEDs are
+  on a UPS, so during `lights_out` they become the only way to read the room —
+  which turns them from decoration into navigation.
+
 ### Still to do on lighting
 
-- **Desk lamps as real pools.** Night currently leans on ceiling strips. The
-  brief's "safe illuminated paths and mysterious corners" needs practicals *at
-  floor height*: lamp cones, RGB keyboard glow, charger LEDs, monitor flicker.
-  This is the single highest-value follow-up, because it turns lighting into
-  level design.
-- **Monitor flicker** on a slow noise curve — nearly free, enormously alive.
 - **Coffee steam** in the morning, **dust motes** in the afternoon shafts.
   `particles.jsx` already exists.
 - **Per-hour tone mapping.** ACES is still on every phase and it's fighting
   golden hour specifically. AgX or Neutral would keep the orange.
+- **Lamp glows don't follow knocked-over lamps.** Lamps are physics bodies; the
+  glow is pinned to the map position. Rare enough to leave, cheap to fix by
+  reading the body transform.
 
 ---
 
@@ -196,14 +244,14 @@ prove the whole idea in a day.
 ## 6. Order of work
 
 1. ~~Time-of-day lighting rig~~ — **done**
-2. Practical lights at floor height (desk lamps, keyboards, chargers, monitor
-   flicker) — turns lighting into level design, biggest remaining win
-3. Per-hour tone mapping; kill ACES on golden hour
-4. Rounded-geometry + matte-materials pass — the Tiny Glade half
-5. Cosmetic seeded daily deltas — proves the signature feature cheaply
-6. Weather as extra rows in the daylight table
-7. Prop vocabulary: grip surfaces, then the set-piece props
-8. Full layout deltas with colliders — the architectural one, last
+2. ~~Player-following directional shadows with texel snapping~~ — **done**
+3. ~~Practical lights (lamps, monitors, keycaps, charger LEDs)~~ — **done**
+4. Per-hour tone mapping; kill ACES on golden hour
+5. Rounded-geometry + matte-materials pass — the Tiny Glade half
+6. Cosmetic seeded daily deltas — proves the signature feature cheaply
+7. Weather as extra rows in the daylight table
+8. Prop vocabulary: grip surfaces, then the set-piece props
+9. Full layout deltas with colliders — the architectural one, last
 
 ---
 

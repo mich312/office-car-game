@@ -165,7 +165,13 @@ moves, so shadows stretch the length of the open-plan floor at either end of the
 day, and the light slabs through the north glass swing with it into bands you
 drive through. Bloom, the ceiling strips, the floor pools and the balcony sheen
 all read the same table (`client/src/game/daylight.js`), and the whole rig
-cross-fades. Golden hour is the default, because the office is at its best when
+cross-fades. The shadow frustum rides with your car rather than covering the
+building — a texel is ~4.5 mm instead of ~2.7 cm on the same 2048 map, which is
+what lets an 18 cm car have a shadow at all — and it snaps to the light's texel
+grid so the edges don't crawl. After dark the room is carried by **practicals**:
+desk lamps, monitor spill, backlit keycaps and charger LEDs, none of which are
+real lights (they're additive quads that bloom does the rest of). In a blackout
+they're the only thing still lit, so they double as breadcrumbs. Golden hour is the default, because the office is at its best when
 everyone has just left. Art direction notes: `docs/living-office-direction.md`.
 
 Every minute an **office event** hits: lights out, earthquake, printer paper

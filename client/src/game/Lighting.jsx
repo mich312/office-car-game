@@ -20,6 +20,29 @@ import { lightingFor } from './daylight.js';
 // count is the #1 fragment cost, so this list stays short.
 const CEILING = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, -2], [-11, 0]];
 
+// ---------------------------------------------------------------- shadows
+//
+// A single map over the whole 42×24 m floor is the wrong trade at this scale.
+// Covering ±125 units with 2048 texels puts a texel at ~2.7 cm — and the cars
+// are 18 cm long, so a car's own shadow was six texels across and every chair
+// leg turned to mush.
+//
+// So the shadow frustum follows the player instead of covering the building:
+// a tight box centred just ahead of your car, which drops a texel to ~5 mm.
+// The cost is that shadows stop at the box edge, which is why HALF is sized to
+// roughly two rooms rather than one — golden hour's long shadows have to fit
+// inside it or the whole point of a low sun is lost.
+//
+// Following a moving box makes shadow edges crawl as texels re-quantise, so
+// the focus point is snapped to the light's own texel grid every frame. That
+// snap is the difference between "follows you" and "shimmers constantly".
+const SHADOW = {
+  half: 46,   // ≈ 20.7 m across — two rooms, and long shadows still fit
+  dist: 210,  // how far back along the sun direction the light sits
+  near: 1,
+  far: 430,
+};
+
 export default function Lighting() {
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
@@ -31,12 +54,21 @@ export default function Lighting() {
 
   const target = useMemo(() => lightingFor(hour, lightsOut), [hour, lightsOut]);
 
-  // Scratch colours, allocated once — this runs every frame during a fade.
+  // Scratch colours and vectors, allocated once — this runs every frame.
   const tmp = useMemo(() => ({
     sun: new THREE.Color(), amb: new THREE.Color(),
     sky: new THREE.Color(), ground: new THREE.Color(),
-    pos: new THREE.Vector3(),
+    pos: new THREE.Vector3(), dir: new THREE.Vector3(),
+    focus: new THREE.Vector3(), snap: new THREE.Vector3(),
   }), []);
+
+  // Deliberately the same 2048 the fixed rig used, so this change costs exactly
+  // what it did before and every bit of the gain comes from the frustum being
+  // tight instead of the map being bigger. 4096 is a one-line change if
+  // profiling on real hardware says there's room — it was measurably too slow
+  // under software rendering, which is a fair proxy for a weak integrated GPU.
+  const mapSize = 2048;
+  const texel = (SHADOW.half * 2) / mapSize;
 
   // The environment can't be lerped (it bakes to a cubemap), so it snaps to the
   // new phase while the real lights fade — imperceptible at 1.5 s, and it keeps
@@ -44,14 +76,54 @@ export default function Lighting() {
   const [env, setEnv] = useState(target.env);
   useEffect(() => { setEnv(target.env); }, [target]);
 
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     const k = Math.min(1, dt * 1.8);
     if (sun.current) {
-      sun.current.intensity += (target.sun.intensity - sun.current.intensity) * k;
-      sun.current.color.lerp(tmp.sun.set(target.sun.color), k);
-      // moving the light is the whole point: shadow length tracks elevation
-      tmp.pos.set(...target.sun.pos);
-      sun.current.position.lerp(tmp.pos, k);
+      const L = sun.current;
+      L.intensity += (target.sun.intensity - L.intensity) * k;
+      L.color.lerp(tmp.sun.set(target.sun.color), k);
+
+      // The sun *direction* is what the hour actually changes; lerp it as a
+      // direction so the light swings round the room instead of sliding.
+      tmp.pos.set(...target.sun.pos).normalize();
+      tmp.dir.lerp(tmp.pos, k).normalize();
+
+      // Focus a little ahead of the car — you look where you're going, and
+      // shadows behind you are never in frame. Falls back to the camera before
+      // the local car exists (menu, spectator, first frames).
+      const car = typeof window !== 'undefined' ? window.__rcTelemetry : null;
+      if (car) {
+        tmp.focus.set(
+          car.x + Math.sin(car.heading) * 9,
+          0,
+          car.z + Math.cos(car.heading) * 9,
+        );
+      } else {
+        tmp.focus.set(state.camera.position.x, 0, state.camera.position.z);
+      }
+
+      // Snap the focus to the light's own texel grid. Without this the shadow
+      // edges crawl every frame as the box slides under them.
+      L.position.copy(tmp.focus).addScaledVector(tmp.dir, SHADOW.dist);
+      L.target.position.copy(tmp.focus);
+      L.target.updateMatrixWorld();
+      L.updateMatrixWorld();
+      const sc = L.shadow.camera;
+      sc.updateMatrixWorld();
+      tmp.snap.copy(tmp.focus).applyMatrix4(sc.matrixWorldInverse);
+      tmp.snap.x = Math.round(tmp.snap.x / texel) * texel;
+      tmp.snap.y = Math.round(tmp.snap.y / texel) * texel;
+      tmp.snap.applyMatrix4(sc.matrixWorld);
+
+      L.position.copy(tmp.snap).addScaledVector(tmp.dir, SHADOW.dist);
+      L.target.position.copy(tmp.snap);
+      L.target.updateMatrixWorld();
+
+      // Bias belongs to the hour: a grazing low sun needs far more slope bias
+      // than an overhead one, and the moon wants a faint shadow, not a sharp.
+      L.shadow.bias = target.shadow.bias;
+      L.shadow.normalBias = target.shadow.normalBias;
+      L.shadow.intensity += (target.shadow.opacity - L.shadow.intensity) * k;
     }
     if (amb.current) {
       amb.current.intensity += (target.amb.intensity - amb.current.intensity) * k;
@@ -88,19 +160,22 @@ export default function Lighting() {
       <ambientLight ref={amb} intensity={0.3} color="#cdd6f4" />
       <hemisphereLight ref={hemi} intensity={0.4} color="#dfe8ff" groundColor="#3a3226" />
 
-      {/* Sun / moon through the north glass wall. The shadow camera is sized
-          for the whole floor because a low sun throws shadows a long way — clip
-          it to the old bounds and golden hour loses them off the near plane. */}
+      {/* Sun / moon. Position, direction, bias and shadow strength are all
+          driven per-frame above — the frustum below is a tight box that rides
+          with the player, not a fixed one covering the building. */}
       <directionalLight
         ref={sun}
         position={[60, 90, 140]}
         intensity={2.4}
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={[mapSize, mapSize]}
         shadow-bias={-0.0004}
         shadow-normalBias={0.35}
       >
-        <orthographicCamera attach="shadow-camera" args={[-125, 125, 95, -95, 10, 460]} />
+        <orthographicCamera
+          attach="shadow-camera"
+          args={[-SHADOW.half, SHADOW.half, SHADOW.half, -SHADOW.half, SHADOW.near, SHADOW.far]}
+        />
       </directionalLight>
 
       <group ref={ceiling}>
