@@ -7,6 +7,7 @@ import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { ROOMS, WALLS, FURNITURE, RAMPS, WALL_HEIGHT, M, MAP_BOUNDS, roomAt } from '@rc/shared';
 import { useStore } from '../store.js';
+import { lightingFor } from './daylight.js';
 import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex } from './textures.js';
 
 const FLOOR_MATS = {
@@ -41,9 +42,10 @@ export default function Office() {
 const POOL_SPOTS = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, 1.5], [17, -7], [-11, -1]];
 
 function LightPools() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
+  const light = lightingFor(hour, lightsOut);
   const glow = useMemo(() => glowTex(), []);
   const warmMat = useMemo(() => new THREE.MeshBasicMaterial({
     map: glow, color: '#ffe3b0', transparent: true, opacity: 0.12,
@@ -55,8 +57,8 @@ function LightPools() {
   }), [glow]);
   useFrame((_, dt) => {
     const k = Math.min(1, dt * 2.5);
-    warmMat.opacity += ((lightsOut ? 0 : night ? 0.3 : 0.12) - warmMat.opacity) * k;
-    serverMat.opacity += ((lightsOut ? 0.4 : night ? 0.25 : 0.12) - serverMat.opacity) * k;
+    warmMat.opacity += (light.pool - warmMat.opacity) * k;
+    serverMat.opacity += ((lightsOut ? 0.4 : Math.max(0.12, light.pool)) - serverMat.opacity) * k;
     serverMat.color.lerp(new THREE.Color(lightsOut ? '#ff5040' : '#3d7bff'), k);
   });
   return (
@@ -73,20 +75,30 @@ function LightPools() {
   );
 }
 
-// Moonlight slabs through the north windows — giant parallel shafts crossing
-// the track are the cheapest "this room is enormous" cue there is.
+// Light through the north windows, laid down as giant parallel slabs. These
+// are the bands you drive through, so they take their tilt from the sun's
+// elevation: a low golden-hour sun lays them almost flat along the floor and
+// a high afternoon sun drops them steeply onto it.
 function LightShafts() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
+  const group = useRef();
   const mat = useRef();
   const tex = useMemo(() => shaftTex(), []);
+  const light = lightingFor(hour, lightsOut);
   useFrame((_, dt) => {
     if (!mat.current) return;
-    const k = Math.min(1, dt * 2.5);
-    const target = lightsOut ? 0.14 : night ? 0.11 : 0.05;
-    mat.current.opacity += (target - mat.current.opacity) * k;
-    mat.current.color.lerp(new THREE.Color(night || lightsOut ? '#8fa8ff' : '#ffe9c4'), k);
+    const k = Math.min(1, dt * 1.8);
+    const s = light.shaft;
+    mat.current.opacity += (s.opacity - mat.current.opacity) * k;
+    mat.current.color.lerp(new THREE.Color(s.color), k);
+    if (group.current) {
+      group.current.rotation.x += (s.tilt - group.current.rotation.x) * k;
+      group.current.rotation.y += (s.yaw - group.current.rotation.y) * k;
+      const sc = s.length / 22;
+      group.current.scale.y += (sc - group.current.scale.y) * k;
+    }
   });
   // shared material across all shafts (first mesh's ref drives them all)
   const material = useMemo(() => new THREE.MeshBasicMaterial({
@@ -95,9 +107,9 @@ function LightShafts() {
   }), [tex]);
   mat.current = material;
   return (
-    <group>
+    <group ref={group} position={[0, 6.1, 50]} rotation-x={0.99}>
       {[-50, -20, 10, 40, 70].map((x, i) => (
-        <mesh key={i} position={[x, 6.1, 50]} rotation-x={0.99} material={material}>
+        <mesh key={i} position={[x, 0, 0]} material={material}>
           <planeGeometry args={[7, 22]} />
         </mesh>
       ))}
@@ -194,11 +206,11 @@ function Walls() {
 
 // ----------------------------------------------------------------- ceiling
 function Ceiling() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
   const panelMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 }), []);
-  panelMat.emissiveIntensity = lightsOut ? 0.02 : night ? 2.2 : 1.4;
+  panelMat.emissiveIntensity = lightingFor(hour, lightsOut).panel;
   const panels = useMemo(() => {
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {
@@ -723,7 +735,8 @@ function Ramps() {
 
 // ------------------------------------------- outside: skyline, rain, night
 function Outside() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
+  const wet = lightingFor(hour, false).wet;
   const sky = useMemo(() => skylineTex(), []);
   return (
     <group>
@@ -737,8 +750,8 @@ function Outside() {
         <meshBasicMaterial map={sky} fog={false} />
       </mesh>
       <Rain />
-      {/* wet balcony sheen at night */}
-      {night && (
+      {/* wet balcony sheen once the light has gone */}
+      {wet && (
         <mesh rotation-x={-Math.PI / 2} position={[-17.5 * M, 0.01, 5.5 * M]}>
           <planeGeometry args={[7 * M, 13 * M]} />
           <meshStandardMaterial color="#20242e" roughness={0.08} metalness={0.4} transparent opacity={0.55} />

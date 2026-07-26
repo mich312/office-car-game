@@ -1,6 +1,7 @@
 // Keyboard (+ mouse button) input, read imperatively from useFrame.
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store.js';
+import { DAYLIGHT, hourAfter } from './daylight.js';
 import { send } from '../net.js';
 import { MSG, EMOTES } from '@rc/shared';
 import { audio } from '../audio.js';
@@ -63,7 +64,13 @@ export function useControls() {
       // one-shot actions
       switch (e.code) {
         case 'KeyE': send({ t: MSG.USE_POWERUP }); break;
-        case 'KeyN': useStore.setState((s) => ({ night: !s.night })); break;
+        case 'KeyN': {
+          const st = useStore.getState();
+          const next = hourAfter(st.timeOfDay);
+          st.setTimeOfDay(next);
+          st.pushFeed(`${DAYLIGHT[next].clock} — ${DAYLIGHT[next].label}`);
+          break;
+        }
         case 'KeyM': {
           const m = !useStore.getState().muted;
           useStore.setState({ muted: m });

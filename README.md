@@ -42,7 +42,7 @@ post-processing on weak GPUs.
 | `1`–`8` | emote wheel |
 | `R` | respawn |
 | `Tab` | scoreboard |
-| `N` | day / night |
+| `N` | time of day — morning · afternoon · golden hour · night |
 | `P` | photo mode |
 | `M` | mute |
 
@@ -158,6 +158,15 @@ signature **ability** on `Q`: the buggy pounces, the Drift King enters a
 perfect 3-second Overdrift, the Micro Monster goes 2 seconds unstoppable,
 the Formula opens its DRS wing, and the Office Hatch photocopies whatever
 ability was used last.
+
+The office has a **time of day**. Four hours — morning, afternoon, golden hour
+and night — each a whole lighting state rather than a switch: the sun genuinely
+moves, so shadows stretch the length of the open-plan floor at either end of the
+day, and the light slabs through the north glass swing with it into bands you
+drive through. Bloom, the ceiling strips, the floor pools and the balcony sheen
+all read the same table (`client/src/game/daylight.js`), and the whole rig
+cross-fades. Golden hour is the default, because the office is at its best when
+everyone has just left. Art direction notes: `docs/living-office-direction.md`.
 
 Every minute an **office event** hits: lights out, earthquake, printer paper
 storm, AC hurricane, server overload, or the cleaning robot on patrol.
