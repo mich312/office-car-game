@@ -172,6 +172,9 @@ function Floors() {
 // ------------------------------------------------------------------- walls
 // One static rigid body holds every wall collider; all solid walls render
 // as a single instanced mesh (glass stays individual for transparency).
+const SKIRT_H = 0.12 * M;   // 12 cm — two thirds of a car
+const SKIRT_OUT = 0.06;     // proud of the wall face, so it catches a rim of light
+
 function Walls() {
   // Matt emulsion. The orange-peel normal is deliberately almost invisible —
   // its job is to break the perfectly flat specular that made every wall read
@@ -189,6 +192,17 @@ function Walls() {
   }), []);
   const railMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#8f98a6', metalness: 0.8, roughness: 0.3 }), []);
   const smudge = useMemo(() => new THREE.MeshBasicMaterial({ map: smudgeTex(), transparent: true, opacity: 0.5, depthWrite: false }), []);
+  // Matt skirting in a slightly darker tone. At 18 cm car scale a 12 cm
+  // skirting board stands two thirds as tall as the car — it is a feature you
+  // drive alongside, and it is most of what turns a flat white plane into a
+  // room. One extra instanced draw call for the whole building.
+  const skirtMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#d8d2c6',
+    normalMap: orangePeel('paint', 0.55, [3, 3]),
+    normalScale: new THREE.Vector2(0.3, 0.3),
+    roughness: 0.7,
+  }), []);
+  const skirt = useRef();
   const solid = useMemo(() => WALLS.filter((w) => !w.glass && !w.low), []);
   const glass = useMemo(() => WALLS.filter((w) => w.glass), []);
   const rails = useMemo(() => WALLS.filter((w) => w.low), []);
@@ -200,8 +214,14 @@ function Walls() {
       dummy.scale.set(w.w, w.h, w.d);
       dummy.updateMatrix();
       inst.current.setMatrixAt(i, dummy.matrix);
+      // proud of the wall face on every side, sitting on the floor
+      dummy.position.set(w.x, SKIRT_H / 2, w.z);
+      dummy.scale.set(w.w + SKIRT_OUT, SKIRT_H, w.d + SKIRT_OUT);
+      dummy.updateMatrix();
+      skirt.current.setMatrixAt(i, dummy.matrix);
     });
     inst.current.instanceMatrix.needsUpdate = true;
+    skirt.current.instanceMatrix.needsUpdate = true;
   }, [solid]);
 
   return (
@@ -211,6 +231,9 @@ function Walls() {
           <CuboidCollider key={i} args={[w.w / 2, w.h / 2, w.d / 2]} position={[w.x, w.h / 2, w.z]} />
         ))}
       </RigidBody>
+      <instancedMesh ref={skirt} args={[null, null, solid.length]} material={skirtMat} castShadow receiveShadow frustumCulled={false}>
+        <boxGeometry args={[1, 1, 1]} />
+      </instancedMesh>
       <instancedMesh ref={inst} args={[null, null, solid.length]} material={paint} castShadow receiveShadow frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
       </instancedMesh>
@@ -324,6 +347,13 @@ function BigFurniture() {
   );
 }
 
+// Edge radius, in world units (1 unit = 22.5 cm). A real desk edge is 2-5 mm,
+// which at this scale is invisible — so this is deliberate exaggeration, the
+// Tiny Glade cue rather than realism. The cap keeps big slabs from going
+// pill-shaped; the proportional term keeps small props from being over-rounded.
+// The old fixed 0.07 clamp (1.6 cm) was too small to read on anything.
+const chamfer = (w, h, d) => Math.min(0.2, Math.min(w, h, d) * 0.16);
+
 function Furniture({ f, mats }) {
   const { type, x, z, w, d, h, rotY } = f;
   const legIn = 0.28;
@@ -342,7 +372,7 @@ function Furniture({ f, mats }) {
           {/* A chamfered slab, not a cuboid. At 18 cm car scale a 1–2 cm
               radius is a visible highlight running the length of the desk —
               it is most of what stops furniture reading as greybox. */}
-          <RoundedBox position={[0, h - top / 2, 0]} args={[w, top, d]} radius={Math.min(0.06, top * 0.42)} smoothness={3}
+          <RoundedBox position={[0, h - top / 2, 0]} args={[w, top, d]} radius={chamfer(w, top, d)} smoothness={3}
             castShadow receiveShadow material={type === 'ceodesk' ? mats.dark : mats.wood} />
           {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
             <mesh key={i} position={[sx * (w / 2 - legIn), (h - top) / 2, sz * (d / 2 - legIn)]} castShadow material={mats.metal}>
@@ -689,8 +719,7 @@ function SimpleBox({ x, z, w, d, h, rotY = 0, mat, children }) {
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.8}>
       <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-      <RoundedBox position={[0, h / 2, 0]} args={[w, h, d]}
-        radius={Math.min(0.07, w * 0.2, h * 0.2, d * 0.2)} smoothness={3}
+      <RoundedBox position={[0, h / 2, 0]} args={[w, h, d]} radius={chamfer(w, h, d)} smoothness={3}
         castShadow receiveShadow material={mat} />
       {children}
     </RigidBody>

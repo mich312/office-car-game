@@ -13,6 +13,15 @@
 // Sun positions are in world units. +z is north (the glass wall and the city
 // backdrop), +x is east, so morning light rakes in from the east corner and
 // golden hour comes back the other way across the open-plan floor.
+//
+// SCALE WARNING for the `shadow` block. `normalBias` is measured in WORLD
+// UNITS, and this world runs at 4.44 units per metre — so normalBias 0.62 is
+// 14 cm, which is most of the length of a car. The first pass used values
+// borrowed from 1-unit-per-metre scenes to fight acne on a grazing sun, and
+// pushed every contact shadow clean off its caster: cars floated, a pencil on
+// the floor cast nothing at all. Anything above ~0.1 here detaches shadows
+// from 18 cm objects. The tight following frustum (Lighting.jsx) also means
+// far less bias is needed than the old building-wide map wanted.
 
 export const HOURS = ['morning', 'afternoon', 'golden', 'night'];
 
@@ -38,8 +47,7 @@ export const DAYLIGHT = {
     pool: 0.06,
     panel: 1.1,
     bloom: { intensity: 0.5, threshold: 0.85 },
-    // low sun = grazing angles = acne unless normalBias goes up
-    shadow: { bias: -0.0007, normalBias: 0.55, opacity: 0.72 },
+    shadow: { bias: -0.0003, normalBias: 0.06, opacity: 0.85 },
     practical: 0.18,
     wet: false,
   },
@@ -64,7 +72,7 @@ export const DAYLIGHT = {
     pool: 0.03,
     panel: 0.9,
     bloom: { intensity: 0.72, threshold: 0.78 },
-    shadow: { bias: -0.0004, normalBias: 0.28, opacity: 0.9 },
+    shadow: { bias: -0.00015, normalBias: 0.03, opacity: 0.95 },
     practical: 0.06,
     wet: false,
   },
@@ -90,7 +98,7 @@ export const DAYLIGHT = {
     pool: 0.05,
     panel: 1.1,
     bloom: { intensity: 1.05, threshold: 0.66 },
-    shadow: { bias: -0.0008, normalBias: 0.62, opacity: 0.6 },
+    shadow: { bias: -0.00035, normalBias: 0.07, opacity: 0.8 },
     practical: 0.3,
     wet: false,
   },
@@ -115,8 +123,8 @@ export const DAYLIGHT = {
     pool: 0.3,
     panel: 2.2,
     bloom: { intensity: 0.62, threshold: 0.8 },
-    // the moon barely casts; soft and faint or it looks like a second sun
-    shadow: { bias: -0.0005, normalBias: 0.45, opacity: 0.35 },
+    // the moon barely casts; faint or it reads as a second sun
+    shadow: { bias: -0.0002, normalBias: 0.05, opacity: 0.45 },
     practical: 1,
     wet: true,
   },
@@ -142,7 +150,7 @@ export const LIGHTS_OUT = {
   pool: 0,
   panel: 0.02,
   bloom: { intensity: 0.5, threshold: 0.86 },
-  shadow: { bias: -0.0005, normalBias: 0.45, opacity: 0.15 },
+  shadow: { bias: -0.0002, normalBias: 0.05, opacity: 0.15 },
   // screens and charger LEDs are on a UPS — in a blackout they are the only
   // way to read the room, which makes them navigation rather than decoration
   practical: 0.85,
