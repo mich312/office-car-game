@@ -80,13 +80,31 @@ texel at **~2.7 cm** — and the cars are 18 cm long, so a car's own shadow was
 six texels across and chair legs dissolved. Long shadows were the whole point
 of a low sun and there was no resolution left to draw them with.
 
-The frustum now **follows the player** instead of covering the building: a
-±46-unit box (≈20.7 m, about two rooms) centred nine units ahead of the car,
-which takes a texel to **~4.5 mm — six times finer**. It is still a 2048 map,
-so this costs exactly what it did before; all of the gain is from spending the
-texels where the camera is looking rather than on rooms nobody is in.
+The frustum now **follows the player** instead of covering the building: a box
+centred nine units ahead of the car, sized per quality tier.
 
-Two details that make or break it:
+| | Coverage | Texel | A car (18 cm) is |
+| --- | --- | --- | --- |
+| **high** — 4096 map, ±62u | 27.9 m | 6.8 mm | 26 texels across |
+| **medium** — 2048, ±46u | 20.7 m | 10.1 mm | 18 |
+| **low** — 1024, ±38u | 17.1 m | 16.7 mm | 11 |
+| *the old fixed rig* | *56.2 m* | *27.5 mm* | *6.6* |
+
+High is the default and is **4× finer** than the rig it replaces while still
+covering half the building.
+
+**Quality is measured, not guessed.** There is no reliable way to ask a browser
+how fast its GPU is — vendor strings lie and `maxTextureSize` says nothing
+about fill rate — so the renderer starts at high and steps down only if it
+can't hold 40 fps. It never steps back up, because oscillating quality is worse
+than being one tier low. `?shadows=high|medium|low` pins it.
+
+The measurement window is deliberately **time-based (1.5 s) rather than
+frame-based**. A 90-frame window sounds equivalent and isn't: at 1 fps it takes
+90 seconds to decide, so the machine that most needs the downgrade waits
+longest for it. The first version had exactly that bug and never fired.
+
+Two details that make or break the following frustum:
 
 - **Texel snapping.** A frustum that slides under static geometry makes every
   shadow edge crawl as texels re-quantise. The focus point is transformed into
@@ -97,10 +115,16 @@ Two details that make or break it:
   soft shadow (`shadow.intensity` 0.35) rather than a hard one, or it reads as
   a second sun.
 
-Sizing is the live trade-off: shadows stop at the box edge, so `SHADOW.half` is
-the dial between crispness and how far a long shadow can reach. 4096 is a
-one-line change if profiling on real hardware allows — it was measurably too
-slow under software rendering, which is a fair stand-in for a weak integrated GPU.
+Sizing is the live trade-off: shadows stop at the box edge, so each tier's
+`half` is the dial between crispness and how far a long shadow can reach.
+
+A note on the earlier version of this page, which claimed software rendering
+was "a fair stand-in for a weak integrated GPU" and pinned the map at 2048 on
+that basis: that was wrong. Swiftshader is a software rasteriser and measured
+**1.7–2.3 seconds per frame** here — under 1 fps, one to two orders of
+magnitude off any real GPU. It says nothing about an M-series Mac, which
+handles a 4096 map without noticing. Hence tiers plus measurement instead of a
+guess dressed up as a proxy.
 
 ### 1c. Practical lights — *built*
 

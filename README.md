@@ -166,9 +166,11 @@ day, and the light slabs through the north glass swing with it into bands you
 drive through. Bloom, the ceiling strips, the floor pools and the balcony sheen
 all read the same table (`client/src/game/daylight.js`), and the whole rig
 cross-fades. The shadow frustum rides with your car rather than covering the
-building — a texel is ~4.5 mm instead of ~2.7 cm on the same 2048 map, which is
-what lets an 18 cm car have a shadow at all — and it snaps to the light's texel
-grid so the edges don't crawl. After dark the room is carried by **practicals**:
+building: a texel is 6.8 mm instead of 2.75 cm, so an 18 cm car spans 26 shadow
+texels instead of six and finally has a shadow worth casting. It snaps to the
+light's texel grid so the edges don't crawl, and quality is **measured, not
+guessed** — it starts at a 4096 map and steps down only if this machine can't
+hold 40 fps, with `?shadows=high|medium|low` to pin it. After dark the room is carried by **practicals**:
 desk lamps, monitor spill, backlit keycaps and charger LEDs, none of which are
 real lights (they're additive quads that bloom does the rest of). In a blackout
 they're the only thing still lit, so they double as breadcrumbs. Golden hour is the default, because the office is at its best when

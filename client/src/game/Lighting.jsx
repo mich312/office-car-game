@@ -28,20 +28,58 @@ const CEILING = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, -2], [-11,
 // leg turned to mush.
 //
 // So the shadow frustum follows the player instead of covering the building:
-// a tight box centred just ahead of your car, which drops a texel to ~5 mm.
-// The cost is that shadows stop at the box edge, which is why HALF is sized to
-// roughly two rooms rather than one — golden hour's long shadows have to fit
-// inside it or the whole point of a low sun is lost.
+// a tight box centred just ahead of your car, which drops a texel to a few mm.
+// The cost is that shadows stop at the box edge, which is why `half` covers
+// roughly two rooms — golden hour's long shadows have to fit inside it or the
+// whole point of a low sun is lost.
 //
 // Following a moving box makes shadow edges crawl as texels re-quantise, so
 // the focus point is snapped to the light's own texel grid every frame. That
 // snap is the difference between "follows you" and "shimmers constantly".
 const SHADOW = {
-  half: 46,   // ≈ 20.7 m across — two rooms, and long shadows still fit
   dist: 210,  // how far back along the sun direction the light sits
   near: 1,
   far: 430,
 };
+
+// Quality tiers. `half` is the box's half-extent in world units (1 unit =
+// 22.5 cm) and `map` the shadow map edge, so texel = half * 2 / map.
+//
+//              coverage   texel     a car (18 cm) is
+//   high         27.9 m   6.8 mm    26 texels across
+//   medium       20.7 m  10.1 mm    18
+//   low          17.1 m  16.7 mm    11
+//   (old rig)    56.2 m  27.5 mm     6.6  ← the whole floor, and unusable
+//
+// High is the default: any discrete or Apple-silicon GPU renders a 4096 map
+// without noticing, and the extra resolution buys *both* a wider box (golden
+// hour's long shadows stay inside it) and a finer texel — 4× finer than the
+// rig this replaced, while still covering half the building.
+const TIERS = [
+  { name: 'high', map: 4096, half: 62 },
+  { name: 'medium', map: 2048, half: 46 },
+  { name: 'low', map: 1024, half: 38 },
+];
+
+// Anything can be forced with ?shadows=high|medium|low — handy for support
+// ("does it look right on medium?") and for deterministic screenshots.
+const FORCED = typeof window !== 'undefined'
+  ? new URLSearchParams(window.location.search).get('shadows')
+  : null;
+
+// Applying a tier means resizing the map, which three.js only picks up if the
+// old render target is disposed and dropped.
+function applyTier(light, tier) {
+  light.shadow.mapSize.set(tier.map, tier.map);
+  if (light.shadow.map) {
+    light.shadow.map.dispose();
+    light.shadow.map = null;
+  }
+  const c = light.shadow.camera;
+  c.left = -tier.half; c.right = tier.half;
+  c.top = tier.half; c.bottom = -tier.half;
+  c.updateProjectionMatrix();
+}
 
 export default function Lighting() {
   const hour = useStore((s) => s.timeOfDay);
@@ -62,13 +100,12 @@ export default function Lighting() {
     focus: new THREE.Vector3(), snap: new THREE.Vector3(),
   }), []);
 
-  // Deliberately the same 2048 the fixed rig used, so this change costs exactly
-  // what it did before and every bit of the gain comes from the frustum being
-  // tight instead of the map being bigger. 4096 is a one-line change if
-  // profiling on real hardware says there's room — it was measurably too slow
-  // under software rendering, which is a fair proxy for a weak integrated GPU.
-  const mapSize = 2048;
-  const texel = (SHADOW.half * 2) / mapSize;
+  // Shadow quality: start high and step down only if this machine actually
+  // can't hold frame rate. There is no reliable way to ask a browser how fast
+  // its GPU is — vendor strings lie, and `maxTextureSize` says nothing about
+  // fill rate — so the honest answer is to measure the thing we care about.
+  const tier = useRef(TIERS[0]);
+  const perf = useRef({ acc: 0, frames: 0, warmup: 0, steps: 0 });
 
   // The environment can't be lerped (it bakes to a cubemap), so it snaps to the
   // new phase while the real lights fade — imperceptible at 1.5 s, and it keeps
@@ -76,10 +113,55 @@ export default function Lighting() {
   const [env, setEnv] = useState(target.env);
   useEffect(() => { setEnv(target.env); }, [target]);
 
+  // Force the tier from the URL, once the light exists.
+  useEffect(() => {
+    const want = TIERS.find((t) => t.name === FORCED);
+    if (want && sun.current) {
+      tier.current = want;
+      perf.current.steps = TIERS.length; // pinned: never auto-adjust
+      applyTier(sun.current, want);
+    }
+  }, []);
+
   useFrame((state, dt) => {
     const k = Math.min(1, dt * 1.8);
     if (sun.current) {
       const L = sun.current;
+
+      // --- adaptive shadow quality -------------------------------------
+      // Skip the first few seconds: shader compilation, texture upload and
+      // JIT warm-up all land there and none of it is steady-state cost.
+      const P = perf.current;
+      if (P.steps < TIERS.length - 1 && dt > 0) {
+        if (P.warmup < 3) {
+          P.warmup += dt;
+        } else {
+          P.acc += dt;
+          P.frames++;
+          // Time-based window, not frame-based. A frame count is exactly the
+          // wrong unit here: at 1 fps a 90-frame window takes 90 seconds to
+          // decide, so the machine that most needs help waits longest for it.
+          // 1.5 s with a small floor on samples reacts in seconds everywhere.
+          if (P.acc >= 1.5 && P.frames >= 6) {
+            const mean = P.acc / P.frames;
+            P.lastMeanMs = mean * 1000;
+            // below 40 fps sustained over ~90 frames → give a tier back
+            if (mean > 0.025) {
+              P.steps++;
+              tier.current = TIERS[P.steps];
+              applyTier(L, tier.current);
+            }
+            P.acc = 0;
+            P.frames = 0;
+          }
+        }
+      }
+      const texel = (tier.current.half * 2) / tier.current.map;
+      // Support/debug affordance, same spirit as window.__rcTelemetry: what
+      // tier we settled on and the frame time that decided it.
+      if (typeof window !== 'undefined') {
+        window.__rcShadow = { tier: tier.current.name, meanMs: P.lastMeanMs ?? null, steps: P.steps };
+      }
       L.intensity += (target.sun.intensity - L.intensity) * k;
       L.color.lerp(tmp.sun.set(target.sun.color), k);
 
@@ -168,13 +250,13 @@ export default function Lighting() {
         position={[60, 90, 140]}
         intensity={2.4}
         castShadow
-        shadow-mapSize={[mapSize, mapSize]}
+        shadow-mapSize={[TIERS[0].map, TIERS[0].map]}
         shadow-bias={-0.0004}
         shadow-normalBias={0.35}
       >
         <orthographicCamera
           attach="shadow-camera"
-          args={[-SHADOW.half, SHADOW.half, SHADOW.half, -SHADOW.half, SHADOW.near, SHADOW.far]}
+          args={[-TIERS[0].half, TIERS[0].half, TIERS[0].half, -TIERS[0].half, SHADOW.near, SHADOW.far]}
         />
       </directionalLight>
 
