@@ -480,8 +480,12 @@ export const woodNormal = (repeat = [10, 10]) =>
   normalTex('wood', 256, 256, (g, w, h) => {
     fill(g, w, h, 150);
     for (let y = 0; y < h; y += 32) {
-      g.fillStyle = 'rgb(40,40,40)';       // board joint: a real groove
-      g.fillRect(0, y, w, 2);
+      // A shallow joint, not a trench. At [2,1] tiling on a desk-sized slab the
+      // old 2px black groove stretched into hard ridges that read as corrugated
+      // siding under a raking sun — the grain is meant to carry this, not the
+      // joint.
+      g.fillStyle = 'rgb(96,96,96)';
+      g.fillRect(0, y, w, 1);
       for (let i = 0; i < 46; i++) {
         g.strokeStyle = `rgba(${100 + Math.random() * 70},0,0,0.5)`;
         g.lineWidth = 0.8 + Math.random();
@@ -492,7 +496,7 @@ export const woodNormal = (repeat = [10, 10]) =>
         g.stroke();
       }
     }
-  }, 1.6, repeat);
+  }, 1.0, repeat);
 
 // Grout is the whole point — a deep channel around a flat, faintly domed tile.
 export const tileNormal = (repeat = [14, 14]) =>

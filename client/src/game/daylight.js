@@ -97,7 +97,9 @@ export const DAYLIGHT = {
     shaft: { opacity: 0.3, color: '#ffb266', tilt: 0.5, yaw: -0.3, length: 38 },
     pool: 0.05,
     panel: 1.1,
-    bloom: { intensity: 1.05, threshold: 0.66 },
+    // restrained now that shadows are back: more contrast in the frame means
+    // the old 1.05 @ 0.66 washed the whole background to flat orange
+    bloom: { intensity: 0.72, threshold: 0.76 },
     shadow: { bias: -0.00035, normalBias: 0.07, opacity: 0.8 },
     practical: 0.3,
     wet: false,

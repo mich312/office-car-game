@@ -312,13 +312,16 @@ function Ceiling() {
 // has grain to catch a low sun, real upholstery is woven, real moulded plastic
 // has orange peel. All three are Sobel-differentiated canvases — see
 // textures.js — so "zero external assets" still holds.
-const N_WOOD = new THREE.Vector2(0.55, 0.55);
+const N_WOOD = new THREE.Vector2(0.3, 0.3);
 const N_FABRIC = new THREE.Vector2(0.9, 0.9);
 const N_PLASTIC = new THREE.Vector2(0.35, 0.35);
 
+// Tiled fine, because one material is shared by everything wooden and the
+// biggest surface decides the setting: at [2,1] a plank spanned a whole desk.
+// Per-object UV scaling would be the proper fix and costs a material per item.
 const WOOD = () => new THREE.MeshStandardMaterial({
-  map: woodTex([2, 1]), normalMap: woodNormal([2, 1]), normalScale: N_WOOD,
-  roughnessMap: wearRough('deskwood', 128, 30, [2, 1]), roughness: 1, envMapIntensity: 0.5,
+  map: woodTex([6, 3]), normalMap: woodNormal([6, 3]), normalScale: N_WOOD,
+  roughnessMap: wearRough('deskwood', 128, 22, [6, 3]), roughness: 1, envMapIntensity: 0.5,
 });
 const METAL = () => new THREE.MeshStandardMaterial({
   color: '#9aa3ad', metalness: 0.85,
@@ -347,12 +350,12 @@ function BigFurniture() {
   );
 }
 
-// Edge radius, in world units (1 unit = 22.5 cm). A real desk edge is 2-5 mm,
-// which at this scale is invisible — so this is deliberate exaggeration, the
-// Tiny Glade cue rather than realism. The cap keeps big slabs from going
-// pill-shaped; the proportional term keeps small props from being over-rounded.
-// The old fixed 0.07 clamp (1.6 cm) was too small to read on anything.
-const chamfer = (w, h, d) => Math.min(0.2, Math.min(w, h, d) * 0.16);
+// Edge radius in world units (1 unit = 22.5 cm), exaggerated on purpose: a
+// real desk edge is 2-5 mm and would be invisible here. Keying off the
+// smallest dimension times a small factor left thin slabs sharp, so this takes
+// as much of the thin axis as geometry allows (a slab cannot round by more
+// than half its thickness) and caps it so big boxes don't go pill-shaped.
+const chamfer = (w, h, d) => Math.min(0.22, Math.min(w, h, d) * 0.45);
 
 function Furniture({ f, mats }) {
   const { type, x, z, w, d, h, rotY } = f;
