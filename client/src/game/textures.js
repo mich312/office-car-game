@@ -399,3 +399,168 @@ export const vinylSideTex = (id, color) =>
       default: break;
     }
   });
+
+// ---------------------------------------------------------------- surfaces
+//
+// Normal and roughness maps, generated the same way everything else here is:
+// draw a greyscale height field on a canvas, then differentiate it. Zero
+// external assets still holds — these are a Sobel pass over a drawing.
+//
+// Two things matter for them to actually work:
+//  * the derivative wraps at the edges, so the maps tile seamlessly like the
+//    albedo they sit under;
+//  * they are NOT sRGB. A normal map is vector data — decode it as colour and
+//    every surface tilts the wrong way, subtly, everywhere.
+//
+// At 18 cm car scale these are what stop a desk reading as a coloured box:
+// wood grain catches a low sun, carpet fibre kills the plastic sheen, grout
+// lines in the kitchen tile finally have depth.
+
+const normalCache = new Map();
+
+function heightToNormal(g, w, h, strength) {
+  const src = g.getImageData(0, 0, w, h).data;
+  const out = g.createImageData(w, h);
+  const d = out.data;
+  // wrap the sample so the derivative is continuous across the tile seam
+  const at = (x, y) => src[((((y % h) + h) % h) * w + (((x % w) + w) % w)) * 4];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = ((at(x - 1, y) - at(x + 1, y)) / 255) * strength;
+      const dy = ((at(x, y - 1) - at(x, y + 1)) / 255) * strength;
+      const len = Math.hypot(dx, dy, 1);
+      const i = (y * w + x) * 4;
+      d[i] = ((dx / len) * 0.5 + 0.5) * 255;
+      d[i + 1] = ((dy / len) * 0.5 + 0.5) * 255;
+      d[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      d[i + 3] = 255;
+    }
+  }
+  g.putImageData(out, 0, 0);
+}
+
+// Shared by normal and roughness maps: same drawing pipeline, linear data.
+function dataTex(key, w, h, draw, repeat, post) {
+  const id = `${key}@${repeat[0]}x${repeat[1]}`;
+  if (normalCache.has(id)) return normalCache.get(id);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  draw(g, w, h);
+  if (post) post(g, w, h);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(...repeat);
+  tex.anisotropy = 4;
+  tex.colorSpace = THREE.NoColorSpace; // vector/scalar data, never colour
+  normalCache.set(id, tex);
+  return tex;
+}
+
+const normalTex = (key, w, h, draw, strength, repeat) =>
+  dataTex(`n:${key}:${strength}`, w, h, draw, repeat, (g, ww, hh) => heightToNormal(g, ww, hh, strength));
+
+const scalarTex = (key, w, h, draw, repeat) => dataTex(`s:${key}`, w, h, draw, repeat);
+
+const fill = (g, w, h, v) => { g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(0, 0, w, h); };
+
+// Loop pile: dense short fibres, no direction.
+export const carpetNormal = (repeat = [18, 18]) =>
+  normalTex('carpet', 128, 128, (g, w, h) => {
+    fill(g, w, h, 128);
+    for (let i = 0; i < 5200; i++) {
+      const v = 90 + Math.random() * 120;
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.fillRect(Math.random() * w, Math.random() * h, 1.6, 1.6);
+    }
+  }, 2.4, repeat);
+
+// Plank grain plus the groove between boards.
+export const woodNormal = (repeat = [10, 10]) =>
+  normalTex('wood', 256, 256, (g, w, h) => {
+    fill(g, w, h, 150);
+    for (let y = 0; y < h; y += 32) {
+      g.fillStyle = 'rgb(40,40,40)';       // board joint: a real groove
+      g.fillRect(0, y, w, 2);
+      for (let i = 0; i < 46; i++) {
+        g.strokeStyle = `rgba(${100 + Math.random() * 70},0,0,0.5)`;
+        g.lineWidth = 0.8 + Math.random();
+        g.beginPath();
+        const yy = y + 4 + Math.random() * 26;
+        g.moveTo(0, yy);
+        g.bezierCurveTo(w * 0.3, yy + Math.random() * 4 - 2, w * 0.7, yy + Math.random() * 4 - 2, w, yy);
+        g.stroke();
+      }
+    }
+  }, 1.6, repeat);
+
+// Grout is the whole point — a deep channel around a flat, faintly domed tile.
+export const tileNormal = (repeat = [14, 14]) =>
+  normalTex('tile', 128, 128, (g, w, h) => {
+    fill(g, w, h, 30);                      // grout floor
+    const r = 8;
+    g.fillStyle = 'rgb(210,210,210)';
+    g.beginPath();
+    g.roundRect ? g.roundRect(5, 5, w - 10, h - 10, r) : g.rect(5, 5, w - 10, h - 10);
+    g.fill();
+  }, 3.2, repeat);
+
+export const concreteNormal = (repeat = [8, 8]) =>
+  normalTex('concrete', 128, 128, (g, w, h) => {
+    fill(g, w, h, 128);
+    for (let i = 0; i < 2400; i++) {
+      const v = 96 + Math.random() * 90;
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.beginPath();
+      g.arc(Math.random() * w, Math.random() * h, 0.6 + Math.random() * 1.9, 0, Math.PI * 2);
+      g.fill();
+    }
+  }, 1.7, repeat);
+
+// Woven upholstery: a visible warp/weft grid at this scale.
+export const fabricNormal = (repeat = [6, 6]) =>
+  normalTex('fabric', 128, 128, (g, w, h) => {
+    fill(g, w, h, 120);
+    for (let i = 0; i < w; i += 4) {
+      g.fillStyle = 'rgb(180,180,180)';
+      g.fillRect(i, 0, 2, h);
+      g.fillRect(0, i, w, 2);
+    }
+    for (let i = 0; i < 900; i++) {
+      const v = 100 + Math.random() * 80;
+      g.fillStyle = `rgb(${v},${v},${v})`;
+      g.fillRect(Math.random() * w, Math.random() * h, 1.2, 1.2);
+    }
+  }, 2, repeat);
+
+// Orange peel — the faint texture of moulded plastic and matt wall paint.
+// Strength is low on purpose: you should never see it, only miss it.
+export const orangePeel = (key = 'peel', strength = 0.7, repeat = [4, 4]) =>
+  normalTex(key, 128, 128, (g, w, h) => {
+    fill(g, w, h, 128);
+    for (let i = 0; i < 700; i++) {
+      const x = Math.random() * w, y = Math.random() * h, r = 3 + Math.random() * 7;
+      const grad = g.createRadialGradient(x, y, 0, x, y, r);
+      const v = Math.random() > 0.5 ? 168 : 92;
+      grad.addColorStop(0, `rgba(${v},${v},${v},0.5)`);
+      grad.addColorStop(1, 'rgba(128,128,128,0)');
+      g.fillStyle = grad;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+  }, strength, repeat);
+
+// Roughness breakup. Uniform roughness is the other half of why untextured
+// PBR reads as plastic: real floors have polished tracks and dull patches.
+export const wearRough = (key, base, spread, repeat = [6, 6]) =>
+  scalarTex(`wear${key}${base}${spread}`, 128, 128, (g, w, h) => {
+    fill(g, w, h, base);
+    for (let i = 0; i < 60; i++) {
+      const x = Math.random() * w, y = Math.random() * h, r = 8 + Math.random() * 26;
+      const grad = g.createRadialGradient(x, y, 0, x, y, r);
+      const v = base + (Math.random() * 2 - 1) * spread;
+      grad.addColorStop(0, `rgba(${v},${v},${v},0.65)`);
+      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grad;
+      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+  }, repeat);

@@ -3,21 +3,42 @@
 import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { Sparkles } from '@react-three/drei';
+import { Sparkles, RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 import { ROOMS, WALLS, FURNITURE, RAMPS, WALL_HEIGHT, M, MAP_BOUNDS, roomAt } from '@rc/shared';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
-import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex } from './textures.js';
+import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, fabricNormal, orangePeel, wearRough } from './textures.js';
 
+// Every floor gets three maps, not one. Albedo alone reads as coloured
+// plastic under a directional light; the normal gives the surface something
+// for a low sun to rake across, and the roughness breakup stops the whole
+// room sharing one specular response. See textures.js — all procedural.
 const FLOOR_MATS = {
-  carpet: () => new THREE.MeshStandardMaterial({ map: carpetTex('#3e4a5e'), roughness: 0.95 }),
-  carpet2: () => new THREE.MeshStandardMaterial({ map: carpetTex('#4a3e5e'), roughness: 0.95 }),
-  tile: () => new THREE.MeshStandardMaterial({ map: tileTex(), roughness: 0.25, metalness: 0.05, envMapIntensity: 0.8 }),
-  wood: () => new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.45, envMapIntensity: 0.6 }),
-  dark: () => new THREE.MeshStandardMaterial({ color: '#23262e', roughness: 0.4, metalness: 0.2 }),
-  concrete: () => new THREE.MeshStandardMaterial({ map: concreteTex(), roughness: 0.9 }),
+  carpet: () => new THREE.MeshStandardMaterial({
+    map: carpetTex('#3e4a5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    roughnessMap: wearRough('carpet', 235, 18), roughness: 1,
+  }),
+  carpet2: () => new THREE.MeshStandardMaterial({
+    map: carpetTex('#4a3e5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    roughnessMap: wearRough('carpet', 235, 18), roughness: 1,
+  }),
+  tile: () => new THREE.MeshStandardMaterial({
+    map: tileTex(), normalMap: tileNormal(), normalScale: new THREE.Vector2(0.8, 0.8),
+    roughnessMap: wearRough('tile', 70, 34), roughness: 1, metalness: 0.05, envMapIntensity: 0.8,
+  }),
+  wood: () => new THREE.MeshStandardMaterial({
+    map: woodTex(), normalMap: woodNormal(), normalScale: new THREE.Vector2(0.7, 0.7),
+    roughnessMap: wearRough('wood', 120, 30), roughness: 1, envMapIntensity: 0.6,
+  }),
+  dark: () => new THREE.MeshStandardMaterial({
+    color: '#23262e', normalMap: orangePeel('dark', 0.5), roughness: 0.4, metalness: 0.2,
+  }),
+  concrete: () => new THREE.MeshStandardMaterial({
+    map: concreteTex(), normalMap: concreteNormal(), normalScale: new THREE.Vector2(0.6, 0.6),
+    roughnessMap: wearRough('conc', 225, 22), roughness: 1,
+  }),
 };
 
 export default function Office() {
@@ -152,7 +173,16 @@ function Floors() {
 // One static rigid body holds every wall collider; all solid walls render
 // as a single instanced mesh (glass stays individual for transparency).
 function Walls() {
-  const paint = useMemo(() => new THREE.MeshStandardMaterial({ color: '#e8e4da', roughness: 0.85 }), []);
+  // Matt emulsion. The orange-peel normal is deliberately almost invisible —
+  // its job is to break the perfectly flat specular that made every wall read
+  // as an untextured box, especially where a low sun grazes along one.
+  const paint = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#e8e4da',
+    normalMap: orangePeel('paint', 0.55, [3, 3]),
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    roughnessMap: wearRough('paint', 218, 16, [3, 3]),
+    roughness: 1,
+  }), []);
   const glassMat = useMemo(() => new THREE.MeshPhysicalMaterial({
     color: '#bfe3ee', transparent: true, opacity: 0.16, roughness: 0.06, metalness: 0,
     envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false,
@@ -254,10 +284,30 @@ function Ceiling() {
 }
 
 // ------------------------------------------------------------ big furniture
-const WOOD = () => new THREE.MeshStandardMaterial({ map: woodTex([2, 1]), roughness: 0.5, envMapIntensity: 0.5 });
-const METAL = () => new THREE.MeshStandardMaterial({ color: '#9aa3ad', metalness: 0.85, roughness: 0.35 });
-const FABRIC = (c = '#5b8bd6') => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 });
-const PLASTIC = (c = '#e8e8e8') => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 });
+// Furniture materials. The rule the whole pass follows: no surface may be
+// perfectly smooth and no surface may have one uniform roughness. Real wood
+// has grain to catch a low sun, real upholstery is woven, real moulded plastic
+// has orange peel. All three are Sobel-differentiated canvases — see
+// textures.js — so "zero external assets" still holds.
+const N_WOOD = new THREE.Vector2(0.55, 0.55);
+const N_FABRIC = new THREE.Vector2(0.9, 0.9);
+const N_PLASTIC = new THREE.Vector2(0.35, 0.35);
+
+const WOOD = () => new THREE.MeshStandardMaterial({
+  map: woodTex([2, 1]), normalMap: woodNormal([2, 1]), normalScale: N_WOOD,
+  roughnessMap: wearRough('deskwood', 128, 30, [2, 1]), roughness: 1, envMapIntensity: 0.5,
+});
+const METAL = () => new THREE.MeshStandardMaterial({
+  color: '#9aa3ad', metalness: 0.85,
+  roughnessMap: wearRough('metal', 90, 26, [2, 2]), roughness: 1,
+});
+const FABRIC = (c = '#5b8bd6') => new THREE.MeshStandardMaterial({
+  color: c, normalMap: fabricNormal([5, 5]), normalScale: N_FABRIC, roughness: 1,
+});
+const PLASTIC = (c = '#e8e8e8') => new THREE.MeshStandardMaterial({
+  color: c, normalMap: orangePeel('furn', 0.6, [2, 2]), normalScale: N_PLASTIC,
+  roughnessMap: wearRough('plastic', 155, 24, [2, 2]), roughness: 1,
+});
 
 function BigFurniture() {
   const mats = useMemo(() => ({
@@ -289,9 +339,11 @@ function Furniture({ f, mats }) {
           {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
             <CuboidCollider key={i} args={[0.1, h / 2, 0.1]} position={[sx * (w / 2 - legIn), h / 2, sz * (d / 2 - legIn)]} />
           ))}
-          <mesh position={[0, h - top / 2, 0]} castShadow receiveShadow material={type === 'ceodesk' ? mats.dark : mats.wood}>
-            <boxGeometry args={[w, top, d]} />
-          </mesh>
+          {/* A chamfered slab, not a cuboid. At 18 cm car scale a 1–2 cm
+              radius is a visible highlight running the length of the desk —
+              it is most of what stops furniture reading as greybox. */}
+          <RoundedBox position={[0, h - top / 2, 0]} args={[w, top, d]} radius={Math.min(0.06, top * 0.42)} smoothness={3}
+            castShadow receiveShadow material={type === 'ceodesk' ? mats.dark : mats.wood} />
           {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
             <mesh key={i} position={[sx * (w / 2 - legIn), (h - top) / 2, sz * (d / 2 - legIn)]} castShadow material={mats.metal}>
               <cylinderGeometry args={[0.09, 0.09, h - top, 8]} />
@@ -637,9 +689,9 @@ function SimpleBox({ x, z, w, d, h, rotY = 0, mat, children }) {
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.8}>
       <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-      <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={mat}>
-        <boxGeometry args={[w, h, d]} />
-      </mesh>
+      <RoundedBox position={[0, h / 2, 0]} args={[w, h, d]}
+        radius={Math.min(0.07, w * 0.2, h * 0.2, d * 0.2)} smoothness={3}
+        castShadow receiveShadow material={mat} />
       {children}
     </RigidBody>
   );
