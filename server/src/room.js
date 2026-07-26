@@ -6,7 +6,9 @@ import {
   TICK_RATE, MAX_PLAYERS, COUNTDOWN_SECONDS, MATCH_SECONDS, PODIUM_SECONDS,
   OFFICE_EVENT_INTERVAL, BOTS_FILL_TO, MAX_PLAUSIBLE_SPEED, BUMP_RADIUS,
   BUMP_REL_SPEED, BUMP_RUB_COOLDOWN_MS, BUMP_HIT_COOLDOWN_MS,
-  SPAWN_PROTECT_MS, RESPAWN_FREEZE_MS, NUDGE_MAX_SPEED,
+  SPAWN_PROTECT_MS, RESPAWN_FREEZE_MS, NUDGE_MAX_SPEED, PICKUP_RADIUS,
+  TELEPORT_SLACK, TELEPORT_STRIKES, TELEPORT_ANCHOR_DIST, SAFE_POSE_MATCH_DIST,
+  SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER,
   MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS, sanitizeStyle, sanitizeTune, tunedStats,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
   SPAWNS, POWERUP_PADS, ROBOT_PATH, MAP_BOUNDS, M, EMOTES, COSMETIC_IDS,
@@ -20,6 +22,35 @@ import { Bots } from './bots.js';
 const now = () => Date.now();
 const dist2d = (a, b) => Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]);
 const r2 = (n) => Math.round(n * 100) / 100;
+const clamp = (n, lo, hi) => (n < lo ? lo : n > hi ? hi : n);
+
+// Anything a client reports has to survive this before it touches room state.
+// A non-finite number is worse than a wrong one: NaN fails every comparison,
+// so a NaN position slips past distance checks (no pickups, no bumps, no zone
+// scoring) and encodes as the world origin. Reject the message instead.
+function finiteVec(a, n) {
+  if (!Array.isArray(a) || a.length < n) return null;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const v = Number(a[i]);
+    if (!Number.isFinite(v)) return null;
+    out[i] = v;
+  }
+  return out;
+}
+
+// Reported velocity drives hit-vs-rub classification, shove magnitude and the
+// vending-machine ram gate, so it gets the same ceiling the physics has.
+function clampSpeed(v, max) {
+  const m = Math.hypot(v[0], v[1], v[2]);
+  if (m <= max || m === 0) return v;
+  const s = max / m;
+  return [v[0] * s, v[1] * s, v[2] * s];
+}
+
+// How far outside the floor plan a car can legitimately be: over the balcony
+// railing, mid-fall, or mid-shove through a doorway.
+const POS_SLACK = 20;
 
 let nextId = 1;
 
@@ -100,26 +131,53 @@ export class Room {
         this.sendLobby();
         break;
       case MSG.STATE: {
-        if (!player || !Array.isArray(msg.p)) return;
-        // clamp dt so long silences don't legitimise huge jumps
-        const dt = Math.min(0.6, Math.max(0.02, (now() - player.lastStateAt) / 1000));
-        const dx = msg.p[0] - player.p[0], dz = msg.p[2] - player.p[2];
-        const speed = Math.hypot(dx, dz) / dt;
-        // Anti-teleport: ignore impossible jumps (unless we just swapped/respawned
-        // them). A sustained stream of consistent "impossible" reports means we
-        // missed a legit teleport — accept after a few strikes so nobody gets
-        // permanently stuck at a stale position.
-        if (speed > MAX_PLAUSIBLE_SPEED * 2 && now() > player.allowTeleportUntil) {
-          player.rejects = (player.rejects || 0) + 1;
-          if (player.rejects <= 8) return;
+        if (!player) return;
+        const p = finiteVec(msg.p, 3);
+        if (!p) return; // malformed reports never reach room state
+        p[0] = clamp(p[0], MAP_BOUNDS.minX - POS_SLACK, MAP_BOUNDS.maxX + POS_SLACK);
+        p[1] = clamp(p[1], -200, 200);
+        p[2] = clamp(p[2], MAP_BOUNDS.minZ - POS_SLACK, MAP_BOUNDS.maxZ + POS_SLACK);
+        const t = now();
+        // Anti-teleport: a move has to fit inside the top plausible speed over
+        // the time we've actually waited, plus a fixed slack for packet
+        // bunching (two reports can land milliseconds apart carrying 100 ms of
+        // real driving). dt is capped so a long silence can't bank a jump.
+        const dt = Math.min(0.6, Math.max(0, (t - player.lastStateAt) / 1000));
+        const moved = Math.hypot(p[0] - player.p[0], p[2] - player.p[2]);
+        // The clock advances on every report, accepted or not. Ticking it only
+        // on acceptance lets a client inflate its own allowance just by being
+        // rejected: dt walks up to the 0.6 s cap and buys a 26-unit jump.
+        player.lastStateAt = t;
+        if (moved > MAX_PLAUSIBLE_SPEED * dt + TELEPORT_SLACK && t > player.allowTeleportUntil) {
+          // The escape hatch is for a legitimate teleport we failed to sanction
+          // — and a client in that state keeps reporting the SAME place. Only
+          // rejects that agree with each other count toward the strikes, so a
+          // stream of *different* impossible jumps never talks its way through.
+          const a = player.rejectAnchor; // [x, z], not a full position
+          if (a && Math.hypot(p[0] - a[0], p[2] - a[1]) < TELEPORT_ANCHOR_DIST) {
+            player.rejects++;
+          } else {
+            player.rejectAnchor = [p[0], p[2]];
+            player.rejects = 1;
+          }
+          if (player.rejects <= TELEPORT_STRIKES) return;
         }
         player.rejects = 0;
-        player.p = msg.p.map(Number);
-        if (Array.isArray(msg.q)) player.q = msg.q.map(Number);
-        if (Array.isArray(msg.v)) player.v = msg.v.map(Number);
+        player.rejectAnchor = null;
+        player.p = p;
+        const q = finiteVec(msg.q, 4);
+        if (q) player.q = q;
+        const v = finiteVec(msg.v, 3);
+        if (v) player.v = clampSpeed(v, NUDGE_MAX_SPEED);
         player.drifting = !!msg.d;
         player.grounded = !!msg.g;
-        player.lastStateAt = now();
+        // Our own record of where this car has been, so a respawn proposal can
+        // be checked against somewhere it actually drove (see respawnPlayer).
+        if (t - (player.lastPoseAt || 0) > SAFE_POSE_INTERVAL_MS && player.grounded) {
+          player.lastPoseAt = t;
+          player.poseRing.push([p[0], p[2]]);
+          if (player.poseRing.length > SAFE_POSE_BUFFER) player.poseRing.shift();
+        }
         break;
       }
       case MSG.USE_POWERUP:
@@ -215,6 +273,8 @@ export class Room {
       p: [spawn.x, 1, spawn.z], q: [0, 0, 0, 1], v: [0, 0, 0],
       drifting: false, grounded: true,
       lastStateAt: now(), allowTeleportUntil: 0,
+      rejects: 0, rejectAnchor: null,
+      poseRing: [], lastPoseAt: 0, // where we've actually seen this car drive
       score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false, team: 0,
       powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
       spawnProtectUntil: 0, sumoDead: false,
@@ -252,6 +312,9 @@ export class Room {
       for (const m of this.votes.values()) tally[m] = (tally[m] || 0) + 1;
       const top = Object.entries(tally).sort((a, b) => b[1] - a[1]);
       this.modeId = top.length ? top[0][0] : CUP_POOL[Math.floor(Math.random() * CUP_POOL.length)];
+      // Spent votes don't carry: without this the previous round's tally
+      // silently re-picks the mode unless somebody happens to vote again.
+      this.votes.clear();
       this.cup = null;
       // Office Cup: three random distinct modes back-to-back
       if (this.modeId === 'office_cup') {
@@ -281,7 +344,8 @@ export class Room {
         score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false,
         powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
         spawnProtectUntil: 0, sumoDead: false,
-        spawnIndex: i++, finished: false, rejects: 0, eliminated: false, zapT: 0,
+        spawnIndex: i++, finished: false, finishBonus: 0, rejects: 0, rejectAnchor: null,
+        poseRing: [], lastPoseAt: 0, eliminated: false, zapT: 0,
         abilityReadyAt: 0, ramUntil: 0,
         // everyone teleports to the spawn grid client-side — sanction it
         allowTeleportUntil: now() + (COUNTDOWN_SECONDS + 2) * 1000,
@@ -425,7 +489,7 @@ export class Room {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
         if (p.eliminated || p.powerup || p.bot && Math.random() < 0.5) continue;
-        if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < 1.6) {
+        if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < PICKUP_RADIUS) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup, pad: pad.i });
@@ -632,12 +696,17 @@ export class Room {
     this.mode?.onFall?.(player);
     let spot = null;
     // Races respawn at the client's safe-pose proposal (last pose that was
-    // grounded on valid floor) so nobody walks back three rooms. Validate it.
-    if (this.modeId === 'desk_dash' && Array.isArray(safe) && safe.length === 3
-        && safe.every(Number.isFinite)
-        && safe[0] > MAP_BOUNDS.minX && safe[0] < MAP_BOUNDS.maxX
-        && safe[1] > MAP_BOUNDS.minZ && safe[1] < MAP_BOUNDS.maxZ) {
-      spot = { x: safe[0], z: safe[1], rotY: safe[2] };
+    // grounded on valid floor) so nobody walks back three rooms. In-bounds
+    // isn't enough of a check — that would let a client name any point on the
+    // floor, including one just short of the next checkpoint. So we match the
+    // proposal against our own record of where we watched this car drive.
+    if (this.modeId === 'desk_dash') {
+      const s = finiteVec(safe, 3);
+      if (s && s[0] > MAP_BOUNDS.minX && s[0] < MAP_BOUNDS.maxX
+          && s[1] > MAP_BOUNDS.minZ && s[1] < MAP_BOUNDS.maxZ
+          && player.poseRing.some((q) => Math.hypot(s[0] - q[0], s[1] - q[1]) < SAFE_POSE_MATCH_DIST)) {
+        spot = { x: s[0], z: s[1], rotY: s[2] };
+      }
     }
     if (!spot) spot = this.pickSpawn(player);
     player.p = [spot.x, 1, spot.z];
@@ -645,6 +714,8 @@ export class Room {
     const half = (spot.rotY || 0) / 2;
     player.q = [0, Math.sin(half), 0, Math.cos(half)];
     player.rejects = 0;
+    player.rejectAnchor = null;
+    player.poseRing.length = 0; // history before the respawn proves nothing after it
     player.allowTeleportUntil = t + 2000;
     player.spawnProtectUntil = t + RESPAWN_FREEZE_MS + SPAWN_PROTECT_MS;
     this.sendTo(player, {

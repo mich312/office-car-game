@@ -130,7 +130,7 @@ backlog live in `docs/car-design-brainstorm.md`.
 
 ## Game modes (lobby votes)
 
-- 🏁 **Desk Dash** — 3 laps through all eight rooms, shortcuts everywhere
+- 🏁 **Desk Dash** — 2 laps through all thirteen rooms, shortcuts everywhere
 - ☕ **Coffee Run** — collect beans, deliver to the kitchen machine, bump rivals to make them spill
 - 🔋 **Capture the Battery** — hold it to score, carrying slows you down, get hit and you drop it
 - ⚽ **RC Soccer** — a huge ping pong ball and two doorway goals, first to 5 wins
