@@ -33,7 +33,8 @@ export const useStore = create((set, get) => ({
   event: null, // { id, name, icon, desc, until }
   podium: null,
   powerup: null,
-  night: false,
+  timeOfDay: 'golden', // hour of the office day — see game/daylight.js
+  night: false, // derived from timeOfDay; kept so consumers can ask the cheap question
   photoMode: false,
   muted: !!saved.muted,
   // assist: throttle defaults to full when idle — defaults ON for touch
@@ -98,6 +99,9 @@ export const useStore = create((set, get) => ({
   unlocked() {
     const xp = get().xp;
     return UNLOCKS.filter((u) => u.xp <= xp);
+  },
+  setTimeOfDay(id) {
+    set({ timeOfDay: id, night: id === 'night' });
   },
   pushFeed(text) {
     set((s) => ({ feed: [...s.feed.slice(-5), { key: Math.random(), text }] }));

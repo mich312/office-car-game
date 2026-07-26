@@ -13,7 +13,7 @@ import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@reac
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PROPS, M, MSG, VENDING } from '@rc/shared';
-import { makeScreen, keysTex } from './textures.js';
+import { makeScreen, keysTex, fabricNormal, orangePeel } from './textures.js';
 import { burst } from './particles.jsx';
 import { audio } from '../audio.js';
 import { send, on } from '../net.js';
@@ -315,6 +315,11 @@ function Keyboard({ p }) {
   );
 }
 
+// Shared normal-map strengths. Vector2s are allocated once: these props are
+// instanced across the whole office and a fresh vector per mesh adds up.
+const UPHOLSTERY = new THREE.Vector2(0.85, 0.85);
+const MOULDED = new THREE.Vector2(0.4, 0.4);
+
 function Monitor({ p, screen }) {
   const W = 0.55 * m2u, H = 0.33 * m2u;
   // Origin at the FOOT of the stand: spawned on a desk it settles flat
@@ -331,11 +336,11 @@ function Monitor({ p, screen }) {
       <CuboidCollider args={[W / 2, H / 2, 0.05]} position={[0, panelY, 0]} />
       <mesh position={[0, 0.03, 0]} castShadow>
         <boxGeometry args={[0.7, 0.06, 0.5]} />
-        <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.4} />
+        <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.55} normalMap={orangePeel('bezel', 0.6, [2, 2])} normalScale={MOULDED} />
       </mesh>
       <mesh position={[0, 0.26, 0]} castShadow>
         <boxGeometry args={[0.12, 0.4, 0.12]} />
-        <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.4} />
+        <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.55} normalMap={orangePeel('bezel', 0.6, [2, 2])} normalScale={MOULDED} />
       </mesh>
       <mesh position={[0, panelY, 0]} castShadow>
         <boxGeometry args={[W, H, 0.1]} />
@@ -402,11 +407,11 @@ function Chair({ p }) {
       </mesh>
       <mesh position={[0, 0.1, 0]} castShadow>
         <cylinderGeometry args={[0.26 * m2u, 0.24 * m2u, 0.1 * m2u, 16]} />
-        <meshStandardMaterial color="#c23b2e" roughness={0.8} />
+        <meshStandardMaterial color="#c23b2e" roughness={1} normalMap={fabricNormal()} normalScale={UPHOLSTERY} />
       </mesh>
       <mesh position={[0, 0.32 * m2u, -0.22 * m2u]} castShadow>
         <boxGeometry args={[0.44 * m2u, 0.5 * m2u, 0.07 * m2u]} />
-        <meshStandardMaterial color="#c23b2e" roughness={0.8} />
+        <meshStandardMaterial color="#c23b2e" roughness={1} normalMap={fabricNormal()} normalScale={UPHOLSTERY} />
       </mesh>
     </Body>
   );

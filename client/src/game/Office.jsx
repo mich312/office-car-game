@@ -3,19 +3,42 @@
 import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { Sparkles } from '@react-three/drei';
+import { Sparkles, RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 import { ROOMS, WALLS, FURNITURE, RAMPS, WALL_HEIGHT, M, MAP_BOUNDS, roomAt } from '@rc/shared';
 import { useStore } from '../store.js';
-import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex } from './textures.js';
+import { lightingFor } from './daylight.js';
+import Practicals from './Practicals.jsx';
+import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, fabricNormal, orangePeel, wearRough } from './textures.js';
 
+// Every floor gets three maps, not one. Albedo alone reads as coloured
+// plastic under a directional light; the normal gives the surface something
+// for a low sun to rake across, and the roughness breakup stops the whole
+// room sharing one specular response. See textures.js — all procedural.
 const FLOOR_MATS = {
-  carpet: () => new THREE.MeshStandardMaterial({ map: carpetTex('#3e4a5e'), roughness: 0.95 }),
-  carpet2: () => new THREE.MeshStandardMaterial({ map: carpetTex('#4a3e5e'), roughness: 0.95 }),
-  tile: () => new THREE.MeshStandardMaterial({ map: tileTex(), roughness: 0.25, metalness: 0.05, envMapIntensity: 0.8 }),
-  wood: () => new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.45, envMapIntensity: 0.6 }),
-  dark: () => new THREE.MeshStandardMaterial({ color: '#23262e', roughness: 0.4, metalness: 0.2 }),
-  concrete: () => new THREE.MeshStandardMaterial({ map: concreteTex(), roughness: 0.9 }),
+  carpet: () => new THREE.MeshStandardMaterial({
+    map: carpetTex('#3e4a5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    roughnessMap: wearRough('carpet', 238, 10, [18, 18]), roughness: 1,
+  }),
+  carpet2: () => new THREE.MeshStandardMaterial({
+    map: carpetTex('#4a3e5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    roughnessMap: wearRough('carpet', 238, 10, [18, 18]), roughness: 1,
+  }),
+  tile: () => new THREE.MeshStandardMaterial({
+    map: tileTex(), normalMap: tileNormal(), normalScale: new THREE.Vector2(0.8, 0.8),
+    roughnessMap: wearRough('tile', 70, 22, [14, 14]), roughness: 1, metalness: 0.05, envMapIntensity: 0.8,
+  }),
+  wood: () => new THREE.MeshStandardMaterial({
+    map: woodTex(), normalMap: woodNormal(), normalScale: new THREE.Vector2(0.7, 0.7),
+    roughnessMap: wearRough('wood', 120, 22, [10, 10]), roughness: 1, envMapIntensity: 0.6,
+  }),
+  dark: () => new THREE.MeshStandardMaterial({
+    color: '#23262e', normalMap: orangePeel('dark', 0.5), roughness: 0.4, metalness: 0.2,
+  }),
+  concrete: () => new THREE.MeshStandardMaterial({
+    map: concreteTex(), normalMap: concreteNormal(), normalScale: new THREE.Vector2(0.6, 0.6),
+    roughnessMap: wearRough('conc', 225, 16, [8, 8]), roughness: 1,
+  }),
 };
 
 export default function Office() {
@@ -30,6 +53,7 @@ export default function Office() {
       <Ambience />
       <LightPools />
       <LightShafts />
+      <Practicals />
     </group>
   );
 }
@@ -41,9 +65,10 @@ export default function Office() {
 const POOL_SPOTS = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, 1.5], [17, -7], [-11, -1]];
 
 function LightPools() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
+  const light = lightingFor(hour, lightsOut);
   const glow = useMemo(() => glowTex(), []);
   const warmMat = useMemo(() => new THREE.MeshBasicMaterial({
     map: glow, color: '#ffe3b0', transparent: true, opacity: 0.12,
@@ -55,8 +80,8 @@ function LightPools() {
   }), [glow]);
   useFrame((_, dt) => {
     const k = Math.min(1, dt * 2.5);
-    warmMat.opacity += ((lightsOut ? 0 : night ? 0.3 : 0.12) - warmMat.opacity) * k;
-    serverMat.opacity += ((lightsOut ? 0.4 : night ? 0.25 : 0.12) - serverMat.opacity) * k;
+    warmMat.opacity += (light.pool - warmMat.opacity) * k;
+    serverMat.opacity += ((lightsOut ? 0.4 : Math.max(0.12, light.pool)) - serverMat.opacity) * k;
     serverMat.color.lerp(new THREE.Color(lightsOut ? '#ff5040' : '#3d7bff'), k);
   });
   return (
@@ -73,20 +98,30 @@ function LightPools() {
   );
 }
 
-// Moonlight slabs through the north windows — giant parallel shafts crossing
-// the track are the cheapest "this room is enormous" cue there is.
+// Light through the north windows, laid down as giant parallel slabs. These
+// are the bands you drive through, so they take their tilt from the sun's
+// elevation: a low golden-hour sun lays them almost flat along the floor and
+// a high afternoon sun drops them steeply onto it.
 function LightShafts() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
+  const group = useRef();
   const mat = useRef();
   const tex = useMemo(() => shaftTex(), []);
+  const light = lightingFor(hour, lightsOut);
   useFrame((_, dt) => {
     if (!mat.current) return;
-    const k = Math.min(1, dt * 2.5);
-    const target = lightsOut ? 0.14 : night ? 0.11 : 0.05;
-    mat.current.opacity += (target - mat.current.opacity) * k;
-    mat.current.color.lerp(new THREE.Color(night || lightsOut ? '#8fa8ff' : '#ffe9c4'), k);
+    const k = Math.min(1, dt * 1.8);
+    const s = light.shaft;
+    mat.current.opacity += (s.opacity - mat.current.opacity) * k;
+    mat.current.color.lerp(new THREE.Color(s.color), k);
+    if (group.current) {
+      group.current.rotation.x += (s.tilt - group.current.rotation.x) * k;
+      group.current.rotation.y += (s.yaw - group.current.rotation.y) * k;
+      const sc = s.length / 22;
+      group.current.scale.y += (sc - group.current.scale.y) * k;
+    }
   });
   // shared material across all shafts (first mesh's ref drives them all)
   const material = useMemo(() => new THREE.MeshBasicMaterial({
@@ -95,9 +130,9 @@ function LightShafts() {
   }), [tex]);
   mat.current = material;
   return (
-    <group>
+    <group ref={group} position={[0, 6.1, 50]} rotation-x={0.99}>
       {[-50, -20, 10, 40, 70].map((x, i) => (
-        <mesh key={i} position={[x, 6.1, 50]} rotation-x={0.99} material={material}>
+        <mesh key={i} position={[x, 0, 0]} material={material}>
           <planeGeometry args={[7, 22]} />
         </mesh>
       ))}
@@ -137,14 +172,37 @@ function Floors() {
 // ------------------------------------------------------------------- walls
 // One static rigid body holds every wall collider; all solid walls render
 // as a single instanced mesh (glass stays individual for transparency).
+const SKIRT_H = 0.12 * M;   // 12 cm — two thirds of a car
+const SKIRT_OUT = 0.06;     // proud of the wall face, so it catches a rim of light
+
 function Walls() {
-  const paint = useMemo(() => new THREE.MeshStandardMaterial({ color: '#e8e4da', roughness: 0.85 }), []);
+  // Matt emulsion. The orange-peel normal is deliberately almost invisible —
+  // its job is to break the perfectly flat specular that made every wall read
+  // as an untextured box, especially where a low sun grazes along one.
+  const paint = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#e8e4da',
+    normalMap: orangePeel('paint', 0.55, [3, 3]),
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    roughnessMap: wearRough('paint', 218, 16, [3, 3]),
+    roughness: 1,
+  }), []);
   const glassMat = useMemo(() => new THREE.MeshPhysicalMaterial({
     color: '#bfe3ee', transparent: true, opacity: 0.16, roughness: 0.06, metalness: 0,
     envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false,
   }), []);
   const railMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#8f98a6', metalness: 0.8, roughness: 0.3 }), []);
   const smudge = useMemo(() => new THREE.MeshBasicMaterial({ map: smudgeTex(), transparent: true, opacity: 0.5, depthWrite: false }), []);
+  // Matt skirting in a slightly darker tone. At 18 cm car scale a 12 cm
+  // skirting board stands two thirds as tall as the car — it is a feature you
+  // drive alongside, and it is most of what turns a flat white plane into a
+  // room. One extra instanced draw call for the whole building.
+  const skirtMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#d8d2c6',
+    normalMap: orangePeel('paint', 0.55, [3, 3]),
+    normalScale: new THREE.Vector2(0.3, 0.3),
+    roughness: 0.7,
+  }), []);
+  const skirt = useRef();
   const solid = useMemo(() => WALLS.filter((w) => !w.glass && !w.low), []);
   const glass = useMemo(() => WALLS.filter((w) => w.glass), []);
   const rails = useMemo(() => WALLS.filter((w) => w.low), []);
@@ -156,8 +214,14 @@ function Walls() {
       dummy.scale.set(w.w, w.h, w.d);
       dummy.updateMatrix();
       inst.current.setMatrixAt(i, dummy.matrix);
+      // proud of the wall face on every side, sitting on the floor
+      dummy.position.set(w.x, SKIRT_H / 2, w.z);
+      dummy.scale.set(w.w + SKIRT_OUT, SKIRT_H, w.d + SKIRT_OUT);
+      dummy.updateMatrix();
+      skirt.current.setMatrixAt(i, dummy.matrix);
     });
     inst.current.instanceMatrix.needsUpdate = true;
+    skirt.current.instanceMatrix.needsUpdate = true;
   }, [solid]);
 
   return (
@@ -167,6 +231,9 @@ function Walls() {
           <CuboidCollider key={i} args={[w.w / 2, w.h / 2, w.d / 2]} position={[w.x, w.h / 2, w.z]} />
         ))}
       </RigidBody>
+      <instancedMesh ref={skirt} args={[null, null, solid.length]} material={skirtMat} castShadow receiveShadow frustumCulled={false}>
+        <boxGeometry args={[1, 1, 1]} />
+      </instancedMesh>
       <instancedMesh ref={inst} args={[null, null, solid.length]} material={paint} castShadow receiveShadow frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
       </instancedMesh>
@@ -194,11 +261,11 @@ function Walls() {
 
 // ----------------------------------------------------------------- ceiling
 function Ceiling() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
   const panelMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 }), []);
-  panelMat.emissiveIntensity = lightsOut ? 0.02 : night ? 2.2 : 1.4;
+  panelMat.emissiveIntensity = lightingFor(hour, lightsOut).panel;
   const panels = useMemo(() => {
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {
@@ -240,10 +307,33 @@ function Ceiling() {
 }
 
 // ------------------------------------------------------------ big furniture
-const WOOD = () => new THREE.MeshStandardMaterial({ map: woodTex([2, 1]), roughness: 0.5, envMapIntensity: 0.5 });
-const METAL = () => new THREE.MeshStandardMaterial({ color: '#9aa3ad', metalness: 0.85, roughness: 0.35 });
-const FABRIC = (c = '#5b8bd6') => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95 });
-const PLASTIC = (c = '#e8e8e8') => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6 });
+// Furniture materials. The rule the whole pass follows: no surface may be
+// perfectly smooth and no surface may have one uniform roughness. Real wood
+// has grain to catch a low sun, real upholstery is woven, real moulded plastic
+// has orange peel. All three are Sobel-differentiated canvases — see
+// textures.js — so "zero external assets" still holds.
+const N_WOOD = new THREE.Vector2(0.3, 0.3);
+const N_FABRIC = new THREE.Vector2(0.9, 0.9);
+const N_PLASTIC = new THREE.Vector2(0.35, 0.35);
+
+// Tiled fine, because one material is shared by everything wooden and the
+// biggest surface decides the setting: at [2,1] a plank spanned a whole desk.
+// Per-object UV scaling would be the proper fix and costs a material per item.
+const WOOD = () => new THREE.MeshStandardMaterial({
+  map: woodTex([6, 3]), normalMap: woodNormal([6, 3]), normalScale: N_WOOD,
+  roughnessMap: wearRough('deskwood', 128, 22, [6, 3]), roughness: 1, envMapIntensity: 0.5,
+});
+const METAL = () => new THREE.MeshStandardMaterial({
+  color: '#9aa3ad', metalness: 0.85,
+  roughnessMap: wearRough('metal', 90, 26, [2, 2]), roughness: 1,
+});
+const FABRIC = (c = '#5b8bd6') => new THREE.MeshStandardMaterial({
+  color: c, normalMap: fabricNormal([5, 5]), normalScale: N_FABRIC, roughness: 1,
+});
+const PLASTIC = (c = '#e8e8e8') => new THREE.MeshStandardMaterial({
+  color: c, normalMap: orangePeel('furn', 0.6, [2, 2]), normalScale: N_PLASTIC,
+  roughnessMap: wearRough('plastic', 155, 24, [2, 2]), roughness: 1,
+});
 
 function BigFurniture() {
   const mats = useMemo(() => ({
@@ -260,6 +350,13 @@ function BigFurniture() {
   );
 }
 
+// Edge radius in world units (1 unit = 22.5 cm), exaggerated on purpose: a
+// real desk edge is 2-5 mm and would be invisible here. Keying off the
+// smallest dimension times a small factor left thin slabs sharp, so this takes
+// as much of the thin axis as geometry allows (a slab cannot round by more
+// than half its thickness) and caps it so big boxes don't go pill-shaped.
+const chamfer = (w, h, d) => Math.min(0.22, Math.min(w, h, d) * 0.45);
+
 function Furniture({ f, mats }) {
   const { type, x, z, w, d, h, rotY } = f;
   const legIn = 0.28;
@@ -275,9 +372,11 @@ function Furniture({ f, mats }) {
           {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
             <CuboidCollider key={i} args={[0.1, h / 2, 0.1]} position={[sx * (w / 2 - legIn), h / 2, sz * (d / 2 - legIn)]} />
           ))}
-          <mesh position={[0, h - top / 2, 0]} castShadow receiveShadow material={type === 'ceodesk' ? mats.dark : mats.wood}>
-            <boxGeometry args={[w, top, d]} />
-          </mesh>
+          {/* A chamfered slab, not a cuboid. At 18 cm car scale a 1–2 cm
+              radius is a visible highlight running the length of the desk —
+              it is most of what stops furniture reading as greybox. */}
+          <RoundedBox position={[0, h - top / 2, 0]} args={[w, top, d]} radius={chamfer(w, top, d)} smoothness={3}
+            castShadow receiveShadow material={type === 'ceodesk' ? mats.dark : mats.wood} />
           {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
             <mesh key={i} position={[sx * (w / 2 - legIn), (h - top) / 2, sz * (d / 2 - legIn)]} castShadow material={mats.metal}>
               <cylinderGeometry args={[0.09, 0.09, h - top, 8]} />
@@ -623,9 +722,8 @@ function SimpleBox({ x, z, w, d, h, rotY = 0, mat, children }) {
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.8}>
       <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-      <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={mat}>
-        <boxGeometry args={[w, h, d]} />
-      </mesh>
+      <RoundedBox position={[0, h / 2, 0]} args={[w, h, d]} radius={chamfer(w, h, d)} smoothness={3}
+        castShadow receiveShadow material={mat} />
       {children}
     </RigidBody>
   );
@@ -723,7 +821,8 @@ function Ramps() {
 
 // ------------------------------------------- outside: skyline, rain, night
 function Outside() {
-  const night = useStore((s) => s.night);
+  const hour = useStore((s) => s.timeOfDay);
+  const wet = lightingFor(hour, false).wet;
   const sky = useMemo(() => skylineTex(), []);
   return (
     <group>
@@ -737,8 +836,8 @@ function Outside() {
         <meshBasicMaterial map={sky} fog={false} />
       </mesh>
       <Rain />
-      {/* wet balcony sheen at night */}
-      {night && (
+      {/* wet balcony sheen once the light has gone */}
+      {wet && (
         <mesh rotation-x={-Math.PI / 2} position={[-17.5 * M, 0.01, 5.5 * M]}>
           <planeGeometry args={[7 * M, 13 * M]} />
           <meshStandardMaterial color="#20242e" roughness={0.08} metalness={0.4} transparent opacity={0.55} />
