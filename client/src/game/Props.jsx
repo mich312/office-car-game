@@ -12,7 +12,7 @@ import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PROPS, M, MSG, VENDING } from '@rc/shared';
+import { PROPS, M, MSG, VENDING, NUDGE_RATE_MS } from '@rc/shared';
 import { makeScreen, keysTex, fabricNormal, orangePeel } from './textures.js';
 import { burst } from './particles.jsx';
 import { audio } from '../audio.js';
@@ -25,9 +25,14 @@ const propRefs = new Map(); // PROPS index → rigid body ref
 const pendingHits = new Map(); // index → ref; latest hit wins until flushed
 let lastFlush = 0;
 
+// PROPS entries + their index, memoised once so the identity stays stable
+// across renders (the prop components are memo'd on it).
+const indexedProps = PROPS.map((base, i) => ({ ...base, i }));
+const propWithIndex = (base, i) => indexedProps[i] ?? { ...base, i };
+
 function flushPropHits() {
   const nowMs = performance.now();
-  if (nowMs - lastFlush < 200 || pendingHits.size === 0) return;
+  if (nowMs - lastFlush < NUDGE_RATE_MS || pendingHits.size === 0) return;
   lastFlush = nowMs;
   let n = 0;
   for (const [i, ref] of pendingHits) {
@@ -64,7 +69,10 @@ export default function Props() {
     <group>
       <SpawnedProps />
       {PROPS.map((base, i) => {
-        const p = base.i === undefined ? Object.assign(base, { i }) : base;
+        // The index rides along so a whacked prop knows which slot to relay,
+        // but it's attached to a copy — PROPS is shared module state that the
+        // server imports too, and render is no place to mutate it.
+        const p = propWithIndex(base, i);
         const key = `${p.type}${i}`;
         switch (p.type) {
           case 'mug': return <Mug key={key} p={p} />;

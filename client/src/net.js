@@ -173,7 +173,17 @@ function handleMessage(msg) {
       if (msg.ball) { net.ballPrev = net.ball; net.ball = { t: msg.time, ...msg.ball }; }
       if (msg.beans) net.beans = msg.beans;
       if (msg.battery) net.battery = msg.battery;
-      if (msg.race) S.setState({ raceProgress: msg.race });
+      if (msg.race) {
+        // Same treatment as lcs/teamScores below: a fresh object every
+        // snapshot would re-render the whole HUD at 20 Hz for a number that
+        // changes a handful of times a lap.
+        const cur = S.getState().raceProgress;
+        const ids = Object.keys(msg.race);
+        if (ids.length !== Object.keys(cur).length
+          || ids.some((id) => !cur[id] || cur[id][0] !== msg.race[id][0] || cur[id][1] !== msg.race[id][1])) {
+          S.setState({ raceProgress: msg.race });
+        }
+      }
       if (msg.lcs) {
         // re-render only when the lockdown state actually changes
         const cur = S.getState().lcs;

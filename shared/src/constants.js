@@ -61,7 +61,6 @@ export const INTERP_DELAY_MS = 120; // remote entity render delay
 export const DEFAULT_PORT = 8080;
 
 // Match flow
-export const MIN_PLAYERS = 2; // humans+bots needed to start
 export const MAX_PLAYERS = 12;
 export const COUNTDOWN_SECONDS = 4;
 export const MATCH_SECONDS = 210; // 3.5 minute matches
@@ -103,13 +102,24 @@ export const SAFE_POSE_INTERVAL_MS = 200; // sampling rate of the pose ring
 export const SAFE_POSE_BUFFER = 12; // ≈2.4 s of history; respawn at oldest
 export const SAFE_POSE_MIN_GROUNDED_S = 0.5; // pose counts only after this
 
-// Shared prop nudges: best-effort scatter sync for gameplay-relevant props.
-export const NUDGE_RATE_MS = 250; // per-prop client send limit
-export const NUDGE_SNAP_DIST = 2.0; // peers hard-snap the prop beyond this
+// Shared prop nudges: best-effort impulse relay for gameplay-relevant props.
+// There is no position sync — props settle, so divergence heals on its own.
+export const NUDGE_RATE_MS = 200; // client flush interval for queued prop hits
 export const NUDGE_MAX_SPEED = 40; // server clamp on reported car velocity
 
-// Anti-teleport validation: max plausible units/second (boost + shove headroom)
+// Anti-teleport validation. A reported move is allowed if it fits inside
+// MAX_PLAUSIBLE_SPEED (boost + shove headroom) over the time since the last
+// accepted report, plus a fixed slack that absorbs network jitter — packets
+// bunch, so two reports can arrive milliseconds apart carrying 100 ms of real
+// movement. The slack is what a client can jump for free, so it is small:
+// ~5 car lengths, well under the gap between checkpoints.
 export const MAX_PLAUSIBLE_SPEED = 35;
+export const TELEPORT_SLACK = 5; // units of jitter allowance per report
+export const TELEPORT_STRIKES = 8; // consistent rejects before we believe it
+export const TELEPORT_ANCHOR_DIST = 4; // how close those rejects must agree
+// Respawn proposals (races send their own safe pose) are checked against the
+// server's own record of where that player has recently been.
+export const SAFE_POSE_MATCH_DIST = 4;
 
 // Emote wheel: keys 1–8 in-game, popped as a sprite over the car for everyone.
 // Index travels over the wire; the array is the single source of truth.

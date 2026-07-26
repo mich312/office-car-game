@@ -134,6 +134,8 @@ class LastStandingMode {
 }
 
 // --------------------------------------------------------------- Desk Dash
+const PLACE_SCORE = [500, 350, 250, 180, 130, 100];
+
 class RaceMode {
   constructor(room) {
     this.room = room;
@@ -152,7 +154,7 @@ class RaceMode {
             p.finished = true;
             this.finished.push(p.id);
             const place = this.finished.length;
-            p.score += [500, 350, 250, 180, 130, 100][Math.min(place - 1, 5)];
+            p.finishBonus = PLACE_SCORE[Math.min(place - 1, PLACE_SCORE.length - 1)];
             this.room.feed(`🏁 ${p.name} finished ${['1st', '2nd', '3rd'][place - 1] || `${place}th`}!`);
             this.room.scoreChanged();
             if (place >= Math.min(3, this.room.players.size)) this.room.endsAt = Math.min(this.room.endsAt, now() + 12000);
@@ -160,9 +162,11 @@ class RaceMode {
             this.room.feed(`🏎️ ${p.name} — lap ${p.lap + 1}/${this.laps}`);
           }
         }
-        // Progress score keeps the scoreboard ordered mid-race
-        p.score = p.lap * 200 + (p.nextCp % CHECKPOINTS.length) * 8 + (p.finished ? p.score : 0);
-        if (p.finished) p.score = Math.max(p.score, p.lap * 200 + [500, 350, 250, 180, 130, 100][Math.min(this.finished.indexOf(p.id), 5)]);
+        // Progress score keeps the scoreboard ordered mid-race. It is
+        // recomputed from lap+checkpoint every time rather than accumulated,
+        // so the finish bonus has to sit outside it — fold it back in and the
+        // whole progress score gets counted a second time on the final lap.
+        p.score = p.lap * 200 + (p.nextCp % CHECKPOINTS.length) * 8 + (p.finishBonus || 0);
       }
     }
   }

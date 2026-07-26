@@ -94,14 +94,32 @@ export function useControls() {
       const k = KEYMAP[e.code];
       if (k) keys.current[k] = false;
     };
-    const click = (e) => { if (e.button === 0) send({ t: MSG.USE_POWERUP }); audio.start(); };
+    // Only a click on the world uses your item. Without this, clicking the
+    // scoreboard, a HUD chip or any other overlay silently burns it.
+    const click = (e) => {
+      audio.start();
+      if (e.button === 0 && e.target instanceof Element && e.target.tagName === 'CANVAS') {
+        send({ t: MSG.USE_POWERUP });
+      }
+    };
+    // Alt-tab with a key held and the browser never delivers the keyup, so the
+    // car drives itself until you come back and tap the key. Drop everything
+    // held whenever we lose the keyboard.
+    const release = () => {
+      const k = keys.current;
+      k.fwd = k.back = k.left = k.right = k.drift = k.boost = false;
+    };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('mousedown', click);
+    window.addEventListener('blur', release);
+    document.addEventListener('visibilitychange', release);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('mousedown', click);
+      window.removeEventListener('blur', release);
+      document.removeEventListener('visibilitychange', release);
     };
   }, []);
   return keys;

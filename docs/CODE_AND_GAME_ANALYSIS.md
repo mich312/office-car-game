@@ -3,11 +3,18 @@
 Read of the repository at `e8121b8` (post "The Living Office" merge). ~13k lines of
 hand-written JS/JSX across three workspaces, plus ~1.7k lines of design docs.
 
-Verified during this pass:
+**Everything in §4 has since been fixed**, and each fix is marked with the check that now
+guards it. §1–§3 are the analysis of the design and architecture and still stand as written.
 
-- `npm install` clean, `npm test` **all green** (snapshot codec, tuning maths, and the
+State at the time of the read:
+
+- `npm install` clean, `npm test` all green (snapshot codec, tuning maths, and the
   full end-to-end ws smoke test across tag / respawn / prop relay / koth / sumo / soccer).
-- `npm run build` succeeds — 3.95 MB JS, 1.39 MB gzipped, in a **single chunk**.
+- `npm run build` succeeded — 3.95 MB JS, 1.39 MB gzipped, in a **single chunk**.
+
+State now: 89 checks green across five suites (`test-snapshot`, `test-tuning`,
+`test-modes`, `smoke`, `test-hostile`), run on every push by `.github/workflows/ci.yml`.
+The menu's initial payload is **502 kB gzipped**, down from 1,389 kB.
 
 ---
 
@@ -118,9 +125,10 @@ exact shape the JSON did, so the client handler never changed — a genuinely cl
 
 ---
 
-## 4. Findings
+## 4. Findings — all fixed
 
-Ordered by how much they'd hurt. All were verified against the code, not inferred.
+Ordered by how much they'd hurt. All were verified against the code, not inferred, and
+each now carries the check that keeps it fixed.
 
 ### 4.1 Malformed position reports poison server state and are never rejected
 
@@ -133,8 +141,11 @@ returns false (no pickups, no bumps, no zone scoring, no LCS zap), and `encodeSn
 writes `clampI16(NaN)` → **0**, so every other client renders them parked at the world
 origin. An accidental or malicious client becomes an untouchable ghost.
 
-The fix is one line, and the codebase already knows the pattern — the `MSG.PROP` handler
-40 lines below does exactly this check (`im.some((n) => !Number.isFinite(n))`).
+**Fixed.** `finiteVec()` in `room.js` validates every reported vector — position, rotation
+and velocity — and a malformed position drops the message rather than storing it. Position
+is additionally clamped to the floor plan plus 20 units of slack for balcony falls. The
+codebase already knew the pattern; the `MSG.PROP` handler did exactly this check and the
+`STATE` handler didn't. Guarded by five checks in `test-hostile.mjs` (`state: …`).
 
 ### 4.2 `NUDGE_MAX_SPEED` is imported but never applied
 
@@ -144,6 +155,9 @@ rub-vs-hit classification (`onBump`), bot shove magnitude, the vending-machine `
 gate, and the `rel > 18` feed messages. A client reporting `v: [1e6, 0, 0]` registers every
 contact as a maximum-severity hit. The shove magnitude is separately capped at 20, so the
 blast radius is limited — but the constant exists precisely to close this and doesn't fire.
+
+**Fixed.** `clampSpeed(v, NUDGE_MAX_SPEED)` is now applied to every reported velocity.
+Guarded by `bump: but its severity is clamped to the physics ceiling`.
 
 ### 4.3 Anti-teleport accepts sustained teleporting
 
@@ -170,15 +184,36 @@ winnable without driving. That's an accepted cost of the architecture — but th
 hatch should require that the *destination* be consistent (e.g. the same point reported
 across the strike window), not merely that reports keep arriving.
 
+**Fixed**, three ways. The check is now a distance budget rather than a speed threshold:
+a move must fit inside `MAX_PLAUSIBLE_SPEED × dt + TELEPORT_SLACK`, where the slack (5
+units, ~5 car lengths) is what absorbs packet bunching and is therefore the largest free
+jump — well under the gap between checkpoints. The strike counter only accumulates while
+successive rejects agree on a destination within `TELEPORT_ANCHOR_DIST`, so a stream of
+*different* impossible jumps never talks its way through while a genuinely-missed teleport
+still gets believed. And `lastStateAt` now advances on rejected reports too: ticking it
+only on acceptance let a client inflate its own allowance to the 0.6 s cap — a free
+26-unit jump — just by being rejected. Guarded by four `teleport: …` checks.
+
+Worth recording: the first version of the anchor comparison read `[x, z]` as if it were
+`[x, y, z]`, so the strike counter silently never advanced past 1 and a legitimately
+teleported client would have been stuck forever. Nothing in the existing suite would have
+noticed. `teleport: a consistent report is eventually believed` caught it.
+
 ### 4.4 Race respawn is an arbitrary in-bounds teleport
 
 `room.js:636` — in `desk_dash` the server accepts the client's own safe-pose proposal,
 validating only that x/z are inside `MAP_BOUNDS`. A client can press R and place itself at
 any point on the floor, including just short of the next checkpoint. The safe-pose ring
 buffer on the client is careful and honest (`SAFE_POSE_MIN_GROUNDED_S`, oldest-pose-wins);
-the server just has no way to tell an honest proposal from a fabricated one. Cheapest
-mitigation: reject proposals farther than *n* units from the last position the server
-accepted for that player.
+the server just has no way to tell an honest proposal from a fabricated one.
+
+**Fixed.** The server now keeps its own `poseRing` — the same 12 samples at 200 ms that the
+client's safe-pose buffer uses — of positions it actually watched that car drive while
+grounded, and only honours a proposal within `SAFE_POSE_MATCH_DIST` of one of them. The
+ring is cleared on respawn, since history from before a teleport proves nothing about
+after it. Guarded by `respawn: …but does not honour it` and `respawn: a pose the server saw
+us at is honoured` — the second matters as much as the first, because the whole point of
+the feature is not walking back three rooms.
 
 ### 4.5 A malformed URL crashes the game server
 
@@ -186,10 +221,16 @@ accepted for that player.
 unguarded. `decodeURIComponent('/%')` throws `URIError` (verified). Thrown inside the
 `http.createServer` handler with no `uncaughtException` handler, this takes the whole
 process down — and with it every in-progress match, because there's one `Room` per process.
-A single `GET /%` from anywhere on the network ends the game. Wrap in try/catch, 400 on
-failure.
+A single `GET /%` from anywhere on the network ends the game.
 
-Path traversal itself *is* handled correctly (`file.startsWith(DIST)` after `path.normalize`).
+**Fixed.** The decode is wrapped and answers 400. A process-level `uncaughtException`
+handler was added as a last resort for the same reason — one room per process means an
+uncaught throw anywhere ends every match in the building, so logging and continuing beats
+exiting cleanly. Guarded by four `http: …` checks, the last of which is simply "the server
+is still alive afterwards".
+
+Path traversal itself *was* already handled correctly (`file.startsWith(DIST)` after
+`path.normalize`); there's now a check pinning that too.
 
 ### 4.6 Race finishing score double-counts progress
 
@@ -205,14 +246,21 @@ On the finishing checkpoint, `p.score` already contains the accumulated progress
 preserved, so it isn't visible in normal play — but it's exactly the kind of silent
 inflation that skews Office Cup totals (§1).
 
+**Fixed.** The place bonus lives in its own `p.finishBonus` field and is added to the
+recomputed progress score rather than folded into it. Guarded by `test-modes.mjs`, which
+drives a race to the flag and asserts the winner scores exactly `laps × 200 + 500`.
+
 ### 4.7 Held keys stick when the window loses focus
 
 `useControls.js` registers `keydown`/`keyup` on `window` with no `blur` or
 `visibilitychange` handler. Alt-tab while holding W and the car drives away on its own until
-you return and tap the key. One `window.addEventListener('blur', reset)` fixes it.
+you return and tap the key.
 
 Related, same file: `mousedown` **anywhere** fires `USE_POWERUP` (`click` handler, line 97).
 Clicking the scoreboard, the pause overlay or any HUD chrome burns your item.
+
+**Fixed.** `blur` and `visibilitychange` release everything held, and only a click whose
+target is the canvas uses your item.
 
 ### 4.8 Race progress re-renders the HUD at snapshot rate
 
@@ -221,38 +269,50 @@ every snapshot, with a fresh object each time. The three lines immediately below
 real trouble to *avoid* exactly this for `lcs` and `teamScores` ("re-render only when the
 lockdown state actually changes"). `MatchHUD` subscribes to `raceProgress` and already
 force-renders itself at 10 Hz, so in Desk Dash the whole HUD renders ~30×/s instead of 10.
-The same change-detection used for `lcs` applies verbatim.
 
-### 4.9 Smaller things
+**Fixed.** `raceProgress` gets the same change-detection as its neighbours.
 
-- **`MIN_PLAYERS` is dead** — declared, never enforced. `maybeStart()` starts with one ready
-  human, which is the real (and fine) behaviour; the constant is misleading.
-- **`NUDGE_RATE_MS` / `NUDGE_SNAP_DIST` are also dead.** `Props.jsx` hardcodes its own 200 ms
-  flush and has no snap-distance logic at all, so the documented "peers hard-snap the prop
-  beyond 2.0 units" self-healing is not implemented — props just diverge until they settle.
-- **Suspension raycast allocates per wheel per step.** `new rapier.Ray(...)` ×4 at 60 Hz =
-  240 allocations/s of steady GC pressure in the hottest loop (`LocalCar.jsx:393`). Rapier
-  rays are mutable; hoist four to module scope.
-- **`Props.jsx:66` mutates the imported `PROPS` array during render**
-  (`Object.assign(base, { i })`). Idempotent today, but it's a render-time side effect on
-  shared module state that both workspaces import.
-- **Votes aren't cleared between matches.** `this.votes` is only reset in `resetToLobby`,
-  so the previous round's tally re-decides the next mode unless someone re-votes.
-- **`updatePads` hardcodes `1.6`** where `PICKUP_RADIUS` (also 1.6) exists and is imported
-  in the sibling module.
+### 4.9 Smaller things — all fixed
+
+- **`MIN_PLAYERS` was dead** — declared, never enforced. `maybeStart()` starts with one
+  ready human, which is the real (and fine) behaviour, so the constant was removed rather
+  than given teeth it never had.
+- **`NUDGE_RATE_MS` / `NUDGE_SNAP_DIST` were also dead.** `Props.jsx` hardcoded its own
+  200 ms flush, and the documented "peers hard-snap the prop beyond 2.0 units" self-healing
+  was never implemented. `Props.jsx` now uses `NUDGE_RATE_MS`; `NUDGE_SNAP_DIST` and the
+  comment promising position sync are gone, because impulse relay is what actually ships.
+- **Suspension raycast allocated per wheel per step** — `new rapier.Ray(...)` ×4 at 60 Hz,
+  240 allocations/s in the hottest loop. One Ray is now built and re-aimed; Rapier's
+  `origin`/`dir` are plain mutable objects (verified against the installed package).
+- **`Props.jsx` mutated the imported `PROPS` array during render.** Indices now ride on a
+  memoised copy — stable identity for the memo'd prop components, and no render-time side
+  effect on module state the server also imports.
+- **Votes weren't cleared between matches**, so the previous round's tally silently
+  re-picked the mode. `startCountdown` clears them once spent.
+- **`updatePads` hardcoded `1.6`** where `PICKUP_RADIUS` exists; it uses the constant now.
 - **README drift.** "3 laps through all eight rooms" — the code is 2 laps
-  (`MODES.desk_dash.laps`) through 13 rooms. Everything else in the README checked out,
-  including the 42×24 m bounds and the room count elsewhere in the same file.
+  (`MODES.desk_dash.laps`) through 13 rooms. Corrected. Everything else in the README
+  checked out, including the 42×24 m bounds and the room count elsewhere in the same file.
 
 ---
 
 ## 5. Performance
 
-**The bundle is the biggest cost.** 3.95 MB / 1.39 MB gzipped in one chunk, and Vite says so
-on every build. The garage (Menu) and the game share it, so a player waits for Rapier's wasm,
-all of three.js and the whole postprocessing stack before they can type their name. The
-natural split is `Game.jsx` and everything under `game/` behind a `React.lazy` — the menu
-already renders its own 3-D scene, but not the physics engine or the effect composer.
+**The bundle was the biggest cost.** 3.95 MB / 1.39 MB gzipped in one chunk, and Vite said
+so on every build. The garage (Menu) and the game shared it, so a player waited for Rapier's
+wasm, all of three.js and the whole postprocessing stack before they could type their name.
+
+**Fixed** by putting `Game` and `HUD` behind `React.lazy` — the `Suspense` boundary and its
+fallback were already in `App.jsx`. The menu needs three.js; it does not need the physics
+engine, the office or the effect composer.
+
+| | before | after |
+| --- | --- | --- |
+| what the menu waits for | 1,389 kB gzip | **502 kB gzip** |
+| loaded on RACE | — | 881 kB gzip (Rapier + `game/`) |
+
+The remaining warning is the 2.3 MB Rapier chunk, which is one dependency and not usefully
+splittable. It's left un-suppressed rather than papered over with `chunkSizeWarningLimit`.
 
 **The runtime side is in good shape**, and visibly deliberate:
 
@@ -266,36 +326,48 @@ already renders its own 3-D scene, but not the physics engine or the effect comp
   zustand when a value React actually renders has changed — with §4.8 as the one lapse.
 - `?lowfx` disables shadows and post-processing wholesale.
 
-Remaining nits are the per-step ray allocation (§4.9) and the fact that only 3 of ~71
+The per-step ray allocation is fixed (§4.9). The one remaining nit is that only 3 of ~71
 `useMemo`-created materials/textures are ever `dispose()`d. In a single-mount SPA that's
-harmless; it would matter if the game scene were ever unmounted and remounted.
+harmless — but the lazy split means the game scene now *can* be unmounted, so it is worth
+revisiting if menu↔game round trips ever start leaking.
 
 ---
 
 ## 6. Test coverage
 
-The three suites are well chosen and all pass. What they don't cover:
+Five suites, 89 checks, green, running on every push via `.github/workflows/ci.yml`.
 
-- **No client-side tests at all** — including `LocalCar`, which is the most complex and most
+Added in this pass:
+
+- **`test-hostile.mjs`** — the trust boundary, exercised with messages a real client would
+  never send: non-numeric and infinite positions, out-of-bounds positions, fabricated
+  velocities, single and sustained teleports (both the consistent kind that must be
+  believed and the inconsistent kind that must not), unwitnessed respawn proposals,
+  malformed URLs, path traversal, and a 200-message junk burst. Every finding in §4.1–4.5
+  is one of these, and none of them were reachable through the smoke test, which only ever
+  sends well-formed input. It also caught a bug in one of its own fixes (§4.3).
+- **`test-modes.mjs`** — mode scoring driven to completion against a stub room. The smoke
+  test proves each mode *starts*; this proves a race taken to the flag, a coffee carrier
+  hit and dropped, and a sumo round fought to the last car all pay out what they claim.
+
+Still open:
+
+- **No client-side tests** — including `LocalCar`, the most complex and most
   physics-sensitive file in the project. `simulateDrive` already proves a deterministic 2-D
   copy of the driving model can be unit-tested headlessly; the same harness could assert
   handling invariants (top speed reached, drift charge tiers, brake distance) directly.
-- **No adversarial input tests.** Every finding in §4.1–4.5 is a malformed or dishonest
-  message, and the smoke test only ever sends well-formed ones. A "hostile client" suite
-  — NaN positions, absurd velocities, malformed URLs, spam rates — would have caught four of
-  the five.
-- **No mode-completion tests.** The smoke test verifies each mode *starts* and snapshots
-  correctly; nothing drives a mode to its win condition, which is where §4.6 lives.
-- **No CI.** No workflow file; `npm test` is manual.
+  This is the biggest remaining gap.
 
 ---
 
-## 7. If I were picking the next three things
+## 7. What's left
 
-1. **Harden the trust boundary** — §4.1, §4.2, §4.5 are each roughly one line, and §4.5
-   is a remote process kill. Add the hostile-client test suite alongside them.
-2. **Code-split the client.** The first thing every new player experiences is a 1.4 MB
-   download for a menu.
-3. **Give the modes variants rather than adding an eleventh.** Sumo with a moving ring,
+Everything in §4 is done, and the client is split. What remains from the original list:
+
+1. **Client-side tests for the driving model** — the one part of §6 not closed.
+2. **Give the modes variants rather than adding an eleventh.** Sumo with a moving ring,
    soccer in the cafeteria, a reverse Desk Dash — the map and the mode controllers already
    support it, and it addresses the one-configuration-per-mode ceiling in §1.
+3. **Make Office Cup rounds commensurable.** Normalise per-mode scores before summing, or
+   pay cup points by placement instead of raw score (§1). Untouched — it's a design
+   decision, not a defect.

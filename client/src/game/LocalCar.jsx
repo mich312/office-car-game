@@ -75,6 +75,9 @@ export default function LocalCar() {
     return tunedStats(CARS[p?.car] || CARS.balanced, p?.tune).mass;
   };
 
+  // the reused suspension ray (created on the first step, once rapier is up)
+  const _ray = useRef(null);
+
   const S = useRef({
     boost: BOOST_MAX,
     boosting: false,
@@ -384,13 +387,16 @@ export default function LocalCar() {
     speedRef.current = fwdSpeed;
 
     // ---------------- suspension: 4 rays along car-down
+    // The Ray is built once and re-aimed per wheel: four allocations every
+    // physics step is 240/s of pure GC pressure in the hottest loop we have.
     let groundedWheels = 0;
-    const rayDir = { x: -_up.x, y: -_up.y, z: -_up.z };
+    const ray = _ray.current || (_ray.current = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 }));
+    ray.dir.x = -_up.x; ray.dir.y = -_up.y; ray.dir.z = -_up.z;
     for (let wi = 0; wi < WHEELS.length; wi++) {
       const [wx, wy, wz] = WHEELS[wi];
       _corner.set(wx, wy, wz).applyQuaternion(_q);
       _p.set(pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z);
-      const ray = new rapier.Ray({ x: _p.x, y: _p.y, z: _p.z }, rayDir);
+      ray.origin.x = _p.x; ray.origin.y = _p.y; ray.origin.z = _p.z;
       const hit = world.castRay(ray, SUSPENSION_REST + 0.15, true, undefined, undefined, undefined, body);
       // wheel visual sits where the ray hit (or droops at full travel in the air)
       wheelYRef.current[wi] = wy - (hit ? Math.min(hit.timeOfImpact ?? hit.toi, SUSPENSION_REST + 0.1) : SUSPENSION_REST * 0.8) + wheelR;
