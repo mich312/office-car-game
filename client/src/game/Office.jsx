@@ -18,26 +18,26 @@ import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineT
 const FLOOR_MATS = {
   carpet: () => new THREE.MeshStandardMaterial({
     map: carpetTex('#3e4a5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
-    roughnessMap: wearRough('carpet', 235, 18), roughness: 1,
+    roughnessMap: wearRough('carpet', 238, 10, [18, 18]), roughness: 1,
   }),
   carpet2: () => new THREE.MeshStandardMaterial({
     map: carpetTex('#4a3e5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
-    roughnessMap: wearRough('carpet', 235, 18), roughness: 1,
+    roughnessMap: wearRough('carpet', 238, 10, [18, 18]), roughness: 1,
   }),
   tile: () => new THREE.MeshStandardMaterial({
     map: tileTex(), normalMap: tileNormal(), normalScale: new THREE.Vector2(0.8, 0.8),
-    roughnessMap: wearRough('tile', 70, 34), roughness: 1, metalness: 0.05, envMapIntensity: 0.8,
+    roughnessMap: wearRough('tile', 70, 22, [14, 14]), roughness: 1, metalness: 0.05, envMapIntensity: 0.8,
   }),
   wood: () => new THREE.MeshStandardMaterial({
     map: woodTex(), normalMap: woodNormal(), normalScale: new THREE.Vector2(0.7, 0.7),
-    roughnessMap: wearRough('wood', 120, 30), roughness: 1, envMapIntensity: 0.6,
+    roughnessMap: wearRough('wood', 120, 22, [10, 10]), roughness: 1, envMapIntensity: 0.6,
   }),
   dark: () => new THREE.MeshStandardMaterial({
     color: '#23262e', normalMap: orangePeel('dark', 0.5), roughness: 0.4, metalness: 0.2,
   }),
   concrete: () => new THREE.MeshStandardMaterial({
     map: concreteTex(), normalMap: concreteNormal(), normalScale: new THREE.Vector2(0.6, 0.6),
-    roughnessMap: wearRough('conc', 225, 22), roughness: 1,
+    roughnessMap: wearRough('conc', 225, 16, [8, 8]), roughness: 1,
   }),
 };
 
