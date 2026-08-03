@@ -27,6 +27,19 @@ export const SPAWN_Y = SUSPENSION_SETTLE + 0.05 + 0.02; // corner offset + a hai
 // Driving feel
 export const BOOST_TOP_MULT = 1.3; // boosting may exceed top speed by this much
 export const UPRIGHT_ASSIST = 14; // air auto-level torque toward wheels-down
+// Grounded self-righting. A bad landing (spring jump, ramp, shove) can leave
+// the car wedged on two wheels or a chassis corner — still "grounded" as far
+// as the suspension rays care, but visibly out of shape, and the springs
+// alone can't always win the wedge back. Past the alignment gate, torque the
+// car toward the surface it is actually touching (so ramps and banked driving
+// never feel it). Stronger than the air assist because down here it has to
+// argue with gravity.
+export const UPRIGHT_GROUND_DOT = 0.88; // engage when car-up · contact-normal < this (~28° out)
+export const UPRIGHT_GROUND_MULT = 2.5; // grounded righting gain, × the air assist
+// The parking brake pins a stopped car so it never creeps — but pinning a
+// TILTED car freezes it mid-fall and it balances there forever (the "stuck
+// on two wheels" glitch). Only a reasonably upright car gets pinned.
+export const PARK_BRAKE_MIN_UP = 0.9;
 export const SLOPE_ASSIST = 0.8; // fraction of along-slope gravity cancelled on throttle
 export const BOOST_MAX = 100;
 export const BOOST_REGEN = 12; // per second while grounded

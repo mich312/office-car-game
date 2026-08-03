@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import {
   CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP, BOOST_TOP_MULT,
   SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, SPAWN_Y,
-  UPRIGHT_ASSIST, SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
+  UPRIGHT_ASSIST, UPRIGHT_GROUND_DOT, UPRIGHT_GROUND_MULT, PARK_BRAKE_MIN_UP,
+  SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
   DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
@@ -376,7 +377,6 @@ export default function LocalCar() {
     const pos = body.translation();
     const rot = body.rotation();
     const vel = body.linvel();
-    const ang = body.angvel();
     _q.set(rot.x, rot.y, rot.z, rot.w);
     _fwd.set(0, 0, 1).applyQuaternion(_q);
     _right.set(1, 0, 0).applyQuaternion(_q);
@@ -390,6 +390,10 @@ export default function LocalCar() {
     // The Ray is built once and re-aimed per wheel: four allocations every
     // physics step is 240/s of pure GC pressure in the hottest loop we have.
     let groundedWheels = 0;
+    // floor-ish contact normal sum: the self-righting reference. Wall hits
+    // (near-horizontal normals) are excluded so leaning on a skirting board
+    // doesn't read as "the ground is sideways".
+    let gnX = 0, gnY = 0, gnZ = 0;
     const ray = _ray.current || (_ray.current = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 }));
     ray.dir.x = -_up.x; ray.dir.y = -_up.y; ray.dir.z = -_up.z;
     for (let wi = 0; wi < WHEELS.length; wi++) {
@@ -397,12 +401,13 @@ export default function LocalCar() {
       _corner.set(wx, wy, wz).applyQuaternion(_q);
       _p.set(pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z);
       ray.origin.x = _p.x; ray.origin.y = _p.y; ray.origin.z = _p.z;
-      const hit = world.castRay(ray, SUSPENSION_REST + 0.15, true, undefined, undefined, undefined, body);
+      const hit = world.castRayAndGetNormal(ray, SUSPENSION_REST + 0.15, true, undefined, undefined, undefined, body);
       // wheel visual sits where the ray hit (or droops at full travel in the air)
       wheelYRef.current[wi] = wy - (hit ? Math.min(hit.timeOfImpact ?? hit.toi, SUSPENSION_REST + 0.1) : SUSPENSION_REST * 0.8) + wheelR;
       if (hit) {
         const len = hit.timeOfImpact ?? hit.toi;
         groundedWheels++;
+        if (hit.normal && hit.normal.y > 0.3) { gnX += hit.normal.x; gnY += hit.normal.y; gnZ += hit.normal.z; }
         const compression = 1 - len / SUSPENSION_REST;
         // point velocity along suspension
         const pv = body.velocityAtPoint ? body.velocityAtPoint({ x: _p.x, y: _p.y, z: _p.z }) : vel;
@@ -427,6 +432,30 @@ export default function LocalCar() {
     } else {
       S.groundedTime = 0;
       S.sinceGrounded = (S.sinceGrounded || 0) + dt;
+    }
+
+    // ---------------- grounded self-righting
+    // Torque = K · (car-up × surface-normal): zero when the wheels point at
+    // the surface, strongest at 90° out of shape. The alignment gate means a
+    // car driving normally — flat floor, ramps, mid-corner weight transfer —
+    // never feels it; a car that landed wedged on two wheels or a chassis
+    // corner gets pushed back onto its tyres instead of balancing there.
+    // Scaled by car mass so the Micro Monster rights as briskly as the
+    // Formula (torque tracks inertia).
+    if (grounded) {
+      const nLen = Math.hypot(gnX, gnY, gnZ);
+      // wheels only touching walls → fall back to world up as the reference
+      const ux = nLen > 0.1 ? gnX / nLen : 0;
+      const uy = nLen > 0.1 ? gnY / nLen : 1;
+      const uz = nLen > 0.1 ? gnZ / nLen : 0;
+      if (_up.x * ux + _up.y * uy + _up.z * uz < UPRIGHT_GROUND_DOT) {
+        const K = UPRIGHT_ASSIST * UPRIGHT_GROUND_MULT * car.mass;
+        body.applyTorqueImpulse({
+          x: (_up.y * uz - _up.z * uy) * K * dt,
+          y: (_up.z * ux - _up.x * uz) * K * dt,
+          z: (_up.x * uy - _up.y * ux) * K * dt,
+        }, true);
+      }
     }
 
     const stunned = nowMs < S.stunnedUntil;
@@ -536,9 +565,14 @@ export default function LocalCar() {
         fade = 1 - 0.35 * s * s * (3 - 2 * s);
       }
       const yawTarget = steer * car.handling * speedFactor * fade * dir * (drifting ? 1.45 : 1);
-      // snappy steering response — tight corners need the yaw rate NOW
-      const newAngY = ang.y + (yawTarget - ang.y) * Math.min(1, dt * 14);
-      body.setAngvel({ x: ang.x, y: newAngY, z: ang.z }, true);
+      // snappy steering response — tight corners need the yaw rate NOW.
+      // Re-read angvel here: `ang` is from the top of the step, and writing it
+      // back would erase the roll/pitch impulses the suspension (and the
+      // self-righting torque) applied since — the original "car stays tilted"
+      // glitch, where the springs pushed but the steering write undid them.
+      const angNow = body.angvel();
+      const newAngY = angNow.y + (yawTarget - angNow.y) * Math.min(1, dt * 14);
+      body.setAngvel({ x: angNow.x, y: newAngY, z: angNow.z }, true);
       // lateral grip (Overdrift: sideways but never out of control)
       const overdrift = nowMs < S.overdriftUntil;
       const grip = car.grip * (drifting ? car.drift * (overdrift ? 1.6 : 1) : 1) * gripMul * (counterSteer && !drifting ? 1.25 : 1);
@@ -550,7 +584,10 @@ export default function LocalCar() {
       if (throttle === 0) {
         body.applyImpulse({ x: -_v.x * mass * 2.2 * dt, y: 0, z: -_v.z * mass * 2.2 * dt }, true);
         const hSpeed = Math.hypot(_v.x, _v.z);
-        if (hSpeed < 1.2 && !drifting && gripMul > 0.5) {
+        // the upright gate matters: zeroing horizontal velocity on a TILTED
+        // car freezes the fall the self-righting torque is trying to finish —
+        // the car would balance on two wheels forever
+        if (hSpeed < 1.2 && !drifting && gripMul > 0.5 && _up.y > PARK_BRAKE_MIN_UP) {
           const damp = hSpeed < 0.15 ? 0 : 0.7; // full stop once it's basically stopped
           body.setLinvel({ x: _v.x * damp, y: vel.y, z: _v.z * damp }, true);
         }
@@ -594,12 +631,22 @@ export default function LocalCar() {
       }
     } else if (!grounded && !frozen && !stunned) {
       // airborne (off a ramp or a spring pad): no player spin — just level
-      // the car toward wheels-down so every launch ends in a clean landing
-      body.applyTorqueImpulse({ x: -_up.z * UPRIGHT_ASSIST * dt, y: 0, z: _up.x * UPRIGHT_ASSIST * dt }, true);
+      // the car toward wheels-down so every launch ends in a clean landing.
+      // Mass-scaled: torque tracks inertia, so heavy cars level as fast as
+      // light ones instead of landing on their lids.
+      const K = UPRIGHT_ASSIST * car.mass;
+      body.applyTorqueImpulse({ x: -_up.z * K * dt, y: 0, z: _up.x * K * dt }, true);
+      // dead flat on its roof, up × world-up ≈ 0 and the leveller stalls at
+      // the unstable equilibrium — kick a roll about the nose to break it
+      if (_up.y < -0.5 && Math.hypot(_up.x, _up.z) < 0.3) {
+        body.applyTorqueImpulse({ x: _fwd.x * K * 0.6 * dt, y: _fwd.y * K * 0.6 * dt, z: _fwd.z * K * 0.6 * dt }, true);
+      }
     } else if (frozen && grounded) {
       // countdown: pin the car in place so it can't creep or slide off grid
+      // (fresh angvel read — keep the suspension's roll/pitch response alive)
+      const angNow = body.angvel();
       body.setLinvel({ x: _v.x * 0.6, y: vel.y, z: _v.z * 0.6 }, true);
-      body.setAngvel({ x: ang.x, y: 0, z: ang.z }, true);
+      body.setAngvel({ x: angNow.x, y: 0, z: angNow.z }, true);
     }
     S.prevDrifting = drifting;
     // drift charge survives ramp hops (shift held through the air, MK style)
@@ -705,8 +752,15 @@ export default function LocalCar() {
     }
 
     // ---------------- upside-down & fall recovery
+    // Recovery ladder. Deeply inverted counts fast — including while sliding
+    // on the roof at speed, which used to reset the timer and turn a flip
+    // into a luge run. A moderate wedge (tilted past ~44°, basically parked)
+    // counts at half rate as the backstop for poses the righting torque
+    // can't win, like being jammed nose-up between a desk and a wall.
     const upDot = _up.y;
-    S.upsideDownTime = upDot < 0.35 && S.speed < 4 ? S.upsideDownTime + dt : 0;
+    const deepTilt = upDot < 0.35 && (S.speed < 6 || upDot < -0.4);
+    const wedgedTilt = upDot < 0.72 && S.speed < 3;
+    S.upsideDownTime = deepTilt ? S.upsideDownTime + dt : wedgedTilt ? S.upsideDownTime + dt * 0.5 : 0;
     if (k.respawn || S.upsideDownTime > 1.2) {
       k.respawn = false;
       S.upsideDownTime = 0;
