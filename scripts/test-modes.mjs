@@ -95,6 +95,26 @@ const N = CHECKPOINTS.length;
   check('coffee: a fall spills everything', a.beans === 0 && carried > 0);
 }
 
+{
+  const a = player('p1', 'Alice');
+  const room = stubRoom([a]);
+  room.modeId = 'coffee_run';
+  const mode = createMode('coffee_run', room);
+  const base = mode.beans.length;
+  a.beans = 5;
+  a.p = [0, -20, 0];
+  mode.onFall(a); // spill everything → 5 dropped beans, each with an expiry
+  a.p = [500, 0, 500]; // park far away so nothing gets re-collected
+  const spilled = mode.beans.filter((b) => b.id >= 1000);
+  check('coffee: spilled beans carry an expiry', spilled.length === 5 && spilled.every((b) => b.expiresAt > Date.now()));
+  mode.update();
+  check('coffee: spills survive until the expiry', mode.beans.filter((b) => b.id >= 1000).length === 5);
+  for (const b of spilled) b.expiresAt = Date.now() - 1;
+  mode.update();
+  check('coffee: expired spills are swept up', mode.beans.every((b) => b.id < 1000));
+  check('coffee: base beans survive the sweep', mode.beans.length === base);
+}
+
 // --------------------------------------------------------------- Sumo
 {
   const a = player('p1', 'Alice'), b = player('p2', 'Bob'), c = player('p3', 'Cass');

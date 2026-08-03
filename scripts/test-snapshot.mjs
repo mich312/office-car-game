@@ -14,7 +14,7 @@ const snap = {
   puddles: [{ id: 7, kind: 'oil', x: 1.23, z: -4.56, until: t + 8000 }, { id: 8, kind: 'coffee', x: 0, z: 0, until: t + 100 }],
   rockets: [{ id: 3, owner: 'p1', target: 'bot2', p: [10.1, 2.2, -3.3] }],
   robot: { x: -5.5, z: 6.6 },
-  ball: { p: [-13.3, 1.86, -13.3], v: [12.3, -4.5, 0.1] },
+  ball: { p: [-13.3, 1.86, -13.3], v: [12.3, -4.5, 0.1], r: 3.36 },
   beans: [[1001, 2.5, -3.5], [4, -60.2, 39.9]],
   battery: { x: 26.7, z: -2.2, carrier: 'p1' },
   race: { p1: [2, 11], bot2: [0, 3] },
@@ -47,6 +47,7 @@ check('rocket', d.rockets.length === 1 && d.rockets[0].id === 3 && approx(d.rock
 check('robot', approx(d.robot.x, -5.5, 0.011) && approx(d.robot.z, 6.6, 0.011));
 check('ball p', approx(d.ball.p[1], 1.86, 0.011));
 check('ball v', approx(d.ball.v[0], 12.3, 0.11) && approx(d.ball.v[1], -4.5, 0.11));
+check('ball r (giant ball mutator)', approx(d.ball.r, 3.36, 0.011));
 check('beans', d.beans.length === 2 && d.beans[0][0] === 1001 && approx(d.beans[1][1], -60.2, 0.011));
 check('battery', approx(d.battery.x, 26.7, 0.011) && d.battery.carrier === 'p1');
 check('race', d.race.p1[0] === 2 && d.race.p1[1] === 11 && d.race.bot2[1] === 3);

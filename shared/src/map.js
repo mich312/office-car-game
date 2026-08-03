@@ -351,8 +351,10 @@ export const CHECKPOINTS = [
 
 // Bot driving line — the lap with corner easing, every door threaded.
 export const BOT_PATH = [
-  cp(-16.5, -8), cp(-14, -8), cp(-11, -8), cp(-8, -8.5), cp(-4.5, -8.7), cp(0, -9.3),
-  cp(5, -8.6), cp(9.7, -8), cp(13, -7.5), cp(16, -7), cp(19.1, -4.5), cp(19.1, -2),
+  // the kitchen straight threads the island/counter corridor — the old single
+  // waypoint at (0,-9.3) sat INSIDE the solid island and bots drove through it
+  cp(-16.5, -8), cp(-14, -8), cp(-11, -8), cp(-8, -8.5), cp(-4.5, -8.7), cp(-3.2, -10.3),
+  cp(1.2, -10.3), cp(5, -8.6), cp(9.7, -8), cp(13, -7.5), cp(16, -7), cp(19.1, -4.5), cp(19.1, -2),
   cp(18, 0), cp(17, 1.5), cp(17, 3.4), cp(17, 5), cp(17, 7), cp(17.4, 9.3),
   cp(15.5, 10.2), cp(13, 9.7), cp(9.5, 9.5), cp(6, 9), cp(2.5, 8), cp(2.5, 7),
   cp(1.5, 4.5), cp(-1, 1.5), cp(-3, 4.5), cp(-3.5, 7), cp(-5.5, 8.5), cp(-8.5, 9.5),
@@ -362,7 +364,9 @@ export const BOT_PATH = [
 
 // Coffee Run
 export const BEAN_SPAWNS = [
-  cp(-19.5, -3), cp(-16, -10.5), cp(-11, -5.5), cp(-11.5, -10), cp(-11, -0.5),
+  // (-16.2,-9.5): just north of the reception desk — the old (-16,-10.5) was
+  // INSIDE the desk's solid collider, an invisible-but-collectable bean
+  cp(-19.5, -3), cp(-16.2, -9.5), cp(-11, -5.5), cp(-11.5, -10), cp(-11, -0.5),
   cp(-11, 5.5), cp(-5.5, 1.5), cp(1, -0.2), cp(-1, 5.8), cp(-6, -6),
   cp(1, -6.3), cp(8, -5.3), cp(11, -9.5), cp(9.5, 4.5), cp(9.5, -2.5),
   cp(15, -8.5), cp(19, -9.8), cp(15.2, 1.5), cp(18.5, 3.8), cp(15.5, 8),
@@ -431,7 +435,9 @@ export const PRINTER = { x: u(7), z: u(0.9), radius: u(5), minIntervalS: 22, max
 
 // The cleaning robot's patrol route (Last Car Standing hazard + ambient menace)
 export const ROBOT_PATH = [
-  cp(-1, 1.5), cp(2.5, -1), cp(4.5, -6), cp(0, -9), cp(-5, -8), cp(-7, -5),
+  // like BOT_PATH, the kitchen leg routes through the island/counter corridor
+  // instead of tunnelling through the solid island at (0,-9)
+  cp(-1, 1.5), cp(2.5, -1), cp(4.5, -6), cp(1.2, -10.3), cp(-3.2, -10.3), cp(-5, -8), cp(-7, -5),
   cp(-6.5, 0), cp(-4, 5), cp(-1, 6.5), cp(2, 8.5), cp(7, 9.5), cp(2.5, 5),
   cp(-2.5, 1.5), cp(-5, -1.5),
 ];

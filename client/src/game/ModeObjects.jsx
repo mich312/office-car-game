@@ -186,7 +186,11 @@ function RaceCheckpoints() {
 function Beans() {
   const ref = useRef();
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const MAXB = 40;
+  // Matches the wire cap (u8 length in the snapshot codec). 26 base spawns
+  // respawn 9 s after pickup while spills append to the END of the list, so a
+  // busy match easily runs past the old cap of 40 — and the overflow entries
+  // were exactly the freshly-spilled beans, invisible but still collectable.
+  const MAXB = 255;
   useFrame(({ clock }) => {
     const mesh = ref.current;
     if (!mesh) return;

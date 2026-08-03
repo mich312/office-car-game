@@ -100,9 +100,28 @@ function handleMessage(msg) {
       net.myId = msg.id;
       const players = {};
       for (const p of msg.players) players[p.id] = p;
+      // A WELCOME is always a fresh identity (a reconnect gets a new id), so
+      // drop everything left over from the previous connection: ghost
+      // snapshot buffers of players who left during the outage, and per-match
+      // state the missed START would have reset. Without this, a mid-podium
+      // wifi drop could carry `spectating` into the next match and park the
+      // car in drone cam, or keep a stale mutator's physics running.
+      net.remotes.clear();
+      net.flags.clear();
+      net.ball = null;
+      net.ballPrev = null;
+      net.puddles = [];
+      net.rockets = [];
       S.setState({
         connected: true, connectError: null, myId: msg.id,
         phase: msg.phase, modeId: msg.mode, endsAt: msg.endsAt, players,
+        // mid-countdown joiners get the remaining time; everyone else gets 0
+        countdownEnd: msg.countdownMs ? Date.now() + msg.countdownMs : 0,
+        mutator: msg.mutator || null,
+        powerup: null, spectating: false, spectateTarget: null,
+        event: null, eventWarn: null, podium: null,
+        scores: {}, raceProgress: {}, myBeans: 0,
+        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, lcs: null,
       });
       break;
     }
@@ -218,8 +237,10 @@ function handleMessage(msg) {
       emit('respawn_at', msg);
       break;
     case MSG.PICKUP:
-      S.setState({ powerup: msg.powerup });
-      emit('pickup', msg);
+      // powerup: null is the server acknowledging a spent item — update the
+      // tray, but don't play the pickup chime for an empty slot
+      S.setState({ powerup: msg.powerup || null });
+      if (msg.powerup) emit('pickup', msg);
       break;
     case MSG.EFFECT:
       if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, msg.until);

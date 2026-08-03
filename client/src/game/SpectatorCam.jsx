@@ -28,7 +28,7 @@ export default function SpectatorCam() {
   useFrame((_, dt) => {
     if (!spectating) return;
     S.angle += dt * 0.35;
-    // survivors only — flag 64 marks fellow ghosts
+    // survivors only — flag bit 128 marks fellow ghosts
     const ids = [...net.remotes.keys()].filter((id) => !((net.flags.get(id) || 0) & 128));
     if (!ids.length) return;
     const id = ids[S.idx % ids.length];

@@ -108,15 +108,23 @@ export class Room {
         ws.playerId = id;
         const p = this.makePlayer(id, ws, msg);
         this.players.set(id, p);
+        // Drop-in: joining mid-match spawns you straight into the game.
+        // Runs BEFORE the join is announced so mode setup (e.g. soccer's team
+        // assignment) is already on the player everyone hears about —
+        // otherwise every client renders the joiner with the default team
+        // until the next lobby refresh.
+        if (this.phase === PHASE.PLAYING && this.mode) this.mode.onJoin?.(p);
         ws.send(JSON.stringify({
           t: MSG.WELCOME, id, phase: this.phase,
           mode: this.modeId, endsAt: this.endsAt,
           players: this.publicPlayers(),
+          // mid-countdown joiners need the remaining countdown, and mid-match
+          // joiners need the active mutator — neither is in START for them
+          countdownMs: this.phase === PHASE.COUNTDOWN ? Math.max(0, this.phaseUntil - now()) : 0,
+          mutator: this.mutator?.id || null,
         }));
         this.broadcast({ t: MSG.PLAYER_JOIN, player: this.publicPlayer(p) }, id);
         this.sendLobby();
-        // Drop-in: joining mid-match spawns you straight into the game.
-        if (this.phase === PHASE.PLAYING && this.mode) this.mode.onJoin?.(p);
         break;
       }
       case MSG.READY:
@@ -291,6 +299,8 @@ export class Room {
     this.broadcast({ t: MSG.PLAYER_LEAVE, id });
     this.sendLobby();
     if (![...this.players.values()].some((pl) => !pl.bot)) this.resetToLobby(true);
+    // the leaver may have been the one un-ready player holding up the lobby
+    this.maybeStart();
   }
 
   // ---------------------------------------------------------------- flow
@@ -365,6 +375,10 @@ export class Room {
     this.puddles = [];
     this.rockets = [];
     this.bumpCounts.clear();
+    // cooldown maps are keyed by id pairs and ids are never reused, so
+    // without this they grow by a full set of pairs every match, forever
+    this.lastBump.clear();
+    this.lastRub.clear();
     this.event = null;
     this.pendingEvent = null;
     this.robot = null;
@@ -530,6 +544,9 @@ export class Room {
     const pw = player.powerup;
     if (!pw || player.eliminated) return; // ghosts don't meddle (yet)
     player.powerup = null;
+    // tell the user's HUD the slot is empty — without this the item tray
+    // shows the spent item for the rest of the match
+    if (!player.bot) this.sendTo(player, { t: MSG.PICKUP, powerup: null });
     const t = now();
     // attacking forfeits spawn protection
     player.spawnProtectUntil = 0;

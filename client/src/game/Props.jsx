@@ -260,15 +260,23 @@ function Pen({ p }) {
 
 // A stack of loose sheets — hitting it sends paper flying
 function PaperStack({ p }) {
-  const sheets = useMemo(() => Array.from({ length: 6 }, (_, i) => i), []);
   const W = 0.21 * m2u, D = 0.297 * m2u, T = 0.012 * m2u;
+  // The scatter jitter must be memoized: rapier's transform props are
+  // reactive, so fresh Math.random() values on every parent re-render (mute
+  // toggle, mutator change, …) would setTranslation every sheet — teleporting
+  // scattered paper back into neat stacks mid-match.
+  const sheets = useMemo(() => Array.from({ length: 6 }, (_, i) => ({
+    i,
+    pos: [p.x + (Math.random() - 0.5) * 0.05, p.y + 0.15 + i * (T + 0.015), p.z + (Math.random() - 0.5) * 0.05],
+    rotY: (p.rotY || 0) + (Math.random() - 0.5) * 0.2,
+  })), [p, T]);
   return (
     <group>
-      {sheets.map((i) => (
+      {sheets.map(({ i, pos, rotY }) => (
         <RigidBody
           key={i}
-          position={[p.x + (Math.random() - 0.5) * 0.05, p.y + 0.15 + i * (T + 0.015), p.z + (Math.random() - 0.5) * 0.05]}
-          rotation-y={(p.rotY || 0) + (Math.random() - 0.5) * 0.2}
+          position={pos}
+          rotation-y={rotY}
           colliders={false}
           mass={0.04}
           friction={0.5}

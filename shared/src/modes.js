@@ -14,6 +14,10 @@ export const MODES = {
     desc: 'Collect beans, deliver to the kitchen machine. Bump rivals to make them spill.',
     maxCarry: 5,
     beanScore: 10,
+    // Spilled beans sweep themselves up if nobody grabs them: long enough to
+    // double back after a bump, short enough that a chaotic match can't pile
+    // hundreds of drops (the snapshot bean list is capped at 255 on the wire).
+    spillTtlS: 25,
     seconds: 180,
   },
   battery: {
