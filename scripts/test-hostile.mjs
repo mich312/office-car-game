@@ -19,7 +19,21 @@ const server = spawn('node', ['server/src/index.js'], {
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', (d) => process.stderr.write('[server] ' + d));
-await sleep(1200);
+// Wait for the server to actually bind rather than hoping a fixed delay is
+// enough — on a cold module cache startup can exceed it, and then every
+// check below reads as a failure (the suite's one historical flake).
+await new Promise((resolve, reject) => {
+  const t0 = Date.now();
+  const probe = () => {
+    const sock = net.connect(PORT, '127.0.0.1', () => { sock.destroy(); resolve(); });
+    sock.on('error', () => {
+      sock.destroy();
+      if (Date.now() - t0 > 15000) reject(new Error('server never bound'));
+      else setTimeout(probe, 150);
+    });
+  };
+  probe();
+});
 
 // ------------------------------------------------------------------- HTTP
 // A malformed percent-escape makes decodeURIComponent throw. Unguarded that
