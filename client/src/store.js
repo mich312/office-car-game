@@ -81,7 +81,12 @@ export const useStore = create((set, get) => ({
   },
   save() {
     const { name, car, paint, cos, style, tune, xp, muted, autoGas } = get();
-    localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas }));
+    // guarded like the read at the top: where storage is blocked (quota,
+    // restricted embed) a throw here would abort whatever gameplay handler
+    // called us — e.g. addXp inside MATCH_END would kill the podium events
+    try {
+      localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas }));
+    } catch { /* profile just doesn't persist */ }
   },
   setFocus(region) {
     set({ focus: region });
@@ -104,8 +109,11 @@ export const useStore = create((set, get) => ({
     set({ timeOfDay: id, night: id === 'night' });
   },
   pushFeed(text) {
-    set((s) => ({ feed: [...s.feed.slice(-5), { key: Math.random(), text }] }));
-    setTimeout(() => set((s) => ({ feed: s.feed.slice(1) })), 6000);
+    const key = Math.random();
+    set((s) => ({ feed: [...s.feed.slice(-5), { key, text }] }));
+    // remove THIS item, not feed[0]: when a burst overflows the 6-item cap,
+    // the capped-out items' timers would otherwise eat newer messages early
+    setTimeout(() => set((s) => ({ feed: s.feed.filter((f) => f.key !== key) })), 6000);
   },
 }));
 

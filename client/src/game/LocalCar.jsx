@@ -164,7 +164,15 @@ export default function LocalCar() {
         if (st.modeId === 'soccer') {
           const team = net.teams[net.myId] || 0;
           const spots = SOCCER.kickoff.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
-          const sp = spots[net.spawnIndex % spots.length] || SOCCER.kickoff[0];
+          // spawnIndex is GLOBAL join order and teams alternate by it, so a
+          // team's members hold every other index — indexing the 6 team spots
+          // by it repeats once a team has 4+ members, teleporting teammates
+          // into the same spot (two overlapping bodies explode at GO).
+          // Use the player's ordinal within their own team: unique per team,
+          // and identical on every client since msg.teams arrives in the
+          // same order everywhere.
+          const ord = Object.keys(net.teams).filter((id) => (net.teams[id] || 0) === team).indexOf(net.myId);
+          const sp = spots[(ord >= 0 ? ord : net.spawnIndex) % spots.length] || SOCCER.kickoff[0];
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         } else {
           const sp = SPAWNS[net.spawnIndex % SPAWNS.length];

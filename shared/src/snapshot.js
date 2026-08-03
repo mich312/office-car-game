@@ -131,10 +131,17 @@ export function encodeSnapshot(snap) {
   if (sections & S_BALL) {
     w.i16(snap.ball.p[0] * POS); w.i16(snap.ball.p[1] * POS); w.i16(snap.ball.p[2] * POS);
     w.i16(snap.ball.v[0] * VEL); w.i16(snap.ball.v[1] * VEL); w.i16(snap.ball.v[2] * VEL);
+    // radius rides along so the Giant Ball mutator actually looks giant —
+    // dropping it here left clients rendering a stock ball the server was
+    // scoring at 1.8× size
+    w.u16((snap.ball.r || 0) * POS);
   }
   if (sections & S_BEANS) {
-    w.u8(snap.beans.length);
-    for (const [id, x, z] of snap.beans) { w.id16(id); w.i16(x * POS); w.i16(z * POS); }
+    // the count byte is u8: write exactly the entries the count promises, or
+    // a 256+ bean pile shifts every later section into garbage on decode
+    const beans = snap.beans.length > 255 ? snap.beans.slice(0, 255) : snap.beans;
+    w.u8(beans.length);
+    for (const [id, x, z] of beans) { w.id16(id); w.i16(x * POS); w.i16(z * POS); }
   }
   if (sections & S_BATTERY) {
     w.i16(snap.battery.x * POS); w.i16(snap.battery.z * POS);
@@ -215,6 +222,8 @@ export function decodeSnapshot(data) {
       p: [r.i16() / POS, r.i16() / POS, r.i16() / POS],
       v: [r.i16() / VEL, r.i16() / VEL, r.i16() / VEL],
     };
+    const br = r.u16();
+    if (br) snap.ball.r = br / POS;
   }
   if (sections & S_BEANS) {
     const c = r.u8();

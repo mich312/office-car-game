@@ -110,20 +110,28 @@ class LastStandingMode {
     this.room.broadcast({ t: MSG.EFFECT, type: 'eliminated', id: p.id, at: p.p.map(r2), left: left.length });
     this.room.feed(`💀 ${p.name} is out — ${cause}! ${left.length} car${left.length === 1 ? '' : 's'} left`);
     this.room.scoreChanged();
-    if (left.length <= 1 && this.room.players.size > 1) {
-      this.over = true;
-      const w = left[0];
-      if (w) {
-        w.score += LCS.WINNER_SCORE;
-        this.room.feed(`👑 ${w.name} is the LAST CAR STANDING!`);
-        this.room.scoreChanged();
-      }
-      this.room.endsAt = Math.min(this.room.endsAt, now() + 4000);
+    if (this.room.players.size > 1) this.checkLastStanding();
+  }
+  // Shared by eliminate() and onLeave(): once one (or zero) cars remain,
+  // crown the survivor and wind the match down.
+  checkLastStanding() {
+    const left = this.alive();
+    if (this.over || left.length > 1) return;
+    this.over = true;
+    const w = left[0];
+    if (w) {
+      w.score += LCS.WINNER_SCORE;
+      this.room.feed(`👑 ${w.name} is the LAST CAR STANDING!`);
+      this.room.scoreChanged();
     }
+    this.room.endsAt = Math.min(this.room.endsAt, now() + 4000);
   }
   // only a real fall eliminates — a courtesy R-key respawn shouldn't
   onFall(p) { if (p.p[1] < -6) this.eliminate(p, 'went over the edge'); }
   onJoin(p) { p.eliminated = false; p.zapT = 0; } // drop-ins join the fray
+  // a disconnect can leave one car standing just like an elimination can —
+  // without this the survivor idles out the whole remaining match timer
+  onLeave() { this.checkLastStanding(); }
   onHit() {}
   rocketTarget(player) {
     return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
@@ -239,7 +247,8 @@ class CoffeeMode {
     this.room.feed(`💥 ${p.name} spilled ${n} bean${n > 1 ? 's' : ''}${cause ? ` (${cause})` : ''}`);
   }
   onHit(attacker, victim) { this.spill(victim, attacker ? attacker.name : null); }
-  onFall(p) { this.spill(p, 'gravity', true); }
+  // only a real fall spills — a courtesy R-key flip recovery shouldn't
+  onFall(p) { if (p.p[1] < -6) this.spill(p, 'gravity', true); }
   rocketTarget(player) {
     const order = [...this.room.players.values()].filter((p) => p !== player)
       .sort((a, b) => (b.score + b.beans * 5) - (a.score + a.beans * 5));
@@ -295,7 +304,8 @@ class BatteryMode {
       this.room.feed(`🔋 ${attacker ? attacker.name : 'The office'} made ${victim.name} drop the battery`);
     }
   }
-  onFall(p) { this.drop(p); }
+  // only a real fall drops the battery — an R-key flip recovery shouldn't
+  onFall(p) { if (p.p[1] < -6) this.drop(p); }
   onLeave(p) { this.drop(p); }
   rocketTarget(player) {
     if (this.battery.carrier && this.battery.carrier !== player.id) return this.room.players.get(this.battery.carrier);
@@ -385,8 +395,15 @@ class SoccerMode {
         this.teamScores[scoringTeam] += 1;
         const scorer = this.room.players.get(b.lastTouch);
         for (const p of this.room.players.values()) if (p.team === scoringTeam) p.score += MODES.soccer.goalScore;
-        if (scorer) scorer.score += MODES.soccer.goalScore;
-        this.room.feed(`⚽ GOOOAL! ${scorer ? scorer.name : 'Someone'} scores for ${scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue'}!`);
+        // the personal scorer bonus only pays if the last touch was actually
+        // on the scoring team — an own goal must not reward the defender who
+        // conceded it (in Office Cup that was a farmable point exploit)
+        const ownGoal = scorer && scorer.team !== scoringTeam;
+        if (scorer && !ownGoal) scorer.score += MODES.soccer.goalScore;
+        const teamName = scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue';
+        this.room.feed(ownGoal
+          ? `⚽ OWN GOAL! ${scorer.name} puts it in for ${teamName}!`
+          : `⚽ GOOOAL! ${scorer ? scorer.name : 'Someone'} scores for ${teamName}!`);
         this.room.broadcast({ t: MSG.EFFECT, type: 'goal', team: scoringTeam, scorer: scorer?.id, teamScores: this.teamScores });
         this.room.scoreChanged();
         // Score cap: reaching it ends the match after a short victory lap
@@ -583,7 +600,9 @@ class SumoMode {
     }
   }
   onHit() {}
-  onFall(p) { this.eliminate(p, 'gravity'); }
+  // only a real fall eliminates — a flipped car pressing R (or the client's
+  // auto-recovery respawn) inside the ring is not "out"
+  onFall(p) { if (p.p[1] < -6) this.eliminate(p, 'gravity'); }
   onJoin(p) { p.sumoDead = true; } // drop-ins wait for the next round
   onLeave() {
     const alive = this.alive();

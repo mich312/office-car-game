@@ -265,7 +265,13 @@ function Ceiling() {
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
   const panelMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 }), []);
-  panelMat.emissiveIntensity = lightingFor(hour, lightsOut).panel;
+  // ease toward the phase target like every other light in the building
+  // (Lighting.jsx, LightPools, LightShafts all lerp at ~dt*1.8) — assigning
+  // it synchronously made the 140 panels snap while the world cross-faded
+  useFrame((_, dt) => {
+    const target = lightingFor(hour, lightsOut).panel;
+    panelMat.emissiveIntensity += (target - panelMat.emissiveIntensity) * Math.min(1, dt * 1.8);
+  });
   const panels = useMemo(() => {
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {

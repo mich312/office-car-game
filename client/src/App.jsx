@@ -1,6 +1,12 @@
 import { Suspense, lazy } from 'react';
 import { useStore } from './store.js';
 import Menu from './ui/Menu.jsx';
+import { audio } from './audio.js';
+
+// Apply the persisted mute before any UI sound can play. The in-game bridge
+// (Game.jsx) only mounts on the game screen, so without this a muted player
+// reloads into a garage that blips at full volume.
+audio.setMuted(useStore.getState().muted);
 
 // The garage needs three.js; it does not need the physics engine, the office,
 // or the effect composer. Splitting the game out means a new player waits for

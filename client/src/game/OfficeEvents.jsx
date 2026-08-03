@@ -74,7 +74,12 @@ function PaperStorm() {
       s.y -= (2 + Math.sin(t + s.phase)) * dt;
       s.x += (s.vx + Math.sin(t * 2 + s.phase) * 4) * dt;
       s.z += s.vz * dt;
-      if (s.y < 0.3) { s.y = 10 + Math.random() * 6; s.x = MAP_BOUNDS.minX + Math.random() * (MAP_BOUNDS.maxX - MAP_BOUNDS.minX); s.z = MAP_BOUNDS.minZ + Math.random() * (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ); }
+      // a sheet is airborne for many seconds and can drift tens of units —
+      // recycle it when it leaves the building, not only when it lands,
+      // or the storm visibly blows out through the glass walls
+      const out = s.x < MAP_BOUNDS.minX - 2 || s.x > MAP_BOUNDS.maxX + 2
+        || s.z < MAP_BOUNDS.minZ - 2 || s.z > MAP_BOUNDS.maxZ + 2;
+      if (s.y < 0.3 || out) { s.y = 10 + Math.random() * 6; s.x = MAP_BOUNDS.minX + Math.random() * (MAP_BOUNDS.maxX - MAP_BOUNDS.minX); s.z = MAP_BOUNDS.minZ + Math.random() * (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ); }
       dummy.position.set(s.x, s.y, s.z);
       dummy.rotation.set(t * s.spin + s.phase, s.phase, Math.sin(t * 2 + s.phase));
       dummy.updateMatrix();

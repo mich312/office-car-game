@@ -148,11 +148,17 @@ function Countdown() {
   const cup = useStore((s) => s.cup);
   const [n, setN] = useState(3);
   useEffect(() => {
+    // beep once per second-change, not once per 120 ms poll — without the
+    // guard the last 3 seconds were ~25 rapid blips and a stuttering "GO"
+    let prev = null;
     const iv = setInterval(() => {
       const left = Math.ceil((countdownEnd - Date.now()) / 1000);
       setN(left);
-      if (left > 0 && left <= 3) audio.blip(440, 0.1);
-      if (left === 0) audio.blip(880, 0.25, 0.2);
+      if (left !== prev) {
+        if (left > 0 && left <= 3) audio.blip(440, 0.1);
+        if (left === 0) audio.blip(880, 0.25, 0.2);
+        prev = left;
+      }
     }, 120);
     return () => clearInterval(iv);
   }, [countdownEnd]);
