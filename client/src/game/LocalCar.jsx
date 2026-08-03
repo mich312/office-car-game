@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import {
   CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, PHYS_TIMESTEP, BOOST_TOP_MULT,
   SUSPENSION_REST, SUSPENSION_STIFFNESS, SUSPENSION_DAMPING, SPAWN_Y,
-  UPRIGHT_ASSIST, UPRIGHT_GROUND_DOT, UPRIGHT_GROUND_MULT, PARK_BRAKE_MIN_UP,
+  UPRIGHT_GROUND_DOT, PARK_BRAKE_MIN_UP,
+  rightingTorque, airRightingK, groundRightingK, roofKickNeeded, recoveryTick, RECOVERY_AFTER_S,
   SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
@@ -42,6 +43,9 @@ const _up = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _corner = new THREE.Vector3();
+const _n = { x: 0, y: 1, z: 0 }; // righting reference normal
+const _torque = { x: 0, y: 0, z: 0 }; // righting torque impulse
+const _worldUp = { x: 0, y: 1, z: 0 };
 const _camTarget = new THREE.Vector3();
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
@@ -453,16 +457,12 @@ export default function LocalCar() {
     if (grounded) {
       const nLen = Math.hypot(gnX, gnY, gnZ);
       // wheels only touching walls → fall back to world up as the reference
-      const ux = nLen > 0.1 ? gnX / nLen : 0;
-      const uy = nLen > 0.1 ? gnY / nLen : 1;
-      const uz = nLen > 0.1 ? gnZ / nLen : 0;
-      if (_up.x * ux + _up.y * uy + _up.z * uz < UPRIGHT_GROUND_DOT) {
-        const K = UPRIGHT_ASSIST * UPRIGHT_GROUND_MULT * car.mass;
-        body.applyTorqueImpulse({
-          x: (_up.y * uz - _up.z * uy) * K * dt,
-          y: (_up.z * ux - _up.x * uz) * K * dt,
-          z: (_up.x * uy - _up.y * ux) * K * dt,
-        }, true);
+      _n.x = nLen > 0.1 ? gnX / nLen : 0;
+      _n.y = nLen > 0.1 ? gnY / nLen : 1;
+      _n.z = nLen > 0.1 ? gnZ / nLen : 0;
+      if (_up.x * _n.x + _up.y * _n.y + _up.z * _n.z < UPRIGHT_GROUND_DOT) {
+        rightingTorque(_up, _n, groundRightingK(car.mass) * dt, _torque);
+        body.applyTorqueImpulse(_torque, true);
       }
     }
 
@@ -642,11 +642,12 @@ export default function LocalCar() {
       // the car toward wheels-down so every launch ends in a clean landing.
       // Mass-scaled: torque tracks inertia, so heavy cars level as fast as
       // light ones instead of landing on their lids.
-      const K = UPRIGHT_ASSIST * car.mass;
-      body.applyTorqueImpulse({ x: -_up.z * K * dt, y: 0, z: _up.x * K * dt }, true);
+      const K = airRightingK(car.mass);
+      rightingTorque(_up, _worldUp, K * dt, _torque);
+      body.applyTorqueImpulse(_torque, true);
       // dead flat on its roof, up × world-up ≈ 0 and the leveller stalls at
       // the unstable equilibrium — kick a roll about the nose to break it
-      if (_up.y < -0.5 && Math.hypot(_up.x, _up.z) < 0.3) {
+      if (roofKickNeeded(_up)) {
         body.applyTorqueImpulse({ x: _fwd.x * K * 0.6 * dt, y: _fwd.y * K * 0.6 * dt, z: _fwd.z * K * 0.6 * dt }, true);
       }
     } else if (frozen && grounded) {
@@ -760,16 +761,14 @@ export default function LocalCar() {
     }
 
     // ---------------- upside-down & fall recovery
-    // Recovery ladder. Deeply inverted counts fast — including while sliding
-    // on the roof at speed, which used to reset the timer and turn a flip
-    // into a luge run. A moderate wedge (tilted past ~44°, basically parked)
-    // counts at half rate as the backstop for poses the righting torque
-    // can't win, like being jammed nose-up between a desk and a wall.
-    const upDot = _up.y;
-    const deepTilt = upDot < 0.35 && (S.speed < 6 || upDot < -0.4);
-    const wedgedTilt = upDot < 0.72 && S.speed < 3;
-    S.upsideDownTime = deepTilt ? S.upsideDownTime + dt : wedgedTilt ? S.upsideDownTime + dt * 0.5 : 0;
-    if (k.respawn || S.upsideDownTime > 1.2) {
+    // Recovery ladder (see shared/src/righting.js). Deeply inverted counts
+    // fast — including while sliding on the roof at speed, which used to
+    // reset the timer and turn a flip into a luge run. A moderate wedge
+    // (tilted past ~44°, basically parked) counts at half rate as the
+    // backstop for poses the righting torque can't win, like being jammed
+    // nose-up between a desk and a wall.
+    S.upsideDownTime = recoveryTick(S.upsideDownTime, _up.y, S.speed, dt);
+    if (k.respawn || S.upsideDownTime > RECOVERY_AFTER_S) {
       k.respawn = false;
       S.upsideDownTime = 0;
       S.fallCamUntil = 0;
