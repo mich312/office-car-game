@@ -202,7 +202,11 @@ class CoffeeMode {
   }
   update() {
     const t = now();
-    for (const b of this.beans) if (!b.alive && b.respawnAt && t > b.respawnAt) { b.alive = true; b.respawnAt = 0; }
+    for (const b of this.beans) {
+      if (!b.alive && b.respawnAt && t > b.respawnAt) { b.alive = true; b.respawnAt = 0; }
+      // spilled beans expire uncollected — the office cleans up after itself
+      if (b.alive && b.expiresAt && t > b.expiresAt) { b.alive = false; b.dead = true; }
+    }
     for (const p of this.room.players.values()) {
       if (p.stunUntil > t) continue;
       // pickup
@@ -240,6 +244,7 @@ class CoffeeMode {
       const a = (i / n) * Math.PI * 2;
       this.beans.push({
         id: this.dropId++, alive: true, respawnAt: 0,
+        expiresAt: now() + MODES.coffee_run.spillTtlS * 1000,
         x: r2(p.p[0] + Math.cos(a) * (1.2 + Math.random())),
         z: r2(p.p[2] + Math.sin(a) * (1.2 + Math.random())),
       });
