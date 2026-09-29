@@ -16,10 +16,13 @@
 //
 // Why instancing: there are ~145 props on the office floor and each is its own
 // physics body. Drawn as meshes that was ~400 draw calls; drawn per part-kind
-// as InstancedMeshes fed from the bodies' transforms it's ~40, however much
-// detail the models carry. Props render an <Inst> marker (an empty group)
-// inside their <Body>; every frame, after the physics step has moved the
-// bodies, the instancer copies each marker's world matrix into its slot.
+// as InstancedMeshes fed from the bodies' transforms it's 60-75 (shadow
+// passes included), however much detail the models carry. Props render an
+// <Inst> marker (an empty group) inside their <Body>; every frame, after the
+// physics step has moved the bodies, the instancer copies each marker's
+// world matrix into its slot.
+// Theme props (themes/*.jsx) can join in the same way: defineModel() their
+// own model and render <Inst model=... /> inside their <Body>.
 import { useLayoutEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -233,7 +236,9 @@ const MAT_DEFS = {
   ball: [() => new THREE.MeshStandardMaterial({ map: atlasTex(), roughness: 0.72, normalMap: pebbleNormal(), normalScale: pebbleScale }), true],
   marble: [() => new THREE.MeshStandardMaterial({ map: atlasTex(), roughness: 0.04, metalness: 0.1, envMapIntensity: 2 }), false],
   gold: [() => new THREE.MeshStandardMaterial({ map: atlasTex(), color: '#ffd24a', metalness: 0.95, roughness: 0.16, emissive: '#8a6d00', emissiveIntensity: 0.45 }), true],
-  coffee: [() => new THREE.MeshStandardMaterial({ color: '#2a170a', roughness: 0.06 }), false],
+  // dark and glossy, but not a mirror: at a grazing angle a full reflection
+  // of the ceiling turned every coffee into milk
+  coffee: [() => new THREE.MeshStandardMaterial({ color: '#24130a', roughness: 0.14, envMapIntensity: 0.35 }), false],
   // Clear stuff: tinted, no transmission (too expensive); depthWrite off so a
   // glass never punches a hole in what's behind it.
   glass: [() => new THREE.MeshPhysicalMaterial({ color: '#e4f4f8', transparent: true, opacity: 0.26, roughness: 0.04, metalness: 0, clearcoat: 1, depthWrite: false }), false],

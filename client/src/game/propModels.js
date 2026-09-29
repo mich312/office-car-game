@@ -137,7 +137,7 @@ function keyboard(pal, lo) {
     }));
   }
   // rubber feet at the back corners, the little legs up
-  for (const x of [-0.19, 0.19]) parts.push(part(rbox(0.03, 0.006, 0.012, 0.002), 'plastic', { at: [x, 0.003, -0.066], color: '#141414' }));
+  for (const x of [-0.19, 0.19]) parts.push(part(box(0.03, 0.006, 0.012), 'plastic', { at: [x, 0.003, -0.066], color: '#141414' }));
   return bake(parts);
 }
 defineModel('keyboard', (lo) => keyboard({ deck: '#26282d', key: '#34373e', mod: '#202226' }, lo), 4);
@@ -511,17 +511,17 @@ defineModel('lamp', () => {
     const px = E[0] * t, py = 0.04 + (E[1] - 0.04) * t;
     spring.push([px + Math.cos(ang) * 0.004 - 0.004, py + Math.sin(ang) * 0.004 * 0.3, 0.02 + Math.sin(ang) * 0.004]);
   }
-  const joint = (p) => part(cyl(0.01, 0.01, 0.028, 12), 'metal', { at: p, rot: [PI / 2, 0, 0], color: '#3a3d43' });
+  const joint = (p) => part(cyl(0.01, 0.01, 0.028, 10), 'metal', { at: p, rot: [PI / 2, 0, 0], color: '#3a3d43' });
   const shadeRot = [0, 0, 0.75];
   return bake([
-    part(lathe([[0, 0], [0.074, 0], [0.079, 0.004], [0.08, 0.017], [0.075, 0.024], [0.03, 0.028], [0.018, 0.034], [0, 0.035]], 24), 'plastic', { tint: 1 }),
+    part(lathe([[0, 0], [0.074, 0], [0.079, 0.004], [0.08, 0.017], [0.075, 0.024], [0.03, 0.028], [0.018, 0.034], [0, 0.035]], 18), 'plastic', { tint: 1 }),
     joint([0, 0.042, 0]),
     ...rods([0, 0.042], E), ...rods(E, H),
     part(tube(spring, 0.0012, 40, 3), 'metal', { color: '#9aa0a8' }),
     joint(E), joint(H),
     part(lathe([[0.072, -0.012], [0.069, -0.01], [0.06, 0], [0.03, 0.045], [0.02, 0.058], [0.012, 0.064], [0, 0.068]], 20), 'plastic', { at: [0.075, 0.405, 0], rot: shadeRot, tint: 1 }),
     part(lathe([[0, 0.059], [0.018, 0.053], [0.028, 0.041], [0.057, -0.003], [0.066, -0.009]], 20), 'glow', { at: [0.075, 0.405, 0], rot: shadeRot, color: '#ffe2a8' }),
-    part(new THREE.SphereGeometry(0.019, 12, 8), 'glow', { at: [0.075 + 0.028 * Math.sin(0.75), 0.405 + 0.028 * Math.cos(0.75), 0], color: '#fff6e0' }),
+    part(new THREE.SphereGeometry(0.019, 10, 6), 'glow', { at: [0.075 + 0.028 * Math.sin(0.75), 0.405 + 0.028 * Math.cos(0.75), 0], color: '#fff6e0' }),
   ]);
 });
 
