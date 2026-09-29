@@ -4,6 +4,7 @@ import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { Sparkles, RoundedBox } from '@react-three/drei';
+import { roundedBox } from './roundedGeo.js';
 import * as THREE from 'three';
 import { ROOMS, WALLS, FURNITURE, RAMPS, WALL_HEIGHT, M, MAP_BOUNDS, roomAt } from '@rc/shared';
 import { useStore } from '../store.js';
@@ -15,13 +16,17 @@ import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineT
 // plastic under a directional light; the normal gives the surface something
 // for a low sun to rake across, and the roughness breakup stops the whole
 // room sharing one specular response. See textures.js — all procedural.
+// Carpet pile, not gravel: at 0.5 the low golden-hour sun raked every speck
+// of the normal map into a pebble, and from 18 cm up the open office read as
+// a dirt road.
+const CARPET_BUMP = 0.22;
 const FLOOR_MATS = {
   carpet: () => new THREE.MeshStandardMaterial({
-    map: carpetTex('#3e4a5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    map: carpetTex('#3e4a5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(CARPET_BUMP, CARPET_BUMP),
     roughnessMap: wearRough('carpet', 238, 10, [18, 18]), roughness: 1,
   }),
   carpet2: () => new THREE.MeshStandardMaterial({
-    map: carpetTex('#4a3e5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    map: carpetTex('#4a3e5e'), normalMap: carpetNormal(), normalScale: new THREE.Vector2(CARPET_BUMP, CARPET_BUMP),
     roughnessMap: wearRough('carpet', 238, 10, [18, 18]), roughness: 1,
   }),
   tile: () => new THREE.MeshStandardMaterial({
@@ -396,16 +401,14 @@ function Furniture({ f, mats }) {
         <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
           <CuboidCollider args={[w / 2, (h * 0.55) / 2, d / 2]} position={[0, h * 0.275, 0]} />
           <CuboidCollider args={[w / 2, h / 2, d * 0.14]} position={[0, h / 2, -d / 2 + d * 0.14]} />
-          <mesh position={[0, h * 0.275, 0]} castShadow receiveShadow material={mats.fabric}>
-            <boxGeometry args={[w, h * 0.55, d]} />
-          </mesh>
-          <mesh position={[0, h * 0.6, -d / 2 + d * 0.14]} castShadow material={mats.fabric}>
-            <boxGeometry args={[w, h * 0.8, d * 0.28]} />
-          </mesh>
+          {/* upholstery is soft: big radii on every cushion */}
+          <mesh position={[0, h * 0.275, 0]} castShadow receiveShadow material={mats.fabric}
+            geometry={roundedBox(w, h * 0.55, d, 0.2)} />
+          <mesh position={[0, h * 0.6, -d / 2 + d * 0.14]} castShadow material={mats.fabric}
+            geometry={roundedBox(w, h * 0.8, d * 0.28, 0.18)} />
           {[-1, 1].map((s) => (
-            <mesh key={s} position={[s * (w / 2 - 0.15), h * 0.45, 0]} castShadow material={mats.fabric}>
-              <boxGeometry args={[0.3, h * 0.9, d]} />
-            </mesh>
+            <mesh key={s} position={[s * (w / 2 - 0.15), h * 0.45, 0]} castShadow material={mats.fabric}
+              geometry={roundedBox(0.3, h * 0.9, d, 0.13)} />
           ))}
         </RigidBody>
       );
@@ -413,9 +416,8 @@ function Furniture({ f, mats }) {
       return (
         <RigidBody type="fixed" colliders={false} position={[x, 0, z]} friction={0.4}>
           <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-          <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={mats.dark}>
-            <boxGeometry args={[w, h, d]} />
-          </mesh>
+          <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={mats.dark}
+            geometry={roundedBox(w, h, d, 0.06)} />
           <ServerLights w={w} h={h} d={d} />
         </RigidBody>
       );
@@ -442,9 +444,8 @@ function Furniture({ f, mats }) {
       return (
         <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY}>
           <CuboidCollider args={[w / 2 + 0.02, h / 2, d / 2]} position={[0, h / 2 + 0.4, 0]} />
-          <mesh position={[0, h / 2 + 0.4, 0]} castShadow material={mats.white}>
-            <boxGeometry args={[w, h, d]} />
-          </mesh>
+          <mesh position={[0, h / 2 + 0.4, 0]} castShadow material={mats.white}
+            geometry={roundedBox(w, h, d, 0.05)} />
           <mesh position={[w / 2 + 0.01, h / 2 + 0.5, 0]} rotation-y={Math.PI / 2}>
             <planeGeometry args={[d * 0.9, h * 0.85]} />
             <meshStandardMaterial color="#f6f8f9" roughness={0.3} />
@@ -508,17 +509,14 @@ function Furniture({ f, mats }) {
             <CuboidCollider key={s} args={[0.09, h / 2, d / 2]} position={[s * (w / 2 - 0.09), h / 2, 0]} />
           ))}
           <CuboidCollider args={[w / 2 - 0.18, 0.3, d / 2 - 0.25]} position={[0, 0.3, -0.12]} />
-          <mesh castShadow receiveShadow material={mats.teal} position={[0, h / 2, -d / 2 + 0.09]}>
-            <boxGeometry args={[w, h, 0.18]} />
-          </mesh>
+          <mesh castShadow receiveShadow material={mats.teal} position={[0, h / 2, -d / 2 + 0.09]}
+            geometry={roundedBox(w, h, 0.18, 0.08)} />
           {[-1, 1].map((s) => (
-            <mesh key={s} castShadow material={mats.teal} position={[s * (w / 2 - 0.09), h / 2, 0]}>
-              <boxGeometry args={[0.18, h, d]} />
-            </mesh>
+            <mesh key={s} castShadow material={mats.teal} position={[s * (w / 2 - 0.09), h / 2, 0]}
+              geometry={roundedBox(0.18, h, d, 0.08)} />
           ))}
-          <mesh castShadow material={mats.fabric} position={[0, 0.42, -0.12]}>
-            <boxGeometry args={[w - 0.4, 0.5, d - 0.5]} />
-          </mesh>
+          <mesh castShadow material={mats.fabric} position={[0, 0.42, -0.12]}
+            geometry={roundedBox(w - 0.4, 0.5, d - 0.5, 0.18)} />
         </RigidBody>
       );
     case 'stall':
