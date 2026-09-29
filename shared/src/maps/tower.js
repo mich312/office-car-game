@@ -190,8 +190,8 @@ const FURNITURE = [
   f('tower_olive', 16.4, 11.2, 0.9, 0.9, 0.9),
   f('tower_olive', 20.2, 9.6, 0.9, 0.9, 0.9),
   f('tower_olive', 20.2, 5.9, 0.9, 0.9, 0.9),
-  f('tower_lounger', 10.4, 11.1, 0.7, 1.9, 0.35),
-  f('tower_lounger', 18.2, 11.1, 0.7, 1.9, 0.35),
+  f('tower_lounger', 10.4, 11.0, 0.7, 1.9, 0.35),
+  f('tower_lounger', 18.2, 11.0, 0.7, 1.9, 0.35),
   f('tower_mast', 20.4, 11.4, 0.5, 0.5, 3.4),
 
   // ---- Executive Pantry: the espresso bar on the east wall, the island

@@ -151,7 +151,7 @@ const FURNITURE = [
   ff('cellar_leaf', -8.7, -0.87, 1.8, 0.05, 2.05, N, { magnet: true }),
   // Loading dock — the platform along the west wall, the roller shutter in
   // the south wall (bollards either side), pallets, racking, a pallet jack
-  ff('cellar_dock', -16.75, -6.5, 2.5, 8, 0.9, E),
+  ff('cellar_dock', -16.7, -6.5, 2.4, 8, 0.9, E), // its back stands off the west wall
   f('cellar_pallet', -10.6, -9.8, 1.2, 1.0, 0.15, N, { load: 'boxes' }),
   f('cellar_pallet', -10.6, -3.4, 1.2, 1.0, 0.15, N, { load: 'wrap' }),
   ff('cellar_shelf', -9.45, -9.2, 0.6, 2.4, 2.0, W, { kind: 'racking' }),
