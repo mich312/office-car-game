@@ -563,7 +563,12 @@ export const wearRough = (key, base, spread, repeat = [6, 6]) =>
       const grad = g.createRadialGradient(x, y, 0, x, y, r);
       const v = base + (Math.random() * 2 - 1) * spread;
       grad.addColorStop(0, `rgba(${v},${v},${v},0.65)`);
-      grad.addColorStop(1, 'rgba(0,0,0,0)');
+      // Fade to the SAME value, transparent — not to transparent black. The
+      // gradient interpolates colour and alpha separately, so a fade to
+      // rgba(0,0,0,0) drags the blotch's rim toward 0 on the way out: a dark
+      // ring, and dark in a roughness map is GLOSS. Every blotch grew a shiny
+      // halo, and a raking golden-hour sun lit the carpet up in pools.
+      grad.addColorStop(1, `rgba(${v},${v},${v},0)`);
       g.fillStyle = grad;
       g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
     }

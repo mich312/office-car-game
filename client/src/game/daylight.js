@@ -82,14 +82,20 @@ export const DAYLIGHT = {
     clock: '19:05',
     // very low and west: the longest shadows in the game, deep orange key
     sun: { pos: [-172, 30, 108], color: '#ff9a3c', intensity: 3.4 },
-    amb: { intensity: 0.26, color: '#ffcf9a' },
-    hemi: { intensity: 0.42, sky: '#ffc98a', ground: '#4a3020' },
+    // Warm sun, COOL fill. Every light here used to be orange, and a scene lit
+    // in one hue has nothing to separate: walls, floor and ceiling merged into
+    // one orange, and the blue car rendered green (orange light × blue paint
+    // leaves mostly green — measured 153° against its true 204°, under every
+    // tone mapper, so it was never ACES). Real golden hour has a blue sky
+    // filling the shadows; that warm/cool split is the Firewatch read.
+    amb: { intensity: 0.28, color: '#b9aec0' },
+    hemi: { intensity: 0.44, sky: '#aaa6c8', ground: '#4a3020' },
     ceiling: 4,
     env: {
       intensity: 0.82,
-      bg: '#c4703a',
+      bg: '#8a6a66',
       window: { color: '#ffb060', intensity: 6.5 },
-      ceil: { color: '#ffe0b0', intensity: 1.4 },
+      ceil: { color: '#d8cfe0', intensity: 1.4 },
       warm: { color: '#ff9c4a', intensity: 2.4 },
       key: { color: '#ffd0a0', intensity: 2.6 },
     },

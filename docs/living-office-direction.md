@@ -153,8 +153,15 @@ cast an accurate shadow, so the cheat is invisible.
 
 - **Coffee steam** in the morning, **dust motes** in the afternoon shafts.
   `particles.jsx` already exists.
-- **Per-hour tone mapping.** ACES is still on every phase and it's fighting
-  golden hour specifically. AgX or Neutral would keep the orange.
+- ~~**Per-hour tone mapping.** ACES is still on every phase and it's fighting
+  golden hour specifically.~~ **Measured, and wrong:** the same golden-hour
+  frame under ACES, AgX and Neutral put the (blue, 204°) car at 153°, 151° and
+  155° — green under all three. The culprit was the palette: every light at
+  golden hour was orange (sun, ambient, hemisphere sky, all four environment
+  panels), and orange light on blue paint leaves mostly green. The fix was a
+  cooler fill under the warm sun (mauve-grey sky/ambient/ceiling panel; sun,
+  window and key stay warm): car 184°, white tiles read white, sunlit walls
+  still glow. A full blue fill (189°) read as dusk. ACES stays.
 - **Lamp glows don't follow knocked-over lamps.** Lamps are physics bodies; the
   glow is pinned to the map position. Rare enough to leave, cheap to fix by
   reading the body transform.
@@ -167,6 +174,21 @@ The lighting is the loud half; this is the half that makes it feel handmade
 rather than merely lit. One rule does most of the work:
 
 > **Nothing has a razor edge.**
+
+**Status:** started. Desks, tables and simple cabinets were already
+`RoundedBox`; chair backs, sofa cushions (big radii — upholstery is soft),
+focus-booth shells and cushions, server racks and the whiteboard now come from
+a shared rounded-geometry cache (`client/src/game/roundedGeo.js`: one geometry
+per size, so 21 chairs share one backrest). Measured at three views: draw
+calls unchanged, geometries 932 → 879, triangles +17–30% (125k at most).
+Walls and pillars stay square — they're one stretched instanced cube, and
+architecture is allowed corners. Still to do: monitor bezels, keyboards,
+cardboard boxes.
+
+Found on the way: every wear/roughness map faded its blotches to *transparent
+black*, which drags each rim toward 0 — gloss, in a roughness map — so every
+blotch grew a shiny halo, and a raking sun lit carpet and wood up in pools.
+That, more than the normal map, was why the open office read as a gravel road.
 
 - Rounded corners on every desk, monitor bezel, keyboard and box — a 1–2 mm
   chamfer at real scale, which at 18 cm car scale is a visible, catchable
@@ -270,8 +292,8 @@ prove the whole idea in a day.
 1. ~~Time-of-day lighting rig~~ — **done**
 2. ~~Player-following directional shadows with texel snapping~~ — **done**
 3. ~~Practical lights (lamps, monitors, keycaps, charger LEDs)~~ — **done**
-4. Per-hour tone mapping; kill ACES on golden hour
-5. Rounded-geometry + matte-materials pass — the Tiny Glade half
+4. ~~Per-hour tone mapping~~ — measured: not the tone mapper; golden hour got a cool fill instead
+5. Rounded-geometry + matte-materials pass — the Tiny Glade half (*started*: furniture, chairs, the halo fix)
 6. Cosmetic seeded daily deltas — proves the signature feature cheaply
 7. Weather as extra rows in the daylight table
 8. Prop vocabulary: grip surfaces, then the set-piece props

@@ -15,6 +15,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { PROPS, M, MSG, VENDING, NUDGE_RATE_MS } from '@rc/shared';
 import { makeScreen, keysTex, fabricNormal, orangePeel } from './textures.js';
 import { burst } from './particles.jsx';
+import { roundedBox } from './roundedGeo.js';
 import { audio } from '../audio.js';
 import { send, on } from '../net.js';
 
@@ -404,8 +405,23 @@ function chairBaseGeo() {
   return _chairBaseGeo;
 }
 
+// One set of chair materials for the whole office: each chair used to build
+// its own four (84 materials for 21 chairs, all identical).
+let _chairMats = null;
+function chairMats() {
+  if (_chairMats) return _chairMats;
+  const fabric = new THREE.MeshStandardMaterial({ color: '#c23b2e', roughness: 1, normalMap: fabricNormal(), normalScale: UPHOLSTERY });
+  _chairMats = {
+    base: new THREE.MeshStandardMaterial({ color: '#3a3d44', metalness: 0.6, roughness: 0.35 }),
+    column: new THREE.MeshStandardMaterial({ color: '#9aa1ab', metalness: 0.85, roughness: 0.25 }),
+    fabric,
+  };
+  return _chairMats;
+}
+
 function Chair({ p }) {
   const seatH = 0.45 * m2u;
+  const mats = chairMats();
   return (
     <Body p={p} mass={3.5} angularDamping={0.08} friction={0.3}>
       {/* star base + column + seat: colliders */}
@@ -414,21 +430,16 @@ function Chair({ p }) {
       <CuboidCollider args={[0.24 * m2u, 0.05 * m2u, 0.24 * m2u]} position={[0, 0.1, 0]} />
       <CuboidCollider args={[0.22 * m2u, 0.26 * m2u, 0.04 * m2u]} position={[0, 0.32 * m2u, -0.22 * m2u]} />
       {/* visuals */}
-      <mesh geometry={chairBaseGeo()} position={[0, -seatH + 0.07, 0]}>
-        <meshStandardMaterial color="#3a3d44" metalness={0.6} roughness={0.35} />
-      </mesh>
-      <mesh position={[0, -seatH / 2 + 0.1, 0]}>
+      <mesh geometry={chairBaseGeo()} position={[0, -seatH + 0.07, 0]} material={mats.base} />
+      <mesh position={[0, -seatH / 2 + 0.1, 0]} material={mats.column}>
         <cylinderGeometry args={[0.05 * m2u, 0.05 * m2u, seatH, 10]} />
-        <meshStandardMaterial color="#9aa1ab" metalness={0.85} roughness={0.25} />
       </mesh>
-      <mesh position={[0, 0.1, 0]} castShadow>
+      <mesh position={[0, 0.1, 0]} castShadow material={mats.fabric}>
         <cylinderGeometry args={[0.26 * m2u, 0.24 * m2u, 0.1 * m2u, 16]} />
-        <meshStandardMaterial color="#c23b2e" roughness={1} normalMap={fabricNormal()} normalScale={UPHOLSTERY} />
       </mesh>
-      <mesh position={[0, 0.32 * m2u, -0.22 * m2u]} castShadow>
-        <boxGeometry args={[0.44 * m2u, 0.5 * m2u, 0.07 * m2u]} />
-        <meshStandardMaterial color="#c23b2e" roughness={1} normalMap={fabricNormal()} normalScale={UPHOLSTERY} />
-      </mesh>
+      {/* an upholstered back, not a slab: rounded, shared by every chair */}
+      <mesh position={[0, 0.32 * m2u, -0.22 * m2u]} castShadow material={mats.fabric}
+        geometry={roundedBox(0.44 * m2u, 0.5 * m2u, 0.07 * m2u, 0.12)} />
     </Body>
   );
 }
