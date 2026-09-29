@@ -9,7 +9,7 @@ import { createSim } from './bot-sim.mjs';
 import {
   shouldUseItem, padWorthDetour, ITEM_REACT_S, ITEM_FALLBACK_S, SHIELD_ROCKET_RANGE,
 } from '../server/src/botbrain.js';
-import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, KOTH_RADIUS, MUTATORS } from '../shared/src/index.js';
+import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, KOTH_RADIUS, MUTATORS, M } from '../shared/src/index.js';
 import { MAPS, MAP_IDS } from '../shared/src/index.js';
 
 let fails = 0;
@@ -287,6 +287,25 @@ for (const mapId of MAP_IDS) {
   sim.room.onMessage(ws, { t: 'hello', name: 'Late' });
   const late = sim.room.players.get(ws.playerId);
   check('tiny cars: a drop-in is tiny too', !!late && late.shrinkUntil >= sim.room.endsAt);
+}
+
+// Moving Meeting: a ring sliding into a room behind walls used to strand
+// bots in the corridor on the wrong side, knocked out metres from it.
+for (const mapId of MAP_IDS) {
+  let n = 0, far = 0;
+  for (const seed of [1, 2, 3]) {
+    const sim = await createSim({ seed, mode: 'sumo', map: mapId, variant: 'drift' });
+    sim.room.bots.items = false;
+    const mode = sim.room.mode;
+    const elim = mode.eliminate.bind(mode);
+    mode.eliminate = (p, why) => {
+      n++;
+      if (Math.hypot(p.p[0] - mode.zone.x, p.p[2] - mode.zone.z) - mode.zone.r > 3 * M) far++;
+      return elim(p, why);
+    };
+    sim.run(250);
+  }
+  check(`${mapId} moving meeting: bots follow the ring through doors (${far}/${n} knocked out far from it)`, n > 0 && far <= n * 0.2);
 }
 
 // ------------------------------------------ every standup is reachable
