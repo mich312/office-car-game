@@ -42,7 +42,14 @@ export const impactSound = (() => {
   };
 })();
 
-export function Body({ p, mass, children, colliders = null, angularDamping = 0.15, restitution = 0.25, friction = 0.7, ccd = false, onForce }) {
+// Spawn height: `base` is how far the body's colliders reach below its
+// origin (world units). Given it, the prop is placed resting a hair above its
+// surface (p.y). Without it, the old rule: origin 0.4 u up — which buried any
+// prop taller than ~18 cm in the desk or floor under it until the solver
+// shoved it out (chairs sat 35 cm deep). `linvel` launches it (a vended can).
+const SETTLE = 0.05; // ≈ 1 cm drop
+
+export function Body({ p, mass, children, colliders = null, angularDamping = 0.15, restitution = 0.25, friction = 0.7, ccd = false, onForce, base, linvel }) {
   const ref = useRef();
   useEffect(() => {
     if (p.i === undefined) return undefined;
@@ -52,8 +59,9 @@ export function Body({ p, mass, children, colliders = null, angularDamping = 0.1
   return (
     <RigidBody
       ref={ref}
-      position={[p.x, p.y + 0.4, p.z]}
+      position={[p.x, p.y + (base === undefined ? 0.4 : base + SETTLE), p.z]}
       rotation-y={p.rotY || 0}
+      {...(linvel ? { linearVelocity: linvel } : null)}
       colliders={colliders}
       mass={mass}
       angularDamping={angularDamping}

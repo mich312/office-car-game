@@ -7,19 +7,23 @@
 // same impulse to its copy of that prop — so the mug you punted crosses your
 // friend's racing line too. Exact resting spots may differ; props settle, so
 // divergence self-heals.
-import { memo, useMemo, useRef, useState, useEffect } from 'react';
+//
+// What they look like lives in propModels.js; here each prop is its body
+// (colliders, mass, behaviour) plus <Inst> markers that the instancer
+// (propKit.jsx) draws — every mug on the floor in one call.
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { M, MSG, NUDGE_RATE_MS } from '@rc/shared';
+import { M } from '@rc/shared';
 import { useMap, currentMap } from './activeMap.js';
-import { makeScreen, keysTex, fabricNormal, orangePeel } from './textures.js';
+import { makeScreen } from './textures.js';
 import { burst } from './particles.jsx';
-import { roundedBox } from './roundedGeo.js';
 import { audio } from '../audio.js';
-import { send, on } from '../net.js';
+import { on } from '../net.js';
 import { Body, propRefs, flushPropHits, impactSound } from './propBody.jsx';
+import { PropInstances, Inst, defineMaterial, seeded, pick } from './propKit.jsx';
+import './propModels.js';
 import { PROP_PIECES } from './themes/index.js';
 
 const m2u = M; // meters → units shorthand
@@ -33,13 +37,20 @@ const indexedProps = (map) => {
   return l;
 };
 
+// Three live desktop screens shared by every monitor (a monitor shows one of
+// them), each drawn by its own instanced screen model.
+let _screens = null;
+const screens = () => (_screens ??= [makeScreen('code'), makeScreen('chart'), makeScreen('code')]);
+for (let k = 0; k < 3; k++) {
+  defineMaterial(`screen${k}`, () => new THREE.MeshBasicMaterial({ map: screens()[k].tex, toneMapped: false }));
+}
+
 export default function Props() {
   const map = useMap();
-  const screens = useMemo(() => [makeScreen('code'), makeScreen('chart'), makeScreen('code')], []);
   useEffect(() => {
-    const iv = setInterval(() => screens.forEach((s) => Math.random() > 0.4 && s.tick()), 300);
+    const iv = setInterval(() => screens().forEach((s) => Math.random() > 0.4 && s.tick()), 300);
     return () => clearInterval(iv);
-  }, [screens]);
+  }, []);
   // apply relayed whacks from other players to our local copies
   useEffect(() => on('fx', (fx) => {
     if (fx.type !== 'prop' || !Array.isArray(fx.im)) return;
@@ -63,9 +74,9 @@ export default function Props() {
           case 'glass': return <GlassCup key={key} p={p} />;
           case 'pen': return <Pen key={key} p={p} />;
           case 'stack': return <PaperStack key={key} p={p} />;
-          case 'book': return <Book key={key} p={p} i={i} />;
+          case 'book': return <Book key={key} p={p} />;
           case 'keyboard': return <Keyboard key={key} p={p} />;
-          case 'monitor': return <Monitor key={key} p={p} screen={screens[monitorIdx++ % screens.length]} />;
+          case 'monitor': return <Monitor key={key} p={p} screen={monitorIdx++ % 3} />;
           case 'chair': return <Chair key={key} p={p} />;
           case 'plant': return <Plant key={key} p={p} />;
           case 'bottle': return <Bottle key={key} p={p} />;
@@ -82,9 +93,23 @@ export default function Props() {
           }
         }
       })}
+      {/* last: its frame callback must run after everything above has moved */}
+      <PropInstances />
     </group>
   );
 }
+
+// Per-prop variety that every client agrees on: a map prop is seeded by its
+// map and index; a spawned one (no index) by its own random seed.
+function useSeed(p, salt = 0) {
+  return useMemo(() => (p.i === undefined ? Math.random() : seeded(currentMap().id, p.i, salt)), [p, salt]);
+}
+const colorCache = new Map();
+const col = (hex) => {
+  let c = colorCache.get(hex);
+  if (!c) { c = new THREE.Color(hex); colorCache.set(hex, c); }
+  return c;
+};
 
 // -------------------------------------------- server-spawned ephemera
 // Mug Rain drops mugs from the ceiling, the vending machine ejects cans
@@ -97,8 +122,8 @@ function SpawnedProps() {
       setItems((l) => [...l.slice(-17), { kind: 'mug', at: fx.at, key: Math.random() }]);
     } else if (fx.type === 'vending') {
       audio.blip(fx.golden ? 990 : 520, 0.12, 0.16);
-      const V = currentMap().VENDING;
-      burst([V.x, 2.5, V.z + 1], { count: fx.golden ? 26 : 10, color: fx.golden ? ['#ffd700', '#fff2b0'] : ['#e8332a', '#dfe4ea'], speed: 6, size: 0.09, ttl: 0.8 });
+      const flap = vendingFlap(currentMap());
+      burst([flap.x, 1.1, flap.z], { count: fx.golden ? 26 : 10, color: fx.golden ? ['#ffd700', '#fff2b0'] : ['#e8332a', '#dfe4ea'], speed: 6, size: 0.09, ttl: 0.8 });
       setItems((l) => [...l.slice(-17), { kind: 'can', golden: fx.golden, key: Math.random() }]);
     } else if (fx.type === 'printer' && Array.isArray(fx.at)) {
       burst([fx.at[0], 3.2, fx.at[2]], { count: 46, color: ['#f7f5ef', '#ffffff', '#e8e4da'], speed: 11, size: 0.16, ttl: 1.4, up: 3 });
@@ -110,51 +135,49 @@ function SpawnedProps() {
     : <Can key={it.key} golden={it.golden} />));
 }
 
-const canMat = new THREE.MeshStandardMaterial({ color: '#e8332a', metalness: 0.7, roughness: 0.25 });
-const goldCanMat = new THREE.MeshStandardMaterial({ color: '#ffd700', metalness: 0.9, roughness: 0.15, emissive: '#8a6d00', emissiveIntensity: 0.5 });
+// The vending machine's dispensing flap: low on its front face. The machine
+// faces its local +z turned by rotY (VENDING.rotY, else the furniture entry's
+// own); the flap sits 12 cm out from the front so a can never spawns inside
+// the machine's collider.
+function vendingFlap(map) {
+  const V = map.VENDING;
+  const F = map.FURNITURE.find((f) => f.type === 'vending' && Math.hypot(f.x - V.x, f.z - V.z) < 0.6 * M);
+  const rotY = V.rotY ?? F?.rotY ?? 0;
+  const out = (F?.d ?? 0.8 * M) / 2 + 0.12 * M;
+  return { x: V.x + Math.sin(rotY) * out, z: V.z + Math.cos(rotY) * out, rotY };
+}
+
 function Can({ golden }) {
   const R = 0.033 * m2u, H = 0.115 * m2u;
-  const spawn = useMemo(() => ({
-    x: currentMap().VENDING.x + (Math.random() - 0.5) * 0.6, y: 1.4, z: currentMap().VENDING.z + 1.1,
-    rotY: Math.random() * Math.PI,
-  }), []);
+  const { spawn, v } = useMemo(() => {
+    const f = vendingFlap(currentMap());
+    const side = (Math.random() - 0.5) * 0.3 * M;
+    const s = Math.sin(f.rotY), c = Math.cos(f.rotY);
+    return {
+      spawn: { x: f.x + side * c, y: 0.15 * M, z: f.z - side * s, rotY: f.rotY + Math.PI / 2 + (Math.random() - 0.5) * 0.5 },
+      // rolls out of the flap toward whoever rammed the machine
+      v: [s * 1.2 * M, 0.4 * M, c * 1.2 * M],
+    };
+  }, []);
   return (
-    <Body p={spawn} mass={0.35} restitution={0.4} angularDamping={0.05}>
+    <Body p={spawn} mass={0.35} restitution={0.4} angularDamping={0.05} base={R} linvel={v}>
       <group rotation-z={Math.PI / 2}>
         <CylinderCollider args={[H / 2, R]} />
-        <mesh castShadow material={golden ? goldCanMat : canMat}>
-          <cylinderGeometry args={[R, R, H, 12]} />
-        </mesh>
-        {[-1, 1].map((s) => (
-          <mesh key={s} position={[0, s * H / 2, 0]} material={golden ? goldCanMat : canMat}>
-            <cylinderGeometry args={[R * 0.9, R * 0.9, 0.01, 12]} />
-          </mesh>
-        ))}
+        <Inst model={golden ? 'canGold' : 'can'} />
       </group>
     </Body>
   );
 }
 
-
-const mugMat = new THREE.MeshStandardMaterial({ color: '#e8503a', roughness: 0.35 });
-const mugMat2 = new THREE.MeshStandardMaterial({ color: '#f5f2ea', roughness: 0.35 });
-let mugN = 0;
+const GLAZES = ['#f4f1ea', '#e8503a', '#2f6f8f', '#e3b23c', '#9db59a', '#23395d', '#f4f1ea', '#d9d4ec'];
 function Mug({ p }) {
-  const mat = useMemo(() => (mugN++ % 2 ? mugMat : mugMat2), []);
+  const glaze = col(pick(GLAZES, useSeed(p)));
   const R = 0.045 * m2u, H = 0.1 * m2u;
   return (
-    <Body p={p} mass={0.5}>
+    <Body p={p} mass={0.5} base={H / 2}>
       <CylinderCollider args={[H / 2, R]} />
-      <mesh castShadow material={mat}>
-        <cylinderGeometry args={[R, R * 0.85, H, 16]} />
-      </mesh>
-      <mesh position={[R + 0.05, 0, 0]} rotation-z={Math.PI / 2} material={mat}>
-        <torusGeometry args={[H * 0.28, 0.035, 8, 14]} />
-      </mesh>
-      <mesh position={[0, H / 2 - 0.02, 0]} rotation-x={-Math.PI / 2}>
-        <circleGeometry args={[R * 0.82, 14]} />
-        <meshStandardMaterial color="#4a2c14" roughness={0.15} />
-      </mesh>
+      <Inst model="mug" color={glaze} />
+      <Inst model="coffee" />
     </Body>
   );
 }
@@ -168,6 +191,7 @@ function GlassCup({ p }) {
       p={p}
       mass={0.3}
       restitution={0.1}
+      base={H / 2}
       onForce={(e) => {
         if (e.totalForceMagnitude > 4200 && !broken) {
           setBroken(true);
@@ -178,50 +202,46 @@ function GlassCup({ p }) {
       }}
     >
       <CylinderCollider args={[H / 2, R]} />
-      <mesh>
-        <cylinderGeometry args={[R, R * 0.8, H, 14, 1, true]} />
-        <meshPhysicalMaterial color="#d7f0f7" transparent opacity={0.35} roughness={0.05} side={THREE.DoubleSide} />
-      </mesh>
+      <Inst model="glass" />
     </Body>
   );
 }
 
-const penColors = ['#1b6ef3', '#e8332a', '#222', '#0a9c4f'];
+const INKS = ['#1b5fd6', '#d7302a', '#26282c', '#1f9a55', '#1b5fd6'];
 function Pen({ p }) {
-  const color = useMemo(() => penColors[(Math.random() * penColors.length) | 0], []);
+  const ink = col(pick(INKS, useSeed(p)));
   const R = 0.009 * m2u, L = 0.145 * m2u;
   return (
-    <Body p={p} mass={0.05} friction={0.4} angularDamping={0.05}>
+    <Body p={p} mass={0.05} friction={0.4} angularDamping={0.05} base={R}>
       <group rotation-z={Math.PI / 2}>
         <CylinderCollider args={[L / 2, R]} />
-        <mesh>
-          <cylinderGeometry args={[R, R, L, 8]} />
-          <meshStandardMaterial color={color} roughness={0.3} />
-        </mesh>
-        <mesh position={[0, L / 2 + 0.03, 0]}>
-          <coneGeometry args={[R * 0.9, 0.09, 8]} />
-          <meshStandardMaterial color="#c9a227" metalness={0.7} roughness={0.3} />
-        </mesh>
+        <Inst model="pen" color={ink} />
       </group>
     </Body>
   );
 }
 
-// A stack of loose sheets — hitting it sends paper flying
+// A stack of loose bundles — hitting it sends paper flying
+const PAPERS = [col('#fbfaf5'), col('#f0eee6'), col('#fbfaf5'), col('#f3efdc')];
 function PaperStack({ p }) {
   const W = 0.21 * m2u, D = 0.297 * m2u, T = 0.012 * m2u;
   // The scatter jitter must be memoized: rapier's transform props are
-  // reactive, so fresh Math.random() values on every parent re-render (mute
-  // toggle, mutator change, …) would setTranslation every sheet — teleporting
-  // scattered paper back into neat stacks mid-match.
-  const sheets = useMemo(() => Array.from({ length: 6 }, (_, i) => ({
-    i,
-    pos: [p.x + (Math.random() - 0.5) * 0.05, p.y + 0.15 + i * (T + 0.015), p.z + (Math.random() - 0.5) * 0.05],
-    rotY: (p.rotY || 0) + (Math.random() - 0.5) * 0.2,
-  })), [p, T]);
+  // reactive, so fresh values on every parent re-render (mute toggle,
+  // mutator change, …) would setTranslation every sheet — teleporting
+  // scattered paper back into neat stacks mid-match. Seeded, so every
+  // client stacks it the same way.
+  const sheets = useMemo(() => Array.from({ length: 6 }, (_, i) => {
+    const r = (k) => seeded(currentMap().id, p.i ?? 0, i * 7 + k) - 0.5;
+    return {
+      i,
+      pos: [p.x + r(1) * 0.05, p.y + 0.15 + i * (T + 0.015), p.z + r(2) * 0.05],
+      rotY: (p.rotY || 0) + r(3) * 0.2,
+      color: PAPERS[(i + (p.i ?? 0)) % PAPERS.length],
+    };
+  }), [p, T]);
   return (
     <group>
-      {sheets.map(({ i, pos, rotY }) => (
+      {sheets.map(({ i, pos, rotY, color }) => (
         <RigidBody
           key={i}
           position={pos}
@@ -233,57 +253,38 @@ function PaperStack({ p }) {
           angularDamping={0.4}
         >
           <CuboidCollider args={[W / 2, T / 2, D / 2]} />
-          <mesh receiveShadow>
-            <boxGeometry args={[W, T, D]} />
-            <meshStandardMaterial color={i % 2 ? '#f7f5ef' : '#efede4'} roughness={0.9} />
-          </mesh>
+          <Inst model="sheets" color={color} />
         </RigidBody>
       ))}
     </group>
   );
 }
 
-const bookColors = ['#8e3b3b', '#3b5f8e', '#3b8e5c', '#8e7a3b', '#5c3b8e', '#2f3542'];
-function Book({ p, i }) {
+const CLOTHS = ['#8e3b3b', '#2f4f7e', '#2f6e4b', '#a68a3f', '#5c3b8e', '#2f3542', '#b0513a', '#1f5f66'];
+function Book({ p }) {
+  const cloth = col(pick(CLOTHS, useSeed(p)));
   const W = 0.17 * m2u, H = 0.05 * m2u, L = 0.24 * m2u;
   return (
-    <Body p={p} mass={0.9} friction={0.9}>
+    <Body p={p} mass={0.9} friction={0.9} base={H / 2}>
       <CuboidCollider args={[W / 2, H / 2, L / 2]} />
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[W, H, L]} />
-        <meshStandardMaterial color={bookColors[i % bookColors.length]} roughness={0.7} />
-      </mesh>
-      <mesh position={[0.02, 0, 0]}>
-        <boxGeometry args={[W - 0.08, H * 0.82, L + 0.015]} />
-        <meshStandardMaterial color="#f1ead8" roughness={0.9} />
-      </mesh>
+      <Inst model="book" color={cloth} />
     </Body>
   );
 }
 
-const keyboardTopMat = () => new THREE.MeshStandardMaterial({ map: keysTex(), roughness: 0.5 });
-let _kbTop = null;
+// Origin on the desk. The collider was a 5 cm brick; a keyboard is 3 cm at
+// the back, so wheels no longer ride 2 cm above one lying on the floor.
 function Keyboard({ p }) {
-  const W = 0.44 * m2u, H = 0.05 * m2u, D = 0.15 * m2u;
-  const topMat = (_kbTop ??= keyboardTopMat());
+  const W = 0.44 * m2u, H = 0.032 * m2u, D = 0.15 * m2u;
+  // the cellar's IT stock is a decade older than the office's
+  const retro = currentMap().theme === 'cellar';
   return (
-    <Body p={p} mass={0.7} friction={0.8}>
-      <CuboidCollider args={[W / 2, H / 2, D / 2]} />
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[W, H, D]} />
-        <meshStandardMaterial color="#23262d" roughness={0.5} />
-      </mesh>
-      <mesh position={[0, H / 2 + 0.002, 0]} rotation-x={-Math.PI / 2} material={topMat}>
-        <planeGeometry args={[W * 0.98, D * 0.95]} />
-      </mesh>
+    <Body p={p} mass={0.7} friction={0.8} base={0}>
+      <CuboidCollider args={[W / 2, H / 2, D / 2]} position={[0, H / 2, 0]} />
+      <Inst model={retro ? 'keyboardRetro' : 'keyboard'} />
     </Body>
   );
 }
-
-// Shared normal-map strengths. Vector2s are allocated once: these props are
-// instanced across the whole office and a fresh vector per mesh adds up.
-const UPHOLSTERY = new THREE.Vector2(0.85, 0.85);
-const MOULDED = new THREE.Vector2(0.4, 0.4);
 
 function Monitor({ p, screen }) {
   const W = 0.55 * m2u, H = 0.33 * m2u;
@@ -293,28 +294,14 @@ function Monitor({ p, screen }) {
   // wide, heavy base also keeps desks looking tidy until someone hits them.
   const panelY = 0.45 + H / 2;
   return (
-    <Body p={p} mass={1.4} angularDamping={0.6}>
+    <Body p={p} mass={1.4} angularDamping={0.6} base={0}>
       {/* stand */}
       <CuboidCollider args={[0.35, 0.03, 0.25]} position={[0, 0.03, 0]} />
       <CuboidCollider args={[0.06, 0.2, 0.06]} position={[0, 0.26, 0]} />
       {/* panel */}
       <CuboidCollider args={[W / 2, H / 2, 0.05]} position={[0, panelY, 0]} />
-      <mesh position={[0, 0.03, 0]} castShadow>
-        <boxGeometry args={[0.7, 0.06, 0.5]} />
-        <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.55} normalMap={orangePeel('bezel', 0.6, [2, 2])} normalScale={MOULDED} />
-      </mesh>
-      <mesh position={[0, 0.26, 0]} castShadow>
-        <boxGeometry args={[0.12, 0.4, 0.12]} />
-        <meshStandardMaterial color="#2b2e35" metalness={0.4} roughness={0.55} normalMap={orangePeel('bezel', 0.6, [2, 2])} normalScale={MOULDED} />
-      </mesh>
-      <mesh position={[0, panelY, 0]} castShadow>
-        <boxGeometry args={[W, H, 0.1]} />
-        <meshStandardMaterial color="#14161a" roughness={0.3} />
-      </mesh>
-      <mesh position={[0, panelY, 0.055]}>
-        <planeGeometry args={[W * 0.92, H * 0.88]} />
-        <meshBasicMaterial map={screen.tex} toneMapped={false} />
-      </mesh>
+      <Inst model="monitor" />
+      <Inst model={`screen${screen}`} />
     </Body>
   );
 }
@@ -323,95 +310,50 @@ function Monitor({ p, screen }) {
 function Roll({ p }) {
   const R = 0.055 * m2u, W2 = 0.05 * m2u;
   return (
-    <Body p={p} mass={0.15} friction={0.5} angularDamping={0.04}>
+    <Body p={p} mass={0.15} friction={0.5} angularDamping={0.04} base={R}>
       <group rotation-z={Math.PI / 2}>
         <CylinderCollider args={[W2, R]} />
-        <mesh castShadow>
-          <cylinderGeometry args={[R, R, W2 * 2, 14]} />
-          <meshStandardMaterial color="#f7f5f0" roughness={0.85} />
-        </mesh>
-        <mesh>
-          <cylinderGeometry args={[R * 0.42, R * 0.42, W2 * 2 + 0.02, 10]} />
-          <meshStandardMaterial color="#c9b89a" roughness={0.9} />
-        </mesh>
+        <Inst model="roll" />
       </group>
     </Body>
   );
 }
 
-// all five star-base legs merged into one geometry, shared by every chair
-let _chairBaseGeo = null;
-function chairBaseGeo() {
-  if (_chairBaseGeo) return _chairBaseGeo;
-  const parts = [];
-  for (let i = 0; i < 5; i++) {
-    const g = new THREE.BoxGeometry(0.09, 0.07, 0.62 * m2u);
-    g.rotateY((i / 5) * Math.PI * 2);
-    parts.push(g);
-  }
-  _chairBaseGeo = mergeGeometries(parts);
-  return _chairBaseGeo;
-}
-
-// One set of chair materials for the whole office: each chair used to build
-// its own four (84 materials for 21 chairs, all identical).
-let _chairMats = null;
-function chairMats() {
-  if (_chairMats) return _chairMats;
-  const fabric = new THREE.MeshStandardMaterial({ color: '#c23b2e', roughness: 1, normalMap: fabricNormal(), normalScale: UPHOLSTERY });
-  _chairMats = {
-    base: new THREE.MeshStandardMaterial({ color: '#3a3d44', metalness: 0.6, roughness: 0.35 }),
-    column: new THREE.MeshStandardMaterial({ color: '#9aa1ab', metalness: 0.85, roughness: 0.25 }),
-    fabric,
-  };
-  return _chairMats;
-}
-
+// Origin on the floor under the casters (it used to be the seat, which put
+// the star base 35 cm inside the floor on spawn). Colliders are the same
+// shapes as ever, lifted with it. Café and meeting-room chairs are moulded
+// shells on dowel legs; the rest are task chairs.
+const FABRICS = { office: ['#c23b2e', '#c23b2e', '#c23b2e', '#2f4f7e', '#3d4046'], cellar: ['#4a5563', '#3b4a5e', '#5b5f66', '#6b4a3a'] };
+const SHELLS = ['#f2efe8', '#e3b23c', '#2f8f8a', '#e8664d', '#f2efe8', '#3b3d42'];
 function Chair({ p }) {
   const seatH = 0.45 * m2u;
-  const mats = chairMats();
+  const lift = seatH - 0.04; // the old origin's height above the floor
+  const r = useSeed(p);
+  const { cafe, color } = useMemo(() => {
+    const map = currentMap();
+    const room = map.roomAt(p.x, p.z)?.id;
+    const isCafe = room === 'cafeteria' || room === 'meeting';
+    return { cafe: isCafe, color: col(pick(isCafe ? SHELLS : FABRICS[map.theme === 'cellar' ? 'cellar' : 'office'], r)) };
+  }, [p, r]);
   return (
-    <Body p={p} mass={3.5} angularDamping={0.08} friction={0.3}>
-      {/* star base + column + seat: colliders */}
-      <CylinderCollider args={[0.04, 0.32 * m2u]} position={[0, -seatH + 0.08, 0]} />
-      <CylinderCollider args={[seatH / 2, 0.045 * m2u]} position={[0, -seatH / 2 + 0.1, 0]} />
-      <CuboidCollider args={[0.24 * m2u, 0.05 * m2u, 0.24 * m2u]} position={[0, 0.1, 0]} />
-      <CuboidCollider args={[0.22 * m2u, 0.26 * m2u, 0.04 * m2u]} position={[0, 0.32 * m2u, -0.22 * m2u]} />
-      {/* visuals */}
-      <mesh geometry={chairBaseGeo()} position={[0, -seatH + 0.07, 0]} material={mats.base} />
-      <mesh position={[0, -seatH / 2 + 0.1, 0]} material={mats.column}>
-        <cylinderGeometry args={[0.05 * m2u, 0.05 * m2u, seatH, 10]} />
-      </mesh>
-      <mesh position={[0, 0.1, 0]} castShadow material={mats.fabric}>
-        <cylinderGeometry args={[0.26 * m2u, 0.24 * m2u, 0.1 * m2u, 16]} />
-      </mesh>
-      {/* an upholstered back, not a slab: rounded, shared by every chair */}
-      <mesh position={[0, 0.32 * m2u, -0.22 * m2u]} castShadow material={mats.fabric}
-        geometry={roundedBox(0.44 * m2u, 0.5 * m2u, 0.07 * m2u, 0.12)} />
+    <Body p={p} mass={3.5} angularDamping={0.08} friction={0.3} base={0}>
+      {/* star base + column + seat + back: colliders */}
+      <CylinderCollider args={[0.04, 0.32 * m2u]} position={[0, 0.04, 0]} />
+      <CylinderCollider args={[seatH / 2, 0.045 * m2u]} position={[0, -seatH / 2 + 0.1 + lift, 0]} />
+      <CuboidCollider args={[0.24 * m2u, 0.05 * m2u, 0.24 * m2u]} position={[0, 0.1 + lift, 0]} />
+      <CuboidCollider args={[0.22 * m2u, 0.26 * m2u, 0.04 * m2u]} position={[0, 0.32 * m2u + lift, -0.22 * m2u]} />
+      <Inst model={cafe ? 'cafechair' : 'chair'} color={color} />
     </Body>
   );
 }
 
-// all six leaf cones merged into one geometry, shared by every plant
-let _plantLeavesGeo = null;
-function plantLeavesGeo() {
-  if (_plantLeavesGeo) return _plantLeavesGeo;
-  const parts = [];
-  for (let i = 0; i < 6; i++) {
-    const g = new THREE.ConeGeometry(0.09 * m2u, 0.5 * m2u, 5);
-    g.rotateX(-0.5);
-    g.rotateY((i / 6) * Math.PI * 2);
-    g.translate(0, 0.25 * m2u, 0);
-    parts.push(g);
-  }
-  _plantLeavesGeo = mergeGeometries(parts);
-  return _plantLeavesGeo;
-}
-
+const POTS = ['#b5623f', '#b5623f', '#ebe6dc', '#3b3d42', '#6f8796'];
 function Plant({ p }) {
   const ref = useRef();
   const spilled = useRef(false);
   const leaves = useRef();
+  const r = useSeed(p);
+  const pot = col(pick(POTS, useSeed(p, 3)));
   useFrame(({ clock }) => {
     if (leaves.current) leaves.current.rotation.z = Math.sin(clock.elapsedTime * 0.8 + p.x) * 0.05;
     const rb = ref.current;
@@ -429,41 +371,28 @@ function Plant({ p }) {
   });
   const potR = 0.16 * m2u, potH = 0.3 * m2u;
   return (
-    <RigidBody ref={ref} position={[p.x, p.y + 0.4, p.z]} colliders={false} mass={2.5} angularDamping={0.4} friction={0.8}
+    <RigidBody ref={ref} position={[p.x, p.y + potH / 2 + 0.05, p.z]} rotation-y={r * Math.PI * 2} colliders={false} mass={2.5} angularDamping={0.4} friction={0.8}
       onContactForce={(e) => impactSound(e.totalForceMagnitude)}>
       <CylinderCollider args={[potH / 2, potR]} />
       <CylinderCollider args={[0.35 * m2u, 0.12 * m2u]} position={[0, potH / 2 + 0.35 * m2u, 0]} />
-      <mesh castShadow>
-        <cylinderGeometry args={[potR, potR * 0.78, potH, 14]} />
-        <meshStandardMaterial color="#b0603f" roughness={0.7} />
-      </mesh>
-      <mesh position={[0, potH / 2 - 0.03, 0]} rotation-x={-Math.PI / 2}>
-        <circleGeometry args={[potR * 0.9, 14]} />
-        <meshStandardMaterial color="#33241a" roughness={1} />
-      </mesh>
-      <group ref={leaves} position={[0, potH / 2, 0]}>
-        <mesh geometry={plantLeavesGeo()} castShadow>
-          <meshStandardMaterial color="#35904a" roughness={0.8} />
-        </mesh>
+      <Inst model="pot" color={pot} />
+      {/* leaves sway about the soil line */}
+      <group ref={leaves} position={[0, 0.1 * m2u, 0]}>
+        <Inst model={r < 0.5 ? 'snake' : 'pothos'} />
       </group>
     </RigidBody>
   );
 }
 
+const CAPS = ['#2d7fd0', '#2d7fd0', '#e9ecef', '#39a860'];
 function Bottle({ p }) {
+  const cap = col(pick(CAPS, useSeed(p)));
   const R = 0.035 * m2u, H = 0.24 * m2u;
   return (
-    <Body p={p} mass={0.4} restitution={0.35} angularDamping={0.05}>
+    <Body p={p} mass={0.4} restitution={0.35} angularDamping={0.05} base={R}>
       <group rotation-z={Math.PI / 2}>
         <CylinderCollider args={[H / 2, R]} />
-        <mesh>
-          <cylinderGeometry args={[R, R, H, 12]} />
-          <meshPhysicalMaterial color="#5fb8e0" transparent opacity={0.5} roughness={0.1} />
-        </mesh>
-        <mesh position={[0, H / 2 + 0.04, 0]}>
-          <cylinderGeometry args={[R * 0.4, R * 0.4, 0.1, 10]} />
-          <meshStandardMaterial color="#f5f5f5" roughness={0.4} />
-        </mesh>
+        <Inst model="bottle" color={cap} />
       </group>
     </Body>
   );
@@ -472,82 +401,62 @@ function Bottle({ p }) {
 function Basketball({ p }) {
   const R = 0.121 * m2u;
   return (
-    <Body p={p} mass={0.62} restitution={0.82} friction={0.9} angularDamping={0.1}>
+    <Body p={p} mass={0.62} restitution={0.82} friction={0.9} angularDamping={0.1} base={R}>
       <BallCollider args={[R]} />
-      <mesh castShadow>
-        <sphereGeometry args={[R, 20, 20]} />
-        <meshStandardMaterial color="#d3722c" roughness={0.85} />
-      </mesh>
+      <Inst model="basketball" />
     </Body>
   );
 }
 
 function Marble({ p }) {
   const R = 0.016 * m2u;
-  const color = useMemo(() => new THREE.Color().setHSL(Math.random(), 0.7, 0.55), []);
+  const r = useSeed(p);
+  const color = useMemo(() => new THREE.Color().setHSL(r, 0.75, 0.55), [r]);
   return (
-    <Body p={p} mass={0.06} restitution={0.6} friction={0.15} ccd>
+    <Body p={p} mass={0.06} restitution={0.6} friction={0.15} ccd base={R}>
       <BallCollider args={[R]} />
-      <mesh>
-        <sphereGeometry args={[R, 12, 12]} />
-        <meshPhysicalMaterial color={color} roughness={0.05} metalness={0.1} envMapIntensity={2} />
-      </mesh>
+      <Inst model="marble" color={color} rotation={[r * 6, r * 17, r * 3]} />
     </Body>
   );
 }
 
+// Same carton, a slightly different batch of board each time.
+const BOARDS = [col('#ffffff'), col('#f1e8dc'), col('#e8e2da'), col('#fff6e8')];
 function CardboardBox({ p }) {
   const S = 0.34 * m2u;
+  const board = pick(BOARDS, useSeed(p));
   return (
-    <Body p={p} mass={1.4} friction={0.9}>
+    <Body p={p} mass={1.4} friction={0.9} base={S / 2}>
       <CuboidCollider args={[S / 2, S / 2, S / 2]} />
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[S, S, S]} />
-        <meshStandardMaterial color="#c1935a" roughness={0.95} />
-      </mesh>
-      <mesh position={[0, S / 2 + 0.005, 0]} rotation-x={-Math.PI / 2}>
-        <planeGeometry args={[S * 0.3, S]} />
-        <meshStandardMaterial color="#a87c46" roughness={0.95} />
-      </mesh>
+      <Inst model="box" color={board} />
     </Body>
   );
 }
 
+// Origin under the base (it was mid-stem, which buried the base 12 cm in the
+// desk on spawn); the three colliders are unchanged, lifted with it.
+const SHADES = ['#e0b03c', '#26282d', '#c23b2e', '#ebe7de'];
 function Lamp({ p }) {
+  const shade = col(pick(SHADES, useSeed(p)));
+  const lift = 0.215 * m2u;
   return (
-    <Body p={p} mass={1} angularDamping={0.2}>
-      <CuboidCollider args={[0.09 * m2u, 0.015 * m2u, 0.09 * m2u]} position={[0, -0.2 * m2u, 0]} />
-      <CuboidCollider args={[0.02 * m2u, 0.2 * m2u, 0.02 * m2u]} />
-      <CuboidCollider args={[0.07 * m2u, 0.05 * m2u, 0.07 * m2u]} position={[0.06 * m2u, 0.2 * m2u, 0]} />
-      <mesh position={[0, -0.2 * m2u, 0]} castShadow>
-        <cylinderGeometry args={[0.09 * m2u, 0.1 * m2u, 0.03 * m2u, 12]} />
-        <meshStandardMaterial color="#2f3239" metalness={0.6} roughness={0.3} />
-      </mesh>
-      <mesh castShadow rotation-z={-0.15}>
-        <cylinderGeometry args={[0.012 * m2u, 0.012 * m2u, 0.42 * m2u, 8]} />
-        <meshStandardMaterial color="#565b64" metalness={0.7} roughness={0.3} />
-      </mesh>
-      <mesh position={[0.06 * m2u, 0.2 * m2u, 0]} rotation-z={1.1} castShadow>
-        <coneGeometry args={[0.07 * m2u, 0.14 * m2u, 12, 1, true]} />
-        <meshStandardMaterial color="#e0b03c" emissive="#ffd98a" emissiveIntensity={0.9} metalness={0.3} roughness={0.4} side={THREE.DoubleSide} />
-      </mesh>
+    <Body p={p} mass={1} angularDamping={0.2} base={0}>
+      <CuboidCollider args={[0.09 * m2u, 0.015 * m2u, 0.09 * m2u]} position={[0, -0.2 * m2u + lift, 0]} />
+      <CuboidCollider args={[0.02 * m2u, 0.2 * m2u, 0.02 * m2u]} position={[0, lift, 0]} />
+      <CuboidCollider args={[0.07 * m2u, 0.05 * m2u, 0.07 * m2u]} position={[0.06 * m2u, 0.2 * m2u + lift, 0]} />
+      <Inst model="lamp" color={shade} />
     </Body>
   );
 }
 
+const FINISHES = [col('#ffffff'), col('#ffffff'), col('#3a3c42')];
 function Trash({ p }) {
+  const finish = pick(FINISHES, useSeed(p));
   const R = 0.14 * m2u, H = 0.35 * m2u;
   return (
-    <Body p={p} mass={0.9} friction={0.6}>
+    <Body p={p} mass={0.9} friction={0.6} base={H / 2}>
       <CylinderCollider args={[H / 2, R]} />
-      <mesh>
-        <cylinderGeometry args={[R, R * 0.8, H, 14, 1, true]} />
-        <meshStandardMaterial color="#7d8794" metalness={0.75} roughness={0.35} side={THREE.DoubleSide} />
-      </mesh>
-      <mesh position={[0, -H / 2 + 0.01, 0]} rotation-x={-Math.PI / 2}>
-        <circleGeometry args={[R * 0.8, 14]} />
-        <meshStandardMaterial color="#5d6470" metalness={0.7} roughness={0.4} />
-      </mesh>
+      <Inst model="trash" color={finish} />
     </Body>
   );
 }
