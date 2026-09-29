@@ -299,6 +299,31 @@ check('moving meeting: never the ring\'s own centre, never last round\'s room', 
   check('lcs: no survival points in the victory lap', b.score === scored);
 }
 
+// ------------------------------------------------------------ Open Office
+{
+  // style points used to come straight from the last reported flags: one
+  // report of "drifting, airborne" and a silent client scored forever
+  const a = player('p1', 'Afk'), b = player('p2', 'Driver');
+  const room = stubRoom([a, b]);
+  room.modeId = 'free_roam';
+  const mode = createMode('free_roam', room);
+  Object.assign(a, { drifting: true, grounded: false, lastStateAt: Date.now() - 5000, p: [0, 3, 0], v: [10, 0, 0] });
+  Object.assign(b, { drifting: true, grounded: true, lastStateAt: Date.now(), p: [0, 0.3, 0], v: [0.5, 0, 0] });
+  for (let i = 0; i < 20; i++) mode.update(0.05);
+  check('open office: a client that went silent scores nothing', a.score === 0);
+  check('open office: a drift on the spot is not style', b.score === 0);
+  Object.assign(b, { v: [12, 0, 0] });
+  mode.update(1);
+  check('open office: a real drift scores', b.score === MODES.free_roam.driftPerS);
+  Object.assign(b, { drifting: false, grounded: false, p: [0, 2, 0] });
+  for (let i = 0; i < 200; i++) { b.lastStateAt = Date.now(); mode.update(0.05); }
+  check('open office: air time is capped per jump', Math.abs(b.score - MODES.free_roam.driftPerS - MODES.free_roam.airPerS * MODES.free_roam.airCapS) < 0.1);
+  Object.assign(b, { grounded: false, p: [0, 0.3, 0], v: [0, 0, 0] });
+  const s0 = b.score;
+  mode.update(1);
+  check('open office: "airborne" while sitting on the floor is not air', b.score === s0);
+}
+
 // ---------------------------------------------------- Last Car Standing
 for (const mapId of MAP_IDS) {
   const map = MAPS[mapId];

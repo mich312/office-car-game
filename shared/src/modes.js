@@ -82,7 +82,10 @@ export const MODES = {
     desc: 'Open world, no rules. Ten minutes of playground — style points for drifting, air time and mayhem.',
     seconds: 600, // long sessions; the lobby votes again afterwards
     driftPerS: 2,
+    driftMinSpeed: 6, // units/s — a drift parked on the spot is not style
     airPerS: 1.5,
+    airMinY: 0.6, // units above the floor to count as air
+    airCapS: 3, // air points per jump stop after this long
     bumpScore: 5,
   },
   office_cup: {

@@ -27,6 +27,7 @@ export function createMode(id, room) {
 }
 
 // ------------------------------------------------------------ Open Office
+const STYLE_FRESH_MS = 300; // a human's style counts only this long after its last report
 // Open-world sandbox: no objectives, no pressure — ten minutes of playground.
 // Style points keep the scoreboard honest: drifting, air time and mayhem.
 class FreeRoamMode {
@@ -34,11 +35,24 @@ class FreeRoamMode {
     this.room = room;
     this.acc = 0;
   }
+  // Style is scored from what the server can check, not just the flags a
+  // client reports: a human scores only while its reports are fresh (a
+  // backgrounded tab whose last report said "drifting, airborne" used to
+  // bank points forever), a drift needs real speed, and air time needs the
+  // car actually up or moving vertically — capped per jump.
   update(dt) {
     const cfg = MODES.free_roam;
+    const t = now();
     for (const p of this.room.players.values()) {
-      if (p.drifting) p.score += cfg.driftPerS * dt;
-      if (!p.grounded) p.score += cfg.airPerS * dt;
+      if (!p.bot && t - p.lastStateAt > STYLE_FRESH_MS) { p.airT = 0; continue; }
+      if (p.drifting && Math.hypot(p.v[0], p.v[2]) > cfg.driftMinSpeed) p.score += cfg.driftPerS * dt;
+      const up = !p.grounded && (p.p[1] > cfg.airMinY || Math.abs(p.v[1]) > 1);
+      if (up) {
+        p.airT = (p.airT || 0) + dt;
+        if (p.airT <= cfg.airCapS) p.score += cfg.airPerS * dt;
+      } else if (p.grounded) {
+        p.airT = 0;
+      }
     }
     this.acc += dt;
     if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
