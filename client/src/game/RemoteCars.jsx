@@ -1,6 +1,6 @@
 // Other players & bots: kinematic bodies driven by interpolated snapshots,
 // so the local car physically bounces off them.
-import { useRef, memo, useEffect } from 'react';
+import { useRef, memo, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { Detailed } from '@react-three/drei';
@@ -48,6 +48,8 @@ const RemoteCar = memo(function RemoteCar({ player }) {
   const lastVel = useRef(null);
 
   const skidKeys = [`${player.id}:0`, `${player.id}:1`];
+  // stable, or every re-render re-applies the body's transform (see LocalCar)
+  const userData = useMemo(() => ({ playerId: player.id }), [player.id]);
   useEffect(() => () => rivalAudio.delete(player.id), [player.id]);
 
   useFrame((state, dt) => {
@@ -113,7 +115,7 @@ const RemoteCar = memo(function RemoteCar({ player }) {
   });
 
   return (
-    <RigidBody ref={rb} type="kinematicPosition" colliders={false} userData={{ playerId: player.id }} position={[0, -50, 0]}>
+    <RigidBody ref={rb} type="kinematicPosition" colliders={false} userData={userData} position={[0, -50, 0]}>
       <CuboidCollider args={[CAR_WIDTH / 2, CAR_HEIGHT / 2, CAR_LENGTH / 2]} />
       <group ref={group}>
         {/* LOD: full model near, 3-box proxy past ~28 units */}

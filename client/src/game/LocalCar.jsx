@@ -55,6 +55,13 @@ const _camTarget = new THREE.Vector3();
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _chase = [0, 1];
+// One object for the life of the app. react-three-rapier re-applies a body's
+// transform (from the last RENDERED pose) whenever a mutable prop changes,
+// and an inline {{…}} is a new object — i.e. a change — on every render. A
+// re-render landing in the same frame as a teleport (the round's mutator
+// arriving with START) put the car straight back where it was in the lobby:
+// every round with a mutator started from wherever you'd parked.
+const ME = { playerId: 'me' };
 
 export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0, boostHeld: false, miniTurbos: 0 }; // read by HUD/minimap/controller
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
@@ -535,7 +542,10 @@ export default function LocalCar() {
     }
 
     const stunned = nowMs < S.stunnedUntil;
-    const shrunk = nowMs < S.shrinkUntil;
+    // shrunk by a Shrink Ray (fx) or for the whole match by the Tiny Cars
+    // mutator, which only ever arrived as the server's flag bit 16 — without
+    // this your own car stayed full size while everyone else was tiny
+    const shrunk = nowMs < S.shrinkUntil || !!((net.flags.get(net.myId) || 0) & 16);
     const frozen = (st.phase === PHASE.COUNTDOWN && Date.now() < st.countdownEnd) || nowMs < S.frozenUntil;
     const carrying = (net.flags.get(net.myId) || 0) & 32;
 
@@ -883,7 +893,10 @@ export default function LocalCar() {
     _fwd.set(0, 0, 1).applyQuaternion(_q);
     const grounded = S.grounded;
     const stunned = nowMs < S.stunnedUntil;
-    const shrunk = nowMs < S.shrinkUntil;
+    // shrunk by a Shrink Ray (fx) or for the whole match by the Tiny Cars
+    // mutator, which only ever arrived as the server's flag bit 16 — without
+    // this your own car stayed full size while everyone else was tiny
+    const shrunk = nowMs < S.shrinkUntil || !!((net.flags.get(net.myId) || 0) & 16);
     const carrying = (net.flags.get(net.myId) || 0) & 32;
     const throttle = (keys.current.fwd ? 1 : 0) - (keys.current.back ? 1 : 0);
     const drifting = S.prevDrifting;
@@ -1002,7 +1015,7 @@ export default function LocalCar() {
         ccd
         angularDamping={1.6}
         linearDamping={0.05}
-        userData={{ playerId: 'me' }}
+        userData={ME}
         onCollisionEnter={(e) => {
           const other = e.other.rigidBody;
           const ud = other?.userData;
