@@ -315,6 +315,7 @@ class CoffeeMode {
 // ---------------------------------------------------- Capture the Battery
 const BATTERY_KNOCK = 2.5; // how far a hit knocks the battery from its carrier
 const BATTERY_NO_PICKUP_MS = 1500;
+const BATTERY_GRAB_GRACE_MS = 2000; // a hit this soon after a grab doesn't knock it loose
 
 class BatteryMode {
   constructor(room) {
@@ -345,6 +346,7 @@ class BatteryMode {
       if (p) {
         b.carrier = p.id;
         b.noPickup = null;
+        b.grabbedAt = t;
         p.hasBattery = true;
         this.room.feed(`🔋 ${p.name} grabbed the battery!`);
         this.room.broadcast({ t: MSG.EFFECT, type: 'battery_grab', id: p.id });
@@ -374,7 +376,9 @@ class BatteryMode {
     this.room.broadcast({ t: MSG.EFFECT, type: 'battery_drop', id: p.id });
   }
   onHit(attacker, victim) {
-    if (this.battery.carrier === victim.id) {
+    // a fresh grab holds for a moment: with every car in the scrum able to
+    // knock it loose, the battery otherwise changed hands every second
+    if (this.battery.carrier === victim.id && now() - (this.battery.grabbedAt || 0) >= BATTERY_GRAB_GRACE_MS) {
       this.drop(victim, attacker);
       this.room.feed(`🔋 ${attacker ? attacker.name : 'The office'} made ${victim.name} drop the battery`);
     }

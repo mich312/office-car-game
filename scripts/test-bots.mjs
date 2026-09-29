@@ -285,6 +285,25 @@ for (const map of MAP_IDS) {
   check(`${map} battery: a bot reaches a loose battery in every room within 40 s (missed ${missed.length}/${tried}${missed.length ? `: ${missed.join(', ')}` : ''})`, missed.length === 0);
 }
 
+// ------------------------------------------------- battery, bots only
+// One bot used to keep the battery 147-174 s of a 180 s match: bots never
+// knocked each other's loose. Now it changes hands, but not every second.
+for (const map of MAP_IDS) {
+  let longest = 0, drops = 0, grabs = 0;
+  for (const seed of [1, 2, 3]) {
+    const sim = await createSim({ seed, mode: 'battery', map });
+    let cur = null, held = 0;
+    sim.run(180, (s) => {
+      const c = s.room.mode?.battery.carrier || null;
+      if (c !== cur) { cur = c; held = 0; } else if (c) { held += s.dt; longest = Math.max(longest, held); }
+    });
+    drops += sim.events.filter((e) => e.type === 'battery_drop').length;
+    grabs += sim.events.filter((e) => e.type === 'battery_grab').length;
+  }
+  check(`${map} battery: bots take it off each other (longest hold ${longest.toFixed(0)} s, ${(drops / 3).toFixed(0)} drops a match)`, longest < 120 && drops / 3 >= 5);
+  check(`${map} battery: …but it isn't a hot potato (${(540 / Math.max(1, grabs)).toFixed(1)} s a hold on average)`, 540 / Math.max(1, grabs) > 3);
+}
+
 // ------------------------------------------------------------ RC Soccer
 for (const map of MAP_IDS) {
   const M = MAPS[map];

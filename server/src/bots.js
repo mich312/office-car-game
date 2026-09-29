@@ -254,8 +254,9 @@ export class Bots {
       }
     } else if (modeId === 'battery' && mode) {
       const b = mode.battery;
+      const c = b.carrier && this.room.players.get(b.carrier);
       if (b.carrier === p.id) goal = null; // run the lap while holding it
-      else goal = { x: b.x, z: b.z };
+      else goal = c ? this.intercept(p, c) : { x: b.x, z: b.z };
     } else if (modeId === 'last_standing' && mode) {
       const bad = (id) => mode.locked.includes(id) || mode.warn?.room === id;
       const myRoom = this.room.map.roomAt(p.p[0], p.p[2]);
@@ -387,6 +388,18 @@ export class Bots {
     // goal side: round the flank this bot is already on
     const side = bx * -uz + bz * ux >= 0 ? 1 : -1;
     return { x: ball.p[0] + (-uz * side + ux * 0.5) * set, z: ball.p[2] + (ux * side + uz * 0.5) * set };
+  }
+
+  // Where to aim for a battery carrier: where it's going to be. Tailing it
+  // closes only at the speed the battery costs it — a rub, never a hit — so
+  // a chaser aiming at its current spot could follow it for minutes (one bot
+  // kept the battery 164 s of 180). You're It keeps the plain chase: there
+  // any rub tags, and fleeing is meant to be the skill.
+  intercept(p, target) {
+    const d = Math.hypot(target.p[0] - p.p[0], target.p[2] - p.p[2]);
+    const lead = Math.min(1.2, d / Math.max(8, p.speed || 0));
+    const v = target.v || [0, 0, 0];
+    return { x: target.p[0] + v[0] * lead, z: target.p[2] + v[2] * lead };
   }
 
   // The world as the item logic needs it, in the bot's own frame.

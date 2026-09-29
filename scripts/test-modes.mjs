@@ -218,6 +218,10 @@ for (const mapId of MAP_IDS) {
   check(`${mapId} battery: the nearest car grabs it, not the first to join`, mode.battery.carrier === 'p2');
   mode.battery.carrier = 'p1'; r.hasBattery = false; v.hasBattery = true;
   v.p = [s.x, 0.24, s.z]; r.p = [s.x - 0.9, 0.24, s.z];
+  mode.battery.grabbedAt = Date.now();
+  mode.onHit(r, v);
+  check(`${mapId} battery: a fresh grab holds for a moment`, mode.battery.carrier === 'p1');
+  mode.battery.grabbedAt = Date.now() - 5000;
   mode.onHit(r, v);
   check(`${mapId} battery: a hit knocks it clear of the victim`, mode.battery.carrier === null
     && Math.hypot(mode.battery.x - v.p[0], mode.battery.z - v.p[2]) > PICKUP_RADIUS
