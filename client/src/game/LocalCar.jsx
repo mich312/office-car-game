@@ -1,7 +1,7 @@
 // The player's car: rigid body + 4-ray suspension, arcade forces tuned for
 // drift/boost feel, chase camera, particles, sound, network reporting,
 // and application of every server-side effect that touches "me".
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, useRapier, useBeforePhysicsStep } from '@react-three/rapier';
 import * as THREE from 'three';
@@ -1096,14 +1096,22 @@ export default function LocalCar() {
       | (nowMs < S.protectUntil ? 64 : 0);
   });
 
-  // a mid-match drop-in starts where the server put it (WELCOME's spawn)
-  const startSpawn = net.joinSpawn || { ...currentMap().SPAWNS[0], y: SPAWN_Y };
+  // a mid-match drop-in starts where the server put it (WELCOME's spawn).
+  // The pose is fixed for the car's lifetime: as a render-time value it
+  // changed with the map at START, and rapier re-applied it right after
+  // match_start had teleported the car, so every round on a new floor
+  // began on grid slot 0 (at times facing backwards). Rounds place the car
+  // with teleport(), never with these props.
+  const [start] = useState(() => {
+    const s = net.joinSpawn || { ...currentMap().SPAWNS[0], y: SPAWN_Y };
+    return { position: [s.x, Math.max(SPAWN_Y, s.y), s.z], rotation: [0, s.rotY, 0] };
+  });
   return (
     <>
       <RigidBody
         ref={rb}
-        position={[startSpawn.x, Math.max(SPAWN_Y, startSpawn.y), startSpawn.z]}
-        rotation={[0, startSpawn.rotY, 0]}
+        position={start.position}
+        rotation={start.rotation}
         colliders={false}
         canSleep={false}
         ccd
