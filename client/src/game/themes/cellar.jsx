@@ -1,616 +1,302 @@
-// The IT Cellar's own dressing: the thing it is about is the light.
+// The IT Cellar's theme: Dressing, PIECES, PROPS, RAMP_SKINS, WALL_STYLES.
 //
-// Every room hangs a grid of twin-tube fluorescent fixtures from a low
-// concrete ceiling, and most of them are fine. A few are not: the one over
-// the crossroads is dying (it stutters, strikes, holds, drops out and tries
-// again, buzzing each time it catches), one in the e-waste room is dead but
-// for the odd flash, the archive's pulses, the loading dock's stutters. The
-// flicker drives the tube, the light pool under it and — for the worst one —
-// a real point light and a positional buzz, so the flicker is something you
-// drive through rather than wallpaper.
+// Almost everything here is static and drawn through one batch: walls,
+// doors, floors, pipes, signs and every piece of furniture are described as
+// parts (cellar-set.js, cellar-pieces.js) and merged into one mesh per
+// surface per room (cellar-kit.js), so the whole floor costs a few dozen
+// draw calls however much junk is in the e-waste room. What moves has its
+// own small component: the tubes (cellar-tubes.jsx — the thing the place is
+// about), rack LEDs, the boiler, the dock beacon, the queue board, the strip
+// curtains, the rolling shelf bay, sprinklers and sound (cellar-live.jsx).
 //
-// Also here: pipes and cable trays along the ceiling, painted floor markings
-// (a centre line down Corridor B-1 and a box junction at the crossroads),
-// stencilled signs, exit signs, and the cellar's own furniture.
-import { useMemo, useRef, useLayoutEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
+// The pieces themselves (PIECES) are colliders only — static boxes and
+// cylinders the server's list agrees with; what you see of them is in the
+// batch.
+import { useMemo, useEffect } from 'react';
 import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
-import { RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
-import { useStore } from '../../store.js';
-import { audio } from '../../audio.js';
-import { roundedBox } from '../roundedGeo.js';
-import { glowTex } from '../textures.js';
+import { Body } from '../propBody.jsx';
+import { useMap } from '../activeMap.js';
+import { Kit, prism } from './cellar-kit.js';
+import { cellarMats, WORLD_UV, CASTS } from './cellar-tex.js';
+import { labelsFor } from './cellar-labels.js';
+import { buildWalls, buildGlass, buildDoors, buildFloors, buildMarkings, buildCeiling, buildSigns, buildFixtures } from './cellar-set.js';
+import { buildPiece, pieceFrame, crt, tower, keyboard, C } from './cellar-pieces.js';
+import Tubes from './cellar-tubes.jsx';
+import {
+  RackLeds, Boiler, Dock, NowServing, Scope, Curtains, RollingShelf, Badge, Sprinklers, Drips, Puddles, FloorBumps, CellarSound,
+} from './cellar-live.jsx';
 
-const TUBE_LEN = 1.25 * M;
-const TUBE_W = 0.2 * M;
+export { tubeLevel } from './cellar-tubes.jsx';
 
-// ------------------------------------------------------------ flicker
-// Deterministic value noise: the same tube misbehaves the same way on every
-// client, so a flicker two players drive through is the same flicker.
-const hash = (n) => {
-  let h = (n * 374761393) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-};
-
-// → brightness 0…1 for a tube of this kind at time t
-export function tubeLevel(kind, t, seed = 0) {
-  switch (kind) {
-    case 'dying': {
-      // a 7.5 s cycle: stutter while it tries to strike, catch and hold with a
-      // faint flutter, then drop out and sit dark before the next attempt
-      const c = (t + seed * 3.1) % 7.5;
-      if (c < 1.4) return hash(Math.floor(t * 16) + seed * 977) > 0.5 ? 1 : 0.05;
-      if (c < 5.6) return 0.9 + 0.1 * Math.sin(t * 90);
-      return 0.04;
-    }
-    case 'stutter':
-      // mostly on, with short bursts of dropout
-      return hash(Math.floor(t * 10) + seed * 131) > 0.92 ? 0.1 : 0.95;
-    case 'pulse':
-      // an old starter: slow breathing brightness
-      return 0.45 + 0.4 * (0.5 + 0.5 * Math.sin(t * 2.2 + seed));
-    case 'dead':
-      // dark, and every few seconds a flash that makes you look
-      return hash(Math.floor(t * 8) + seed * 53) > 0.975 ? 1 : 0.02;
-    default:
-      return 1;
+// Everything that never moves, merged: [{ cell, mat, geometry }] + the
+// sprinkler heads (for the Sprinkler Test's spray).
+function buildStatic(map) {
+  const k = new Kit(WORLD_UV);
+  const { slots } = labelsFor(map);
+  k.slots = slots;
+  // three zones: the rooms north of the corridor, the corridor, the rooms
+  // south of it — from the corridor you see into all of them anyway, and
+  // inside a room the other side of the building is culled whole
+  const side = Object.fromEntries(map.ROOMS.map((r) => [r.id, r.id === 'corridor' ? 'corridor' : r.z > 0 ? 'north' : 'south']));
+  k.zone = (cell) => side[cell] || 'corridor';
+  buildFloors(k, map);
+  buildMarkings(k, map);
+  buildWalls(k, map, slots);
+  buildGlass(k, map);
+  buildDoors(k, map, slots);
+  const sprinklers = buildCeiling(k, map);
+  buildSigns(k, map, slots);
+  buildFixtures(k, map, slots);
+  for (const f of map.FURNITURE) {
+    k.cell = map.roomAt(f.x, f.z)?.id || 'corridor';
+    buildPiece(k, f);
   }
-}
-
-// Fixtures per room: long rooms (the corridor) get one line down the long
-// axis, square rooms a grid.
-function tubeLayout(map) {
-  const out = [];
-  for (const r of map.ROOMS) {
-    const long = Math.max(r.w, r.d) / Math.min(r.w, r.d) > 3;
-    if (long) {
-      const alongX = r.w > r.d;
-      const len = Math.max(r.w, r.d);
-      const n = Math.floor(len / (3 * M));
-      for (let i = 0; i < n; i++) {
-        const s = -len / 2 + (i + 0.5) * (len / n);
-        out.push({ x: alongX ? r.x + s : r.x, z: alongX ? r.z : r.z + s, rotY: alongX ? 0 : Math.PI / 2 });
-      }
-    } else {
-      const nx = Math.max(1, Math.round(r.w / (3.4 * M)));
-      const nz = Math.max(1, Math.round(r.d / (2.8 * M)));
-      for (let i = 0; i < nx; i++) {
-        for (let j = 0; j < nz; j++) {
-          out.push({ x: r.x - r.w / 2 + (i + 0.5) * (r.w / nx), z: r.z - r.d / 2 + (j + 0.5) * (r.d / nz), rotY: 0 });
-        }
-      }
-    }
-  }
-  // the misbehaving ones: the nearest fixture to each FLICKER spot
-  for (const [k, fl] of (map.FLICKER || []).entries()) {
-    let best = null, bd = Infinity;
-    for (const tb of out) {
-      const d = Math.hypot(tb.x - fl.at[0] * M, tb.z - fl.at[1] * M);
-      if (d < bd && !tb.kind) { bd = d; best = tb; }
-    }
-    if (best) { best.kind = fl.kind; best.seed = k + 1; best.light = !!fl.light; }
-  }
-  return out;
+  return { parts: k.finish(), sprinklers };
 }
 
 export function Dressing({ map }) {
+  const { parts, sprinklers } = useMemo(() => buildStatic(map), [map]);
+  useEffect(() => () => parts.forEach((p) => p.geometry.dispose()), [parts]);
+  const mats = useMemo(() => ({ ...cellarMats(), ...labelsFor(map).mats }), [map]);
   return (
-    <group>
-      <CeilingAndTubes map={map} />
-      <Pipes map={map} />
-      <FloorMarkings map={map} />
-      <Signs map={map} />
-    </group>
-  );
-}
-
-// ---------------------------------------------------- ceiling and tubes
-const _c = new THREE.Color();
-const _o = new THREE.Object3D();
-
-function CeilingAndTubes({ map }) {
-  const H = map.WALL_HEIGHT;
-  const B = map.MAP_BOUNDS;
-  const event = useStore((s) => s.event);
-  const lightsOut = event?.id === 'lights_out';
-  const tubes = useMemo(() => tubeLayout(map), [map]);
-  const bad = useMemo(() => tubes.map((t, i) => (t.kind ? i : -1)).filter((i) => i >= 0), [tubes]);
-  const worst = useMemo(() => tubes.find((t) => t.light), [tubes]);
-
-  const housing = useRef();
-  const glow = useRef();
-  const pools = useRef();
-  const flickLight = useRef();
-  const lastLevel = useRef(new Map());
-  const lastBuzz = useRef(0);
-
-  const housingMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#d9ddd6', roughness: 0.55, metalness: 0.3 }), []);
-  // the tubes themselves: unlit, over-bright so bloom picks them up; each
-  // instance's colour carries its brightness
-  const tubeMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }), []);
-  const poolMat = useMemo(() => new THREE.MeshBasicMaterial({
-    map: glowTex(), color: '#ffffff', transparent: true, opacity: 0.1,
-    blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
-  }), []);
-  const ceilMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#5d625e', roughness: 0.95 }), []);
-  const beamMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#747a74', roughness: 0.9 }), []);
-
-  const TUBE_ON = useMemo(() => new THREE.Color(1.9, 2.2, 2.05), []);
-  const POOL_ON = useMemo(() => new THREE.Color('#bff5dc'), []);
-
-  useLayoutEffect(() => {
-    tubes.forEach((tb, i) => {
-      _o.position.set(tb.x, H - 0.09 * M, tb.z);
-      _o.rotation.set(0, tb.rotY, 0);
-      _o.scale.set(1, 1, 1);
-      _o.updateMatrix();
-      housing.current.setMatrixAt(i, _o.matrix);
-      _o.position.y = H - 0.16 * M;
-      _o.updateMatrix();
-      glow.current.setMatrixAt(i, _o.matrix);
-      glow.current.setColorAt(i, TUBE_ON);
-      _o.position.set(tb.x, 0.025, tb.z);
-      _o.rotation.set(-Math.PI / 2, 0, tb.rotY);
-      _o.updateMatrix();
-      pools.current.setMatrixAt(i, _o.matrix);
-      pools.current.setColorAt(i, POOL_ON);
-    });
-    for (const m of [housing.current, glow.current, pools.current]) {
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    }
-  }, [tubes, H, TUBE_ON, POOL_ON]);
-
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime;
-    const g = glow.current, p = pools.current;
-    if (!g || !p) return;
-    if (lightsOut) {
-      // blackout: every tube dies at once (the exit signs stay on)
-      for (let i = 0; i < tubes.length; i++) {
-        g.setColorAt(i, _c.setRGB(0.02, 0.02, 0.02));
-        p.setColorAt(i, _c.setRGB(0, 0, 0));
-      }
-      g.instanceColor.needsUpdate = true;
-      p.instanceColor.needsUpdate = true;
-      if (flickLight.current) flickLight.current.intensity = 0;
-      lastLevel.current.clear();
-      return;
-    }
-    if (lastLevel.current.size === 0 && bad.length === 0) return;
-    for (const i of bad) {
-      const tb = tubes[i];
-      const lv = tubeLevel(tb.kind, t, tb.seed);
-      g.setColorAt(i, _c.copy(TUBE_ON).multiplyScalar(Math.max(0.03, lv)));
-      p.setColorAt(i, _c.copy(POOL_ON).multiplyScalar(lv));
-      const prev = lastLevel.current.get(i) ?? lv;
-      // a strike: the tube catches — buzz from where it hangs (throttled so a
-      // stutter is a crackle, not a machine gun)
-      if (prev < 0.3 && lv > 0.7 && (tb.kind === 'dying' || tb.kind === 'dead') && t - lastBuzz.current > 0.12) {
-        lastBuzz.current = t;
-        audio.tubeBuzz([tb.x, H, tb.z], tb.kind === 'dead' ? 0.6 : 1);
-      }
-      lastLevel.current.set(i, lv);
-      if (tb === worst && flickLight.current) flickLight.current.intensity = 9 * lv;
-    }
-    g.instanceColor.needsUpdate = true;
-    p.instanceColor.needsUpdate = true;
-  });
-
-  // after a blackout, relight everything in one pass
-  useLayoutEffect(() => {
-    if (lightsOut || !glow.current) return;
-    tubes.forEach((_, i) => {
-      glow.current.setColorAt(i, TUBE_ON);
-      pools.current.setColorAt(i, POOL_ON);
-    });
-    glow.current.instanceColor.needsUpdate = true;
-    pools.current.instanceColor.needsUpdate = true;
-  }, [lightsOut, tubes, TUBE_ON, POOL_ON]);
-
-  const W = B.maxX - B.minX, D = B.maxZ - B.minZ;
-  const beams = useMemo(() => {
-    const out = [];
-    for (let x = B.minX + 6 * M; x < B.maxX - 1; x += 6 * M) out.push(x);
-    return out;
-  }, [B]);
-
-  return (
-    <group>
-      {/* the slab */}
-      <mesh rotation-x={Math.PI / 2} position={[(B.minX + B.maxX) / 2, H, (B.minZ + B.maxZ) / 2]} material={ceilMat}>
-        <planeGeometry args={[W + 2, D + 2]} />
-      </mesh>
-      {/* downstand beams, north–south */}
-      {beams.map((x, i) => (
-        <mesh key={i} position={[x, H - 0.15 * M, (B.minZ + B.maxZ) / 2]} material={beamMat} castShadow>
-          <boxGeometry args={[0.3 * M, 0.3 * M, D]} />
-        </mesh>
+    <group name="cellar-dressing">
+      {parts.map((p, i) => (
+        <mesh key={`${p.cell}:${p.mat}:${i}`} geometry={p.geometry} material={mats[p.mat]}
+          castShadow={CASTS.has(p.mat)} receiveShadow={p.mat !== 'glow' && p.mat !== 'light'} />
       ))}
-      <instancedMesh ref={housing} args={[null, null, tubes.length]} material={housingMat} frustumCulled={false}>
-        <boxGeometry args={[TUBE_LEN + 0.06 * M, 0.07 * M, TUBE_W]} />
-      </instancedMesh>
-      <instancedMesh ref={glow} args={[null, null, tubes.length]} material={tubeMat} frustumCulled={false}>
-        <boxGeometry args={[TUBE_LEN, 0.05 * M, TUBE_W * 0.7]} />
-      </instancedMesh>
-      <instancedMesh ref={pools} args={[null, null, tubes.length]} material={poolMat} frustumCulled={false}>
-        <planeGeometry args={[TUBE_LEN * 4.2, TUBE_LEN * 3.2]} />
-      </instancedMesh>
-      {worst && (
-        <pointLight ref={flickLight} position={[worst.x, H - 0.35 * M, worst.z]}
-          intensity={9} distance={11 * M} decay={1.6} color="#e4fff2" />
-      )}
+      <Tubes map={map} />
+      <RackLeds map={map} />
+      <Boiler map={map} />
+      <Dock map={map} />
+      <NowServing map={map} />
+      <Scope map={map} />
+      <Curtains map={map} />
+      <Badge map={map} />
+      <Sprinklers heads={sprinklers} />
+      <Drips map={map} />
+      <Puddles map={map} />
+      <FloorBumps map={map} />
+      <CellarSound map={map} />
     </group>
   );
 }
 
-// ------------------------------------------------------------- pipes
-// Straight runs along the ceiling. Decor only: they hang above anything a
-// car can reach.
-function Pipes({ map }) {
-  const H = map.WALL_HEIGHT;
-  const mats = useMemo(() => ({
-    red: new THREE.MeshStandardMaterial({ color: '#b3342b', roughness: 0.45, metalness: 0.4 }),
-    grey: new THREE.MeshStandardMaterial({ color: '#8b9096', roughness: 0.35, metalness: 0.75 }),
-    lagged: new THREE.MeshStandardMaterial({ color: '#d8d6cc', roughness: 0.95 }),
-    tray: new THREE.MeshStandardMaterial({ color: '#c9a227', roughness: 0.5, metalness: 0.5 }),
-    cable: new THREE.MeshStandardMaterial({ color: '#23262b', roughness: 0.7 }),
-    cable2: new THREE.MeshStandardMaterial({ color: '#2f6fd6', roughness: 0.6 }),
-    bracket: new THREE.MeshStandardMaterial({ color: '#5c6166', roughness: 0.6, metalness: 0.6 }),
-  }), []);
-  const runs = map.PIPES || [];
-  const trays = map.CABLE_TRAYS || [];
+// ------------------------------------------------------------ colliders
+// Per type, in the piece's frame (metres): boxes [w, h, d, x, y, z] and
+// cylinders { r, h, x, z }. Anything not listed is its full box.
+const COLLIDERS = {
+  cellar_bench: ({ w, h, d }) => [
+    [w, 0.04, d, 0, h - 0.02, 0],
+    ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => [0.05, h, 0.05, sx * (w / 2 - 0.06), h / 2, sz * (d / 2 - 0.06)]),
+    [w - 0.12, 0.2, 0.3, 0, 0.1, -d / 2 + 0.17],
+  ],
+  cellar_boiler: ({ w, h }) => [[w + 0.2, 0.1, w + 0.2, 0, 0.05, 0], { r: w / 2 - 0.1, h }],
+  cellar_heater: ({ w, h }) => [{ r: w / 2 - 0.05, h }],
+  cellar_cylinder: ({ h }) => [{ r: 0.13, h }],
+  cellar_bollard: ({ h }) => [{ r: 0.06, h }],
+  cellar_palletjack: ({ w, d }) => [
+    [w, 0.35, d * 0.6, 0, 0.175, -d * 0.1],
+    // the forks' flat run (their tapered tips are ramps in the map)
+    ...[-0.27, 0.27].map((x) => [0.16, 0.075, 0.91, x, 0.0375, d / 2 + 0.455]),
+  ],
+};
+
+function Piece({ f }) {
+  if (f.roll) return <RollingShelf f={f} />;
+  const fr = pieceFrame(f);
+  const shapes = COLLIDERS[f.type]?.(fr, f) || [[fr.w, fr.h, fr.d, 0, fr.h / 2, 0]];
   return (
-    <group>
-      {runs.map((r, i) => {
-        const [x1, z1, x2, z2] = r.from.concat(r.to).map((v) => v * M);
-        const len = Math.hypot(x2 - x1, z2 - z1);
-        const rad = r.r * M;
-        const y = H - r.drop * M;
-        const rotY = Math.atan2(x2 - x1, z2 - z1);
-        const hangers = Math.max(1, Math.floor(len / (2.5 * M)));
-        return (
-          <group key={i} position={[(x1 + x2) / 2, y, (z1 + z2) / 2]} rotation-y={rotY}>
-            <mesh rotation-x={Math.PI / 2} material={mats[r.mat]} castShadow>
-              <cylinderGeometry args={[rad, rad, len, 12]} />
-            </mesh>
-            {Array.from({ length: hangers }, (_, k) => (
-              <mesh key={k} position={[0, (H - y) / 2, -len / 2 + (k + 0.5) * (len / hangers)]} material={mats.bracket}>
-                <boxGeometry args={[0.02 * M, H - y, 0.02 * M]} />
-              </mesh>
-            ))}
-          </group>
-        );
-      })}
-      {trays.map((r, i) => {
-        const [x1, z1, x2, z2] = r.from.concat(r.to).map((v) => v * M);
-        const len = Math.hypot(x2 - x1, z2 - z1);
-        const rotY = Math.atan2(x2 - x1, z2 - z1);
-        const w = 0.3 * M, y = H - 0.32 * M;
-        return (
-          <group key={`t${i}`} position={[(x1 + x2) / 2, y, (z1 + z2) / 2]} rotation-y={rotY}>
-            <mesh material={mats.tray}><boxGeometry args={[w, 0.01 * M, len]} /></mesh>
-            {[-1, 1].map((s) => (
-              <mesh key={s} position={[s * w / 2, 0.04 * M, 0]} material={mats.tray}>
-                <boxGeometry args={[0.01 * M, 0.08 * M, len]} />
-              </mesh>
-            ))}
-            {[-0.08, -0.03, 0.03, 0.08].map((dx, k) => (
-              <mesh key={k} position={[dx * M, 0.03 * M, 0]} rotation-x={Math.PI / 2} material={k === 2 ? mats.cable2 : mats.cable}>
-                <cylinderGeometry args={[0.018 * M, 0.018 * M, len, 6]} />
-              </mesh>
-            ))}
-          </group>
-        );
-      })}
-    </group>
+    <RigidBody type="fixed" colliders={false} position={[fr.x * M, 0, fr.z * M]} rotation-y={fr.rot}
+      friction={f.type === 'cellar_dock' || f.type === 'cellar_pallet' ? 1 : 0.5}>
+      {shapes.map((s, i) => (Array.isArray(s)
+        ? <CuboidCollider key={i} args={[s[0] * M / 2, s[1] * M / 2, s[2] * M / 2]} position={[s[3] * M, s[4] * M, s[5] * M]} />
+        : <CylinderCollider key={i} args={[s.h * M / 2, s.r * M]} position={[(s.x || 0) * M, s.h * M / 2, (s.z || 0) * M]} />))}
+    </RigidBody>
   );
 }
 
-// ------------------------------------------------------ floor markings
-// Painted lines are the cheapest way to make a corridor read as a road at RC
-// scale: a dashed centre line, and a yellow box junction where the figure-8
-// crosses itself.
-function stripeTex(kind) {
-  const c = document.createElement('canvas');
-  c.width = 256; c.height = 256;
-  const g = c.getContext('2d');
-  g.clearRect(0, 0, 256, 256);
-  if (kind === 'junction') {
-    g.strokeStyle = 'rgba(236, 196, 40, 0.92)';
-    g.lineWidth = 14;
-    g.strokeRect(10, 10, 236, 236);
-    g.lineWidth = 8;
-    for (let k = -256; k < 512; k += 44) {
-      g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 256, 256); g.stroke();
-      g.beginPath(); g.moveTo(k + 256, 0); g.lineTo(k, 256); g.stroke();
-    }
-  } else {
-    // hazard: black and yellow diagonals
-    g.fillStyle = '#e2b623';
-    g.fillRect(0, 0, 256, 256);
-    g.fillStyle = '#1b1b1b';
-    for (let k = -256; k < 512; k += 64) {
-      g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 32, 0); g.lineTo(k + 32 + 256, 256); g.lineTo(k + 256, 256); g.fill();
-    }
+export const PIECES = Object.fromEntries([
+  'cellar_rack', 'cellar_crac', 'cellar_ups', 'cellar_cylinder', 'cellar_tiles', 'cellar_boiler', 'cellar_heater',
+  'cellar_counter', 'cellar_shelf', 'cellar_pallet', 'cellar_cage', 'cellar_bin', 'cellar_heap', 'cellar_bench',
+  'cellar_mobile', 'cellar_cabinet', 'cellar_ticketpost', 'cellar_trolley', 'cellar_cooler', 'cellar_leaf',
+  'cellar_dock', 'cellar_palletjack', 'cellar_bollard',
+].map((t) => [t, Piece]));
+
+// Walls are drawn by the batch above; the styles only tell Office.jsx not to.
+export const WALL_STYLES = { cellar_block: () => null, cellar_glass: () => null };
+
+// ---------------------------------------------------------------- props
+// Physics junk of the cellar's own. Each prop type is one cached merged
+// geometry per surface (usually one), built with the same kit; its body sits
+// on the floor (the Body origin is 0.4 units above p.y).
+const PROP_SPECS = {
+  cellar_box: { mass: 1.3, friction: 0.9, box: [0.4, 0.3, 0.32, 0, 0.15, 0], build: (k) => k.block('card', [0.4, 0.3, 0.32], [0, 0, 0], { c: '#f0e6d4' }) },
+  cellar_keyboard: { mass: 0.6, box: [0.45, 0.04, 0.16, 0, 0.02, 0], build: (k) => keyboard(k, 0, 0, 0) },
+  cellar_wastebin: {
+    mass: 0.8, cyl: { r: 0.14, h: 0.34 },
+    build: (k) => {
+      k.cyl('paint', 0.14, 0.34, [0, 0.17, 0], { top: 1.1, open: true, seg: 14, c: '#6d7784' });
+      k.cyl('paint', 0.14, 0.01, [0, 0.005, 0], { seg: 14, c: '#4d5460' });
+      k.sphere('paint', 0.09, [0.02, 0.28, 0.01], { sy: 0.5, c: '#f2f0e8' }); // screwed-up paper
+    },
+  },
+  cellar_papers: {
+    mass: 0.5, box: [0.3, 0.07, 0.22, 0, 0.035, 0],
+    build: (k) => {
+      for (let i = 0; i < 4; i++) k.block('paint', [0.3, 0.017, 0.215], [0, i * 0.018, 0], { r: [0, (i % 2 ? 1 : -1) * 0.05, 0], c: i % 2 ? '#f4f2ea' : '#e8e4d8' });
+      k.box('paint', [0.03, 0.012, 0.03], [0, 0.074, -0.1], { c: '#111' });
+    },
+  },
+  // a drum of blue patch cable, lying on its side: it rolls
+  cellar_reel: {
+    mass: 0.6, angularDamping: 0.05, cylX: { r: 0.12, h: 0.12 },
+    build: (k) => {
+      for (const s of [-1, 1]) k.cyl('paint', 0.12, 0.012, [s * 0.055, 0.12, 0], { r: [0, 0, Math.PI / 2], seg: 16, c: '#c8a874' });
+      k.cyl('paint', 0.09, 0.1, [0, 0.12, 0], { r: [0, 0, Math.PI / 2], seg: 16, c: '#2f6fd6' });
+    },
+  },
+  cellar_crt: { mass: 2.6, box: [0.38, 0.36, 0.36, 0, 0.18, 0.01], build: (k) => crt(k, 0, 0, 0) },
+  cellar_tower: { mass: 1.8, box: [0.18, 0.42, 0.44, 0, 0.21, 0], build: (k) => tower(k, 0, 0, 0) },
+  cellar_extinguisher: {
+    mass: 1.4, cyl: { r: 0.08, h: 0.6 },
+    build: (k) => {
+      k.cyl('paint', 0.075, 0.48, [0, 0.24, 0], { c: C.red, seg: 14 });
+      k.sphere('paint', 0.075, [0, 0.48, 0], { sy: 0.45, c: C.red, seg: 12 });
+      k.cyl('paint', 0.022, 0.06, [0, 0.53, 0], { c: '#222' });
+      k.box('paint', [0.13, 0.015, 0.03], [0.03, 0.57, 0], { r: [0, 0, -0.2], c: '#222' });
+      k.box('paint', [0.1, 0.14, 0.004], [0, 0.26, 0.074], { c: '#f0ece0' }); // the instructions label
+      k.box('paint', [0.1, 0.03, 0.005], [0, 0.31, 0.075], { c: '#1d1d1d' });
+      k.rod('paint', 0.008, [0.02, 0.55, 0.02], [0.08, 0.2, 0.05], { c: '#111', seg: 5 });
+      k.cyl('paint', 0.08, 0.02, [0, 0.01, 0], { c: '#111', seg: 14 });
+    },
+  },
+  cellar_wedge: {
+    mass: 0.15, box: [0.05, 0.04, 0.13, 0, 0.02, 0],
+    build: (k) => k.part('wood', prism('wedge', [[-0.065 * M, 0], [0.065 * M, 0], [0.065 * M, 0.04 * M]], 0.05 * M), [0, 0, 0],
+      { s: [1 / M, 1 / M, 1 / M], r: [0, Math.PI / 2, 0], c: '#c09a64' }),
+  },
+  cellar_cart: {
+    mass: 5, friction: 0.25, box: [0.52, 1.0, 0.46, 0, 0.5, 0],
+    build: (k) => {
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+        k.block('paint', [0.025, 0.9, 0.025], [sx * 0.24, 0.07, sz * 0.2], { c: C.galv });
+        k.cyl('paint', 0.035, 0.03, [sx * 0.22, 0.035, sz * 0.18], { r: [0, 0, Math.PI / 2], c: '#222', seg: 10 });
+      }
+      for (const y of [0.18, 0.62, 0.95]) k.block('paint', [0.52, 0.02, 0.46], [0, y, 0], { c: '#9aa0a3' });
+      k.block('plastic', [0.36, 0.26, 0.05], [0, 0.97, -0.05], { c: '#1d1f22' }); // a flat monitor
+      k.box('paint', [0.32, 0.2, 0.002], [0, 1.1, -0.024], { c: '#1d3a66' });
+      k.block('plastic', [0.4, 0.025, 0.14], [0, 0.64, 0.12], { c: '#222' }); // keyboard on its tray
+      k.block('plastic', [0.2, 0.2, 0.3], [0.08, 0.2, 0], { c: '#2b2d31' }); // the KVM box, a UPS brick
+      k.rod('paint', 0.01, [0.2, 0.97, -0.2], [0.26, 0.3, -0.22], { c: '#111', seg: 5 });
+      k.box('paint', [0.2, 0.08, 0.002], [0, 0.4, 0.232], { c: '#f0f0e8' }); // asset tag
+    },
+  },
+  cellar_bucket: {
+    mass: 1.6, cyl: { r: 0.16, h: 0.3 },
+    build: (k) => {
+      k.cyl('plastic', 0.16, 0.28, [0, 0.14, 0], { top: 1.12, open: true, c: C.yellow, seg: 16 });
+      k.cyl('plastic', 0.16, 0.01, [0, 0.005, 0], { c: C.yellow, seg: 16 });
+      k.cyl('paint', 0.165, 0.005, [0, 0.2, 0], { c: '#3a5456', seg: 16 }); // grey mop water
+      k.block('plastic', [0.2, 0.08, 0.1], [0, 0.27, 0.09], { c: '#6d6d6d' }); // the wringer
+      k.ring('paint', 0.17, 0.006, [0, 0.36, 0], { r: [Math.PI / 2, 0, 0], c: '#888', seg: 16 });
+      for (const sx of [-1, 1]) k.cyl('paint', 0.03, 0.02, [sx * 0.13, 0.02, 0.12], { r: [0, 0, Math.PI / 2], c: '#222', seg: 8 });
+    },
+  },
+  cellar_wetsign: {
+    mass: 0.5, box: [0.3, 0.62, 0.22, 0, 0.31, 0],
+    build: (k) => {
+      for (const s of [-1, 1]) {
+        k.box('plastic', [0.3, 0.6, 0.012], [0, 0.3, s * 0.08], { r: [s * -0.26, 0, 0], c: C.yellow });
+        k.box('label', [0.24, 0.24, 0.002], [0, 0.34, s * 0.093], { r: [s * -0.26, s < 0 ? Math.PI : 0, 0], uv: k.slots.wetFloor });
+      }
+      k.box('plastic', [0.3, 0.03, 0.05], [0, 0.61, 0], { c: C.yellow });
+    },
+  },
+};
+
+const propCache = new Map();
+function propParts(type, map) {
+  let parts = propCache.get(type);
+  if (!parts) {
+    const k = new Kit(WORLD_UV);
+    k.slots = labelsFor(map).slots;
+    PROP_SPECS[type].build(k);
+    parts = k.finish();
+    propCache.set(type, parts);
   }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
-  return t;
+  return parts;
 }
 
-function FloorMarkings({ map }) {
-  const marks = map.MARKINGS || {};
-  const lineMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#e9c63a', roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2,
-  }), []);
-  const junctionMat = useMemo(() => new THREE.MeshBasicMaterial({
-    map: stripeTex('junction'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
-  }), []);
-  const hazardMat = useMemo(() => new THREE.MeshStandardMaterial({ map: stripeTex('hazard'), roughness: 0.7 }), []);
-  const dashes = useMemo(() => {
-    const out = [];
-    for (const l of marks.centreLines || []) {
-      const [x1, z, x2] = l;
-      for (let x = x1; x < x2; x += 1.1) {
-        if ((marks.gaps || []).some(([a, b]) => x + 0.55 > a && x < b)) continue;
-        out.push([x + 0.275, z]);
-      }
-    }
-    return out;
-  }, [marks]);
-  const inst = useRef();
-  useLayoutEffect(() => {
-    if (!inst.current) return;
-    dashes.forEach(([x, z], i) => {
-      _o.position.set(x * M, 0.015, z * M);
-      _o.rotation.set(-Math.PI / 2, 0, 0);
-      _o.scale.set(1, 1, 1);
-      _o.updateMatrix();
-      inst.current.setMatrixAt(i, _o.matrix);
-    });
-    inst.current.instanceMatrix.needsUpdate = true;
-  }, [dashes]);
+const U = 0.4; // the Body's origin above the prop's floor, in units
+function CellarProp({ p, spec, type, map }) {
+  const parts = propParts(type, map);
+  const mats = useMemo(() => ({ ...cellarMats(), ...labelsFor(map).mats }), [map]);
   return (
-    <group>
-      {dashes.length > 0 && (
-        <instancedMesh ref={inst} args={[null, null, dashes.length]} material={lineMat} receiveShadow frustumCulled={false}>
-          <planeGeometry args={[0.55 * M, 0.06 * M]} />
-        </instancedMesh>
+    <Body p={p} mass={spec.mass} friction={spec.friction ?? 0.7} angularDamping={spec.angularDamping ?? 0.15}>
+      {spec.box && (
+        <CuboidCollider args={[spec.box[0] * M / 2, spec.box[1] * M / 2, spec.box[2] * M / 2]}
+          position={[spec.box[3] * M, spec.box[4] * M - U, spec.box[5] * M]} />
       )}
-      {(marks.junctions || []).map(([x, z, w, d], i) => (
-        <mesh key={i} rotation-x={-Math.PI / 2} position={[x * M, 0.018, z * M]} material={junctionMat}>
-          <planeGeometry args={[w * M, d * M]} />
-        </mesh>
-      ))}
-      {(marks.hazard || []).map(([x, y, z, w, d, rotX], i) => (
-        <mesh key={`h${i}`} rotation-x={rotX} position={[x * M, y * M, z * M]} material={hazardMat}>
-          <planeGeometry args={[w * M, d * M]} />
-        </mesh>
-      ))}
-    </group>
+      {spec.cyl && <CylinderCollider args={[spec.cyl.h * M / 2, spec.cyl.r * M]} position={[0, spec.cyl.h * M / 2 - U, 0]} />}
+      {spec.cylX && (
+        <CylinderCollider args={[spec.cylX.h * M / 2, spec.cylX.r * M]} position={[0, spec.cylX.r * M - U, 0]} rotation={[0, 0, Math.PI / 2]} />
+      )}
+      <group position={[0, -U, 0]}>
+        {parts.map((q, i) => <mesh key={i} geometry={q.geometry} material={mats[q.mat]} castShadow={CASTS.has(q.mat)} receiveShadow />)}
+      </group>
+    </Body>
   );
 }
 
-// ------------------------------------------------------------- signs
-function signTex(text, fg, bg, sub = '') {
-  const c = document.createElement('canvas');
-  c.width = 512; c.height = 160;
-  const g = c.getContext('2d');
-  g.fillStyle = bg; g.fillRect(0, 0, 512, 160);
-  g.fillStyle = fg;
-  g.font = `bold ${sub ? 64 : 78}px "Arial Narrow", Arial, sans-serif`;
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(text, 256, sub ? 62 : 82);
-  if (sub) { g.font = 'bold 30px Arial, sans-serif'; g.fillText(sub, 256, 124); }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
+const propOf = (type) => function CellarPropType({ p }) {
+  return <CellarProp p={p} spec={PROP_SPECS[type]} type={type} map={useMap()} />;
+};
+export const PROPS = Object.fromEntries(Object.keys(PROP_SPECS).map((t) => [t, propOf(t)]));
 
-function Signs({ map }) {
-  const signs = map.SIGNS || [];
-  const mats = useMemo(() => signs.map((s) => (s.exit
-    ? new THREE.MeshBasicMaterial({ map: signTex(s.text, '#ffffff', '#12a150', s.sub), toneMapped: false })
-    : new THREE.MeshStandardMaterial({ map: signTex(s.text, s.fg || '#1c1c1c', s.bg || '#e9e4d4', s.sub), roughness: 0.8 }))),
-  [signs]);
-  return (
-    <group>
-      {signs.map((s, i) => (
-        <mesh key={i} position={[s.at[0] * M, s.at[1] * M, s.at[2] * M]} rotation-y={s.rotY || 0} material={mats[i]}>
-          <planeGeometry args={[s.w * M, s.w * M * (160 / 512)]} />
-        </mesh>
-      ))}
-    </group>
-  );
+// ----------------------------------------------------------- ramp skins
+// Drawn in the ramp's frame (rising toward +z, foot at z = −l/2). A steel dock
+// plate on a painted steel wedge; a scaffold plank propped on whatever it
+// leads up to; the lifted floor tile leaned on the spares. The pallet jack's
+// fork tips are ramps too, but the jack draws its own forks.
+function useSkin(build, r) {
+  const parts = useMemo(() => {
+    const k = new Kit(WORLD_UV);
+    build(k, { l: r.l / M, w: r.w / M, rise: r.rise / M });
+    return k.finish();
+  }, [r.l, r.w, r.rise]);
+  useEffect(() => () => parts.forEach((p) => p.geometry.dispose()), [parts]);
+  const mats = cellarMats();
+  return parts.map((q, i) => <mesh key={i} geometry={q.geometry} material={mats[q.mat]} castShadow={CASTS.has(q.mat)} receiveShadow />);
 }
-
-// -------------------------------------------------------- furniture
-// The cellar's own pieces. Office.jsx hands these types over; colliders
-// follow the same rules as upstairs (static, one body per piece).
-const CONCRETE = () => new THREE.MeshStandardMaterial({ color: '#8a8b86', roughness: 0.95 });
-const pieceMats = {};
-function pm(key, make) {
-  if (!pieceMats[key]) pieceMats[key] = make();
-  return pieceMats[key];
+const deck = (k, { l, rise }, fn) => {
+  const angle = Math.atan2(rise, l), len = Math.hypot(l, rise);
+  k.stack.push(k.frame.clone().multiply(new THREE.Matrix4().makeTranslation(0, (rise / 2) * M, 0)).multiply(new THREE.Matrix4().makeRotationX(-angle)));
+  try { fn(len); } finally { k.stack.pop(); }
+};
+function DockPlate({ r }) {
+  return useSkin((k, d) => {
+    const side = [[-d.l / 2 * M, 0], [d.l / 2 * M, 0], [d.l / 2 * M, (d.rise - 0.012) * M]];
+    k.part('paint', prism(`dockw${d.l}:${d.rise}`, side, d.w * 0.96 * M), [0, 0, 0], { s: [1 / M, 1 / M, 1 / M], r: [0, -Math.PI / 2, 0], c: '#4a4f55' });
+    deck(k, d, (len) => {
+      k.box('checker', [d.w, 0.012, len], [0, 0, 0], { c: '#b0b4b8' });
+      for (const s of [-1, 1]) k.box('hazard', [0.06, 0.014, len], [s * (d.w / 2 - 0.03), 0.001, 0], { c: '#ffffff' });
+      k.box('paint', [d.w, 0.016, 0.05], [0, 0, -len / 2 + 0.025], { c: C.yellow });
+    });
+  }, r);
 }
-
-export function CellarPiece({ f, mats }) {
-  const { type, x, z, w, d, h, rotY } = f;
-  switch (type) {
-    case 'boiler':
-    case 'heater': {
-      const r = Math.min(w, d) / 2;
-      const body = type === 'boiler'
-        ? pm('boiler', () => new THREE.MeshStandardMaterial({ color: '#7c2f28', roughness: 0.5, metalness: 0.45 }))
-        : pm('heater', () => new THREE.MeshStandardMaterial({ color: '#e9e7e0', roughness: 0.35, metalness: 0.1 }));
-      const band = pm('band', () => new THREE.MeshStandardMaterial({ color: '#3a3d42', roughness: 0.4, metalness: 0.8 }));
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} friction={0.4}>
-          <CylinderCollider args={[h / 2, r]} position={[0, h / 2, 0]} />
-          <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={body}>
-            <cylinderGeometry args={[r, r, h, 28]} />
-          </mesh>
-          {[0.15, 0.5, 0.85].map((k) => (
-            <mesh key={k} position={[0, h * k, 0]} material={band}>
-              <cylinderGeometry args={[r * 1.02, r * 1.02, 0.05 * M, 28]} />
-            </mesh>
-          ))}
-          {/* domed top */}
-          <mesh position={[0, h, 0]} scale={[1, 0.35, 1]} castShadow material={body}>
-            <sphereGeometry args={[r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
-          </mesh>
-          {type === 'boiler' && (
-            <group position={[0, h * 0.62, r * 1.01]}>
-              {/* pressure gauge: a white face with a red needle, at car-eye… well, above it */}
-              <mesh rotation-x={Math.PI / 2} material={band}>
-                <cylinderGeometry args={[0.14 * M, 0.14 * M, 0.06 * M, 20]} />
-              </mesh>
-              <mesh position={[0, 0, 0.032 * M]}>
-                <circleGeometry args={[0.12 * M, 20]} />
-                <meshStandardMaterial color="#f4f2ea" roughness={0.4} />
-              </mesh>
-              <mesh position={[0.03 * M, 0.02 * M, 0.036 * M]} rotation-z={-0.8}>
-                <planeGeometry args={[0.012 * M, 0.1 * M]} />
-                <meshBasicMaterial color="#d22" />
-              </mesh>
-            </group>
-          )}
-        </RigidBody>
-      );
-    }
-    case 'dock': {
-      const conc = pm('dock', CONCRETE);
-      const rubber = pm('rubber', () => new THREE.MeshStandardMaterial({ color: '#161616', roughness: 0.9 }));
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
-          <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-          <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={conc} geometry={roundedBox(w, h, d, 0.05)} />
-          {/* rubber dock bumpers on the drive face */}
-          {[-0.3, 0.3].map((k) => (
-            <mesh key={k} position={[w / 2 + 0.05 * M, h * 0.5, k * d]} material={rubber}>
-              <boxGeometry args={[0.1 * M, h * 0.6, 0.35 * M]} />
-            </mesh>
-          ))}
-        </RigidBody>
-      );
-    }
-    case 'pallet': {
-      const wood = pm('pallet', () => new THREE.MeshStandardMaterial({ color: '#b89464', roughness: 0.85 }));
-      const layers = Math.max(1, Math.round(h / (0.15 * M)));
-      const lh = h / layers;
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
-          <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-          {Array.from({ length: layers }, (_, L) => (
-            <group key={L} position={[0, L * lh, 0]}>
-              {/* stringers */}
-              {[-0.42, 0, 0.42].map((k) => (
-                <mesh key={k} position={[0, lh * 0.45, k * d]} castShadow receiveShadow material={wood}>
-                  <boxGeometry args={[w, lh * 0.7, 0.09 * M]} />
-                </mesh>
-              ))}
-              {/* top boards */}
-              {[-0.42, -0.21, 0, 0.21, 0.42].map((k) => (
-                <mesh key={`b${k}`} position={[k * w, lh * 0.9, 0]} castShadow receiveShadow material={wood}>
-                  <boxGeometry args={[w * 0.15, lh * 0.2, d]} />
-                </mesh>
-              ))}
-            </group>
-          ))}
-        </RigidBody>
-      );
-    }
-    case 'cage': {
-      const frame = pm('cageFrame', () => new THREE.MeshStandardMaterial({ color: '#6e7479', roughness: 0.5, metalness: 0.7 }));
-      const mesh = pm('cageMesh', () => {
-        const c = document.createElement('canvas');
-        c.width = 64; c.height = 64;
-        const g = c.getContext('2d');
-        g.strokeStyle = '#9aa1a8'; g.lineWidth = 3;
-        g.beginPath(); g.moveTo(0, 0); g.lineTo(64, 64); g.moveTo(64, 0); g.lineTo(0, 64); g.stroke();
-        const t = new THREE.CanvasTexture(c);
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.repeat.set(10, 10);
-        return new THREE.MeshStandardMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, metalness: 0.6, roughness: 0.5 });
-      });
-      const post = 0.04 * M;
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.5}>
-          <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
-            <mesh key={i} position={[sx * w / 2, h / 2, sz * d / 2]} castShadow material={frame}>
-              <boxGeometry args={[post, h, post]} />
-            </mesh>
-          ))}
-          {[-1, 1].map((s) => (
-            <mesh key={`x${s}`} position={[0, h / 2, s * d / 2]} material={mesh}>
-              <planeGeometry args={[w, h]} />
-            </mesh>
-          ))}
-          {[-1, 1].map((s) => (
-            <mesh key={`z${s}`} position={[s * w / 2, h / 2, 0]} rotation-y={Math.PI / 2} material={mesh}>
-              <planeGeometry args={[d, h]} />
-            </mesh>
-          ))}
-          <mesh position={[0, h, 0]} rotation-x={Math.PI / 2} material={mesh}>
-            <planeGeometry args={[w, d]} />
-          </mesh>
-        </RigidBody>
-      );
-    }
-    case 'workbench': {
-      const top = 0.06 * M;
-      const legIn = 0.2;
-      const laminate = pm('bench', () => new THREE.MeshStandardMaterial({ color: '#c8ccc4', roughness: 0.6 }));
-      const esd = pm('esd', () => new THREE.MeshStandardMaterial({ color: '#3f6e8c', roughness: 0.8 }));
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
-          {/* drive under it, like a desk */}
-          <CuboidCollider args={[w / 2, top / 2, d / 2]} position={[0, h - top / 2, 0]} />
-          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
-            <CuboidCollider key={i} args={[0.1, h / 2, 0.1]} position={[sx * (w / 2 - legIn), h / 2, sz * (d / 2 - legIn)]} />
-          ))}
-          <RoundedBox position={[0, h - top / 2, 0]} args={[w, top, d]} radius={0.05} smoothness={2}
-            castShadow receiveShadow material={laminate} />
-          {/* the blue anti-static mat everyone forgets to use */}
-          <mesh position={[w * 0.1, h + 0.003 * M, 0]} rotation-x={-Math.PI / 2} material={esd}>
-            <planeGeometry args={[w * 0.55, d * 0.7]} />
-          </mesh>
-          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
-            <mesh key={i} position={[sx * (w / 2 - legIn), (h - top) / 2, sz * (d / 2 - legIn)]} castShadow material={mats.metal}>
-              <boxGeometry args={[0.12, h - top, 0.12]} />
-            </mesh>
-          ))}
-        </RigidBody>
-      );
-    }
-    case 'cabinet': {
-      const steel = pm('cabinet', () => new THREE.MeshStandardMaterial({ color: '#9ca3a0', roughness: 0.45, metalness: 0.55 }));
-      const long = w >= d;
-      const drawers = Math.max(2, Math.round(h / (0.35 * M)));
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.6}>
-          <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-          <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={steel} geometry={roundedBox(w, h, d, 0.04)} />
-          {/* drawer handles on the long face that looks into the room */}
-          {Array.from({ length: drawers }, (_, k) => (
-            <mesh key={k} position={long ? [0, (k + 0.6) * (h / drawers), -d / 2 - 0.01] : [-w / 2 - 0.01, (k + 0.6) * (h / drawers), 0]} material={mats.dark}>
-              <boxGeometry args={long ? [w * 0.5, 0.03 * M, 0.02 * M] : [0.02 * M, 0.03 * M, d * 0.5]} />
-            </mesh>
-          ))}
-        </RigidBody>
-      );
-    }
-    default:
-      return null;
-  }
+function Plank({ r }) {
+  return useSkin((k, d) => deck(k, d, (len) => {
+    k.box('wood', [d.w, 0.035, len], [0, 0, 0], { c: '#d2b27c' });
+    for (const s of [-1, 1]) k.box('steel', [d.w + 0.004, 0.039, 0.03], [0, 0, s * (len / 2 - 0.04)], { c: '#9aa0a3' });
+    for (let z = -len / 2 + 0.3; z < len / 2 - 0.2; z += 0.4) k.box('matt', [0.01, 0.002, 0.01], [d.w * 0.3, 0.018, z], { c: '#444' });
+  }), r);
 }
-
-// what themes/index.js registers: furniture type → component, prop type → component
-export const PIECES = Object.fromEntries(['boiler', 'heater', 'dock', 'pallet', 'cage', 'workbench', 'cabinet'].map((t) => [t, CellarPiece]));
-export const PROPS = {};
+function LiftedTile({ r }) {
+  return useSkin((k, d) => deck(k, d, (len) => {
+    k.box('raised', [d.w, 0.033, len], [0, 0, 0], { c: '#ffffff' });
+    k.box('paint', [d.w + 0.004, 0.02, len + 0.004], [0, -0.012, 0], { c: '#2a2d31' });
+  }), r);
+}
+export const RAMP_SKINS = { cellar_dockplate: DockPlate, cellar_plank: Plank, cellar_tile: LiftedTile, cellar_fork: () => null };
