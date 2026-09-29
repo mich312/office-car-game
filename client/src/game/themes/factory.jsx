@@ -30,6 +30,7 @@ import { audio } from '../../audio.js';
 import { net, on } from '../../net.js';
 import { Body } from '../propBody.jsx';
 import { glowTex } from '../textures.js';
+import { roundedBox } from '../roundedGeo.js';
 
 const m = (v) => v * M; // metres → world units
 
@@ -84,6 +85,9 @@ const _col = new THREE.Color();
 class Kit {
   constructor() { this.parts = new Map(); }
   add(key, geo, color, pos = [0, 0, 0], rot = [0, 0, 0], scale = [1, 1, 1]) {
+    // bare steel shares the paint batch: a draw call per piece saved, and at
+    // this light galvanised grey reads the same either way
+    if (key === 'metal') key = 'paint';
     let g = geo.index ? geo.toNonIndexed() : geo.clone();
     for (const a of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(a)) g.deleteAttribute(a);
     if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
@@ -91,6 +95,7 @@ class Kit {
     _quat.setFromEuler(_eul);
     _mat4.compose(_pos.set(pos[0], pos[1], pos[2]), _quat, _scl.set(scale[0], scale[1], scale[2]));
     g.applyMatrix4(_mat4);
+    if (this.frame) g.applyMatrix4(this.frame);
     _col.set(color);
     const n = g.attributes.position.count;
     const arr = new Float32Array(n * 3);
@@ -101,9 +106,18 @@ class Kit {
     geo !== g && geo.dispose?.();
     return this;
   }
+  // build a piece in its own frame (at x, z turned by rotY) into a world kit
+  inFrame(x, z, rotY, fn) {
+    this.frame = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotY || 0), new THREE.Vector3(1, 1, 1));
+    fn(this);
+    this.frame = null;
+    return this;
+  }
   // a box of w×h×d (units) centred at pos
   box(key, color, w, h, d, pos, rot) { return this.add(key, new THREE.BoxGeometry(w, h, d), color, pos, rot); }
   cyl(key, color, r0, r1, h, pos, rot, seg = 12) { return this.add(key, new THREE.CylinderGeometry(r0, r1, h, seg), color, pos, rot); }
+  // a box with rounded edges (cast machine housings, moulded plastic)
+  rbox(key, color, w, h, d, pos, rot, r = Math.min(w, h, d) * 0.3) { return this.add(key, roundedBox(w, h, d, r, 2), color, pos, rot); }
   // a box between two heights, handy for legs: bottom y0, top y1
   post(key, color, w, d, x, y0, y1, z) { return this.box(key, color, w, y1 - y0, d, [x, (y0 + y1) / 2, z]); }
   build() {
@@ -131,6 +145,13 @@ const MAT = {
     map: meshTex(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.4, color: '#ffffff',
   })),
   hazard: () => once('hazard', () => new THREE.MeshStandardMaterial({ map: hazardTex(), roughness: 0.6 })),
+  pane: () => once('pane', () => new THREE.MeshStandardMaterial({
+    color: '#bfe3ee', transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0.2, envMapIntensity: 1.6,
+    side: THREE.DoubleSide, depthWrite: false,
+  })),
+  meshGalv: () => once('meshGalv', () => new THREE.MeshStandardMaterial({
+    map: meshTex(), color: '#c8ced4', alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.6,
+  })),
   glass: () => once('glassF', () => new THREE.MeshStandardMaterial({
     color: '#9fc6d6', transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.1, depthWrite: false,
   })),
@@ -219,6 +240,15 @@ const BELTS = {
   transfer: { speed: m(1), mat: () => once('beltT', () => new THREE.MeshStandardMaterial({ map: beltTex('T', '#3a8a55', 'rgba(20,50,30,0.6)'), roughness: 0.7 })) },
   assembly: { speed: m(0.5), mat: () => once('beltA', () => new THREE.MeshStandardMaterial({ map: beltTex('A', '#2a2c2f', 'rgba(0,0,0,0.5)'), roughness: 0.8 })) },
 };
+
+// A kit's meshes, one per material. Lit things (glow) and film neither cast
+// nor take shadows: a shadow-map draw for an LED is a draw wasted.
+function KitMeshes({ geo, cast = true, receive = true }) {
+  return Object.entries(geo).map(([k, g]) => {
+    const lit = k === 'glow' || k === 'film' || k === 'pane';
+    return <mesh key={k} geometry={g} material={matFor(k)} castShadow={cast && !lit} receiveShadow={receive && !lit} />;
+  });
+}
 
 // ------------------------------------------------------------ the pieces
 // Office.jsx hands these types over; each owns its (static) colliders.
@@ -345,7 +375,7 @@ function Conveyor({ f }) {
       {legXs.map((lx) => [-1, 1].map((s) => (
         <CuboidCollider key={`${lx}${s}`} args={[m(0.03), (topAt(lx) - BED) / 2, m(0.03)]} position={[lx, (topAt(lx) - BED) / 2, s * (W / 2 - m(0.05))]} />
       )))}
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={geo} />
       <mesh geometry={belt} material={beltMat} position={[0, mid + m(0.002), 0]} rotation-z={ang} receiveShadow />
     </RigidBody>
   );
@@ -359,19 +389,22 @@ function Curve({ f }) {
   const geo = useMemo(() => cached('curve', () => {
     const k = new Kit();
     const ri = r - W / 2, ro = r + W / 2;
+    // the arcs run from north (+z) round to east (+x): a torus arc starts on
+    // +x and sweeps toward +y, so tipping +y onto +z puts it in that quadrant
     const ring = (rad, y, t, col, key) => {
-      const g = new THREE.TorusGeometry(rad, t, 6, 20, Math.PI / 2);
-      k.add(key, g, col, [0, y, 0], [-Math.PI / 2, 0, 0]);
+      k.add(key, new THREE.TorusGeometry(rad, t, 6, 24, Math.PI / 2), col, [0, y, 0], [Math.PI / 2, 0, 0]);
     };
     ring(ro, h - m(0.08), m(0.04), C.frame, 'metal');
     ring(ri, h - m(0.08), m(0.04), C.frame, 'metal');
     ring(ro - RAIL_T / 2, h + RAIL_H / 2, RAIL_T / 2 + m(0.01), C.yellow, 'paint');
     ring(ri + RAIL_T / 2, h + RAIL_H / 2, RAIL_T / 2 + m(0.01), C.yellow, 'paint');
-    for (let a = 0.04; a < Math.PI / 2; a += 0.085) {
-      const rm = r;
-      const len = W - m(0.06);
-      k.add('metal', new THREE.CylinderGeometry(m(0.03), m(0.022), len, 8), C.galv,
-        [Math.sin(a) * rm, h - m(0.03), Math.cos(a) * rm], [0, a, Math.PI / 2]);
+    // the bed under the rollers, and its underside skirt
+    k.add('paint', new THREE.RingGeometry(ri, ro, 24, 1, -Math.PI / 2, Math.PI / 2), '#6f777e', [0, h - m(0.07), 0], [-Math.PI / 2, 0, 0]);
+    k.add('paint', new THREE.RingGeometry(ri, ro, 24, 1, -Math.PI / 2, Math.PI / 2), '#9aa1a7', [0, h - BED + m(0.01), 0], [Math.PI / 2, 0, Math.PI / 2]);
+    // tapered rollers, radial: fat end outside, like a real powered curve
+    for (let a = 0.05; a < Math.PI / 2; a += 0.075) {
+      k.add('metal', new THREE.CylinderGeometry(m(0.032), m(0.022), W - m(0.06), 8), C.galv,
+        [Math.sin(a) * r, h - m(0.03), Math.cos(a) * r], [0, a - Math.PI / 2, -Math.PI / 2]);
     }
     // a motor pod on the outside, the legs
     k.box('paint', C.brand, m(0.25), m(0.2), m(0.2), [Math.sin(Math.PI / 4) * (ro + m(0.14)), h - m(0.2), Math.cos(Math.PI / 4) * (ro + m(0.14))], [0, Math.PI / 4, 0]);
@@ -393,7 +426,7 @@ function Curve({ f }) {
           <CuboidCollider args={[ri * 0.14, RAIL_H / 2, RAIL_T / 2]} position={[0, h + RAIL_H / 2, ri]} />
         </group>
       ))}
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={geo} />
     </RigidBody>
   );
 }
@@ -420,7 +453,7 @@ function Hood({ f }) {
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} friction={0.6}>
       <CuboidCollider args={[w / 2, (h - m(0.95)) / 2, d / 2]} position={[0, m(0.95) + (h - m(0.95)) / 2, 0]} />
       {[-1, 1].map((s) => <CuboidCollider key={s} args={[w / 2, m(0.475), m(0.05)]} position={[0, m(0.475), s * (d / 2 - m(0.05))]} />)}
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={geo} />
       <Label text={f.label} at={[0, h - m(0.4), -d / 2 - m(0.012)]} w={w * 0.8} />
     </RigidBody>
   );
@@ -474,29 +507,37 @@ function Arm({ f }) {
   const big = side === 'S' ? 1.25 : 1;
   const geo = useMemo(() => cached(`robot${side}`, () => {
     const base = new Kit(), tur = new Kit(), up = new Kit(), fo = new Kit(), wr = new Kit();
-    // plinth and base: dark steel on a yellow-edged plate
-    base.box('paint', C.joint, m(0.62) * big, m(0.45), m(0.62) * big, [0, m(0.225), 0]);
-    base.box('paint', C.yellow, m(0.66) * big, m(0.03), m(0.66) * big, [0, m(0.46), 0]);
-    base.cyl('paint', C.orange, m(0.24) * big, m(0.28) * big, m(0.14), [0, m(0.53), 0], [0, 0, 0], 20);
-    // turret: the shoulder housing and the motor
-    tur.cyl('paint', C.orange, m(0.22) * big, m(0.24) * big, m(0.28), [0, m(0.14), 0], [0, 0, 0], 20);
-    tur.box('paint', C.orange, m(0.3) * big, m(0.34) * big, m(0.34) * big, [0, R.shoulder - m(0.6), m(0.08)]);
-    tur.cyl('paint', C.joint, m(0.13) * big, m(0.13) * big, m(0.42) * big, [0, R.shoulder - m(0.6), m(0.12)], [0, 0, Math.PI / 2], 16);
-    tur.cyl('paint', C.joint, m(0.07), m(0.07), m(0.16), [m(-0.2) * big, R.shoulder - m(0.6), m(-0.08)], [Math.PI / 2, 0, 0], 12);
-    // upper arm along +z, elbow at L1
-    up.box('paint', C.orange, m(0.17) * big, m(0.2) * big, R.L1, [0, 0, R.L1 / 2]);
-    up.cyl('paint', C.joint, m(0.1) * big, m(0.1) * big, m(0.24) * big, [0, 0, R.L1], [0, 0, Math.PI / 2], 14);
-    up.cyl('paint', C.joint, m(0.11) * big, m(0.11) * big, m(0.26) * big, [0, 0, 0], [0, 0, Math.PI / 2], 14);
-    // forearm, tapering, a cable loom along it
-    fo.box('paint', C.orange, m(0.13) * big, m(0.14) * big, R.L2 * 0.72, [0, 0, R.L2 * 0.36]);
-    fo.cyl('paint', C.orange, m(0.05) * big, m(0.07) * big, R.L2 * 0.32, [0, 0, R.L2 * 0.84], [Math.PI / 2, 0, 0], 12);
-    fo.cyl('paint', C.black, m(0.022), m(0.022), R.L2 * 0.8, [m(0.09) * big, m(0.05), R.L2 * 0.45], [Math.PI / 2, 0, 0], 6);
-    fo.box('paint', C.orange, m(0.2) * big, m(0.22) * big, m(0.24) * big, [0, 0, m(-0.04)]);
-    // wrist + gripper (along +z of the wrist frame)
-    wr.cyl('paint', C.joint, m(0.06), m(0.06), m(0.1), [0, 0, m(0.05)], [Math.PI / 2, 0, 0], 12);
-    wr.box('paint', C.galv, m(0.16), m(0.05), m(0.08), [0, 0, m(0.14)]);
-    wr.box('paint', C.brand, m(0.05), m(0.05), m(0.06), [0, m(0.05), m(0.1)]);
-    for (const s of [-1, 1]) wr.box('paint', C.steel, m(0.02), m(0.04), m(0.12), [s * m(0.045), 0, m(0.22)]);
+    const b = big, S = R.shoulder - m(0.6);
+    // riser and base: a dark steel pedestal on a bolted plate
+    base.rbox('paint', C.joint, m(0.56) * b, m(0.45), m(0.56) * b, [0, m(0.225), 0], [0, 0, 0], m(0.03));
+    base.box('paint', C.yellow, m(0.66) * b, m(0.025), m(0.66) * b, [0, m(0.0125), 0]);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) base.cyl('paint', C.steel, m(0.02), m(0.02), m(0.03), [sx * m(0.28) * b, m(0.035), sz * m(0.28) * b], [0, 0, 0], 6);
+    base.cyl('paint', C.orange, m(0.25) * b, m(0.28) * b, m(0.15), [0, m(0.525), 0], [0, 0, 0], 24);
+    // turret: the carousel, its yaw motor, the shoulder housing
+    tur.cyl('paint', C.orange, m(0.23) * b, m(0.25) * b, m(0.16), [0, m(0.08), 0], [0, 0, 0], 24);
+    tur.rbox('paint', C.orange, m(0.34) * b, S + m(0.2) * b, m(0.34) * b, [0, (S + m(0.2) * b) / 2, m(0.06)], [0, 0, 0], m(0.07) * b);
+    tur.cyl('paint', C.grey, m(0.07) * b, m(0.07) * b, m(0.2) * b, [m(-0.18) * b, m(0.2), m(-0.1) * b], [0, 0, 0], 14);
+    tur.cyl('paint', C.joint, m(0.15) * b, m(0.15) * b, m(0.44) * b, [0, S, m(0.12) * b], [0, 0, Math.PI / 2], 20);
+    tur.cyl('paint', C.grey, m(0.08) * b, m(0.08) * b, m(0.12) * b, [m(0.26) * b, S, m(0.12) * b], [0, 0, Math.PI / 2], 14);
+    // the balancer: a grey spring cylinder from the carousel's back
+    tur.cyl('paint', C.galv, m(0.045) * b, m(0.045) * b, m(0.5) * b, [m(-0.19) * b, S - m(0.1), m(-0.12) * b], [0.5, 0, 0], 10);
+    // upper arm along +z, elbow at L1: a cast box that narrows toward the elbow
+    up.rbox('paint', C.orange, m(0.19) * b, m(0.24) * b, R.L1 * 0.62, [0, 0, R.L1 * 0.33], [0, 0, 0], m(0.07) * b);
+    up.rbox('paint', C.orange, m(0.16) * b, m(0.19) * b, R.L1 * 0.5, [0, 0, R.L1 * 0.72], [0, 0, 0], m(0.06) * b);
+    up.cyl('paint', C.joint, m(0.12) * b, m(0.12) * b, m(0.26) * b, [0, 0, R.L1], [0, 0, Math.PI / 2], 18);
+    up.cyl('paint', C.orange, m(0.14) * b, m(0.14) * b, m(0.3) * b, [0, 0, 0], [0, 0, Math.PI / 2], 18);
+    // forearm: motor pack behind the elbow, a tapering tube to the wrist
+    fo.rbox('paint', C.orange, m(0.22) * b, m(0.24) * b, m(0.34) * b, [0, m(0.02), m(-0.06) * b], [0, 0, 0], m(0.07) * b);
+    fo.cyl('paint', C.grey, m(0.06) * b, m(0.06) * b, m(0.14) * b, [m(0.08) * b, m(0.04), m(-0.24) * b], [Math.PI / 2, 0, 0], 12);
+    fo.cyl('paint', C.grey, m(0.06) * b, m(0.06) * b, m(0.14) * b, [m(-0.08) * b, m(0.04), m(-0.24) * b], [Math.PI / 2, 0, 0], 12);
+    fo.cyl('paint', C.orange, m(0.07) * b, m(0.095) * b, R.L2 * 0.8, [0, 0, R.L2 * 0.5], [Math.PI / 2, 0, 0], 16);
+    fo.cyl('paint', C.black, m(0.018), m(0.018), R.L2 * 0.8, [m(0.1) * b, m(0.06), R.L2 * 0.45], [Math.PI / 2, 0, 0], 6);
+    // wrist, flange, a two-finger gripper
+    wr.rbox('paint', C.orange, m(0.13), m(0.13), m(0.14), [0, 0, m(0.03)], [0, 0, 0], m(0.04));
+    wr.cyl('paint', C.joint, m(0.055), m(0.055), m(0.05), [0, 0, m(0.12)], [Math.PI / 2, 0, 0], 14);
+    wr.rbox('paint', C.galv, m(0.17), m(0.06), m(0.07), [0, 0, m(0.17)], [0, 0, 0], m(0.015));
+    wr.box('paint', C.brand, m(0.05), m(0.03), m(0.05), [0, m(0.045), m(0.16)]);
+    for (const s2 of [-1, 1]) wr.box('paint', C.steel, m(0.02), m(0.04), m(0.1), [s2 * m(0.05), 0, m(0.25)]);
     // one mesh per link: everything is vertex-coloured paint
     return { base: base.build().paint, tur: tur.build().paint, up: up.build().paint, fo: fo.build().paint, wr: wr.build().paint };
   }), [side, R, big]);
@@ -564,26 +605,44 @@ function Forklift({ f }) {
   const { x, z, w, d, h, rotY } = f;
   const geo = useMemo(() => cached('forklift', () => {
     const k = new Kit();
-    // body: counterweight at the back (+x), cab, overhead guard, mast at −x
-    k.box('paint', C.orange, w * 0.72, m(0.7), d, [w * 0.1, m(0.45), 0]);
-    k.box('paint', C.joint, w * 0.26, m(0.7), d * 0.96, [w * 0.37, m(0.5), 0]);
-    k.box('matte', C.black, m(0.5), m(0.12), m(0.5), [w * 0.1, m(0.86), 0]); // seat
-    k.box('matte', C.black, m(0.12), m(0.4), m(0.45), [w * 0.22, m(1.05), 0]);
+    // body: a rounded chassis, the counterweight at the back (+x), the cab
+    // (seat, steering wheel, overhead guard on four posts), the mast at −x
+    k.rbox('paint', C.orange, w * 0.78, m(0.5), d, [w * 0.05, m(0.42), 0], [0, 0, 0], m(0.08));
+    k.rbox('paint', C.joint, w * 0.26, m(0.62), d * 0.98, [w * 0.36, m(0.5), 0], [0, 0, 0], m(0.12));
+    k.box('paint', C.orange, w * 0.3, m(0.04), d * 1.02, [-w * 0.22, m(0.66), 0]);
+    k.rbox('matte', C.black, m(0.44), m(0.12), m(0.46), [w * 0.12, m(0.73), 0], [0, 0, 0], m(0.04)); // seat
+    k.rbox('matte', C.black, m(0.1), m(0.42), m(0.44), [w * 0.23, m(0.95), 0], [0, 0, -0.15], m(0.04));
+    k.cyl('matte', C.black, m(0.02), m(0.02), m(0.45), [-w * 0.12, m(0.85), 0], [0, 0, 0.5], 6);
+    k.add('matte', new THREE.TorusGeometry(m(0.13), m(0.018), 6, 16), C.black, [-w * 0.17, m(1.05), 0], [0, Math.PI / 2, -0.9]);
     for (const s of [-1, 1]) {
-      for (const e of [-1, 1]) k.post('paint', C.joint, m(0.06), m(0.06), w * 0.1 + e * m(0.45), m(0.8), h, s * (d / 2 - m(0.08)));
-      // tyres
-      k.add('matte', new THREE.CylinderGeometry(m(0.24), m(0.24), m(0.2), 16), C.rubber, [-w * 0.22, m(0.24), s * (d / 2 - m(0.05))], [Math.PI / 2, 0, 0]);
-      k.add('matte', new THREE.CylinderGeometry(m(0.2), m(0.2), m(0.18), 16), C.rubber, [w * 0.3, m(0.2), s * (d / 2 - m(0.06))], [Math.PI / 2, 0, 0]);
-      // mast rails
-      k.post('metal', C.joint, m(0.08), m(0.1), -w / 2 + m(0.02), m(0.05), m(2.3), s * m(0.3));
+      for (const e of [-1, 1]) k.post('paint', C.joint, m(0.05), m(0.05), w * 0.08 + e * m(0.48), m(0.66), h, s * (d / 2 - m(0.06)));
+      // tyres with a hub
+      k.add('matte', new THREE.CylinderGeometry(m(0.24), m(0.24), m(0.2), 18), C.rubber, [-w * 0.24, m(0.24), s * (d / 2 - m(0.07))], [Math.PI / 2, 0, 0]);
+      k.add('paint', new THREE.CylinderGeometry(m(0.12), m(0.12), m(0.205), 12), C.galv, [-w * 0.24, m(0.24), s * (d / 2 - m(0.07))], [Math.PI / 2, 0, 0]);
+      k.add('matte', new THREE.CylinderGeometry(m(0.19), m(0.19), m(0.17), 18), C.rubber, [w * 0.32, m(0.19), s * (d / 2 - m(0.08))], [Math.PI / 2, 0, 0]);
+      // mast channels, a chain up each
+      k.post('metal', C.joint, m(0.07), m(0.1), -w / 2 + m(0.04), m(0.06), m(2.35), s * m(0.33));
+      k.post('metal', C.joint, m(0.05), m(0.08), -w / 2 - m(0.02), m(0.06), m(2.25), s * m(0.24));
+      k.box('metal', '#3d4247', m(0.02), m(1.9), m(0.03), [-w / 2 + m(0.1), m(1.2), s * m(0.18)]);
+      // work light on the guard
+      k.box('glow', '#fff4d8', m(0.02), m(0.06), m(0.1), [w * 0.08 - m(0.5), h - m(0.08), s * (d / 2 - m(0.1))]);
     }
-    k.box('paint', C.joint, m(1.0), m(0.05), d, [w * 0.1, h, 0]); // overhead guard
-    k.box('paint', C.joint, m(0.12), m(0.6), m(0.8), [-w / 2 - m(0.02), m(0.62), 0]); // carriage
-    // the forks, raised to 0.3 m, and the pallet on them
-    for (const s of [-1, 1]) k.box('metal', C.steel, m(1.15), m(0.045), m(0.12), [-w / 2 - m(0.6), m(0.3), s * m(0.28)]);
-    // amber beacon on the guard
+    k.box('paint', C.joint, m(0.08), m(0.12), m(0.72), [-w / 2 + m(0.04), m(2.35), 0]);
+    k.box('paint', C.joint, m(0.08), m(0.1), m(0.62), [-w / 2 + m(0.04), m(1.0), 0]);
+    // the overhead guard: a frame with slats
+    for (const s of [-1, 1]) k.box('paint', C.joint, m(1.02), m(0.05), m(0.05), [w * 0.08, h, s * (d / 2 - m(0.06))]);
+    for (let i = -2; i <= 2; i++) k.box('paint', C.joint, m(0.04), m(0.04), d - m(0.1), [w * 0.08 + i * m(0.22), h, 0]);
+    // carriage and the forks (raised to 0.3 m, the pallet on them)
+    k.box('paint', C.joint, m(0.1), m(0.55), m(0.84), [-w / 2 - m(0.03), m(0.6), 0]);
+    for (const s of [-1, 1]) {
+      k.box('metal', C.steel, m(1.15), m(0.045), m(0.12), [-w / 2 - m(0.62), m(0.3), s * m(0.28)]);
+      k.box('metal', C.steel, m(0.045), m(0.4), m(0.12), [-w / 2 - m(0.06), m(0.5), s * m(0.28)]);
+    }
+    palletInto(k, -w / 2 - m(0.62), m(0.3), 0, 0);
+    // amber beacon base, the plate and the rear lights
     k.cyl('paint', C.joint, m(0.05), m(0.05), m(0.05), [w * 0.3, h + m(0.03), 0]);
-    k.box('paint', C.black, m(0.3), m(0.12), m(0.02), [w * 0.46, m(0.6), d / 2 + m(0.005)]);
+    k.box('paint', C.white, m(0.3), m(0.1), m(0.01), [w * 0.2, m(0.5), d / 2 + m(0.005)]);
+    for (const s of [-1, 1]) k.box('glow', '#ff3b30', m(0.02), m(0.06), m(0.08), [w / 2 + m(0.005), m(0.7), s * m(0.35)]);
     return k.build();
   }), [w, d, h]);
   const beacon = useRef();
@@ -597,8 +656,7 @@ function Forklift({ f }) {
       <CuboidCollider args={[m(0.08), m(1.1), d * 0.4]} position={[-w / 2, m(1.15), 0]} />
       {/* the raised pallet: top at 0.45 m, flush with the ramp */}
       <CuboidCollider args={[m(0.6), m(0.075), m(0.5)]} position={[-w / 2 - m(0.62), m(0.375), 0]} />
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
-      <PalletMesh at={[-w / 2 - m(0.62), m(0.3), 0]} />
+      <KitMeshes geo={geo} />
       {/* the blue safety spot it projects on the floor 3 m ahead */}
       <mesh position={[-w / 2 - m(3), m(0.02), 0]} rotation-x={-Math.PI / 2} material={blueSpot()}>
         <circleGeometry args={[m(0.45), 24]} />
@@ -621,19 +679,6 @@ const blueSpot = () => once('blueSpot', () => new THREE.MeshBasicMaterial({
   map: glowTex(), color: '#3d7bff', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
 }));
 
-function PalletMesh({ at }) {
-  const geo = useMemo(() => cached('palletMesh', () => {
-    const k = new Kit();
-    palletInto(k, 0, 0, 0, 0);
-    return k.build();
-  }), []);
-  return (
-    <group position={at}>
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
-    </group>
-  );
-}
-
 // a Euro pallet (1.2 × 1.0 × 0.15 m) into a kit, at (x, y, z) turned by rotY
 function palletInto(k, x, y, z, rotY, wood = C.wood) {
   const c = Math.cos(rotY), s = Math.sin(rotY);
@@ -643,25 +688,37 @@ function palletInto(k, x, y, z, rotY, wood = C.wood) {
 }
 
 // ---- benches: QA and line-side. Drive under (0.9 m, like a desk).
+function benchInto(k, f) {
+  const { w, d, h } = f;
+  const top = m(0.05);
+  k.box('paint', '#c9cdc6', w, top, d, [0, h - top / 2, 0]);
+  k.box('paint', f.qa ? '#3f6e8c' : '#556066', w * 0.9, m(0.004), d * 0.8, [0, h + m(0.002), 0]);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) k.post('paint', C.blueGrey, m(0.05), m(0.05), sx * (w / 2 - m(0.08)), 0, h - top, sz * (d / 2 - m(0.08)));
+    k.box('paint', C.blueGrey, m(0.04), m(0.04), d - m(0.1), [sx * (w / 2 - m(0.08)), m(0.12), 0]);
+  }
+  // a shelf at the back (over the tops of car roofs) and a light over it
+  k.post('paint', C.blueGrey, m(0.04), m(0.04), -w / 2 + m(0.1), h, h + m(0.7), -d / 2 + m(0.05));
+  k.post('paint', C.blueGrey, m(0.04), m(0.04), w / 2 - m(0.1), h, h + m(0.7), -d / 2 + m(0.05));
+  k.box('paint', '#c9cdc6', w, m(0.03), m(0.3), [0, h + m(0.4), -d / 2 + m(0.16)]);
+  k.box('paint', '#d9dcdf', w * 0.8, m(0.05), m(0.1), [0, h + m(0.7), -d / 2 + m(0.12)]);
+  k.box('glow', '#f4f8ff', w * 0.76, m(0.01), m(0.06), [0, h + m(0.674), -d / 2 + m(0.12)]);
+  if (f.qa) {
+    // printers under test on the shelf (QaPages feeds their pages out)
+    for (const px of QA_SLOTS) {
+      const at = [px * w, h + m(0.415), -d / 2 + m(0.16)];
+      k.rbox('paint', C.printer, m(0.36), m(0.16), m(0.26), [at[0], at[1] + m(0.08), at[2]], [0, 0, 0], m(0.02));
+      k.box('paint', C.printerDark, m(0.36), m(0.025), m(0.26), [at[0], at[1] + m(0.17), at[2]]);
+      k.box('paint', C.printerDark, m(0.22), m(0.015), m(0.1), [at[0], at[1] + m(0.05), at[2] + m(0.16)], [0.35, 0, 0]);
+      k.box('glow', '#2ee06a', m(0.012), m(0.012), m(0.004), [at[0] + m(0.14), at[1] + m(0.12), at[2] + m(0.132)]);
+    }
+    // a test-page tray and the clutter of a lab bench
+    k.box('paint', '#2a2d31', m(0.34), m(0.04), m(0.26), [w * 0.02, h + m(0.02), m(0.05)]);
+  }
+}
+
 function Bench({ f }) {
   const { x, z, w, d, h, rotY } = f;
-  const geo = useMemo(() => cached(`bench${w.toFixed(2)}${f.qa ? 'q' : ''}`, () => {
-    const k = new Kit();
-    const top = m(0.05);
-    k.box('paint', '#c9cdc6', w, top, d, [0, h - top / 2, 0]);
-    k.box('matte', f.qa ? '#3f6e8c' : '#556066', w * 0.9, m(0.004), d * 0.8, [0, h + m(0.002), 0]);
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) k.post('paint', C.blueGrey, m(0.05), m(0.05), sx * (w / 2 - m(0.08)), 0, h - top, sz * (d / 2 - m(0.08)));
-      k.box('paint', C.blueGrey, m(0.04), m(0.04), d - m(0.1), [sx * (w / 2 - m(0.08)), m(0.12), 0]);
-    }
-    // a shelf at the back (over the tops of car roofs) and a light over it
-    k.post('paint', C.blueGrey, m(0.04), m(0.04), -w / 2 + m(0.1), h, h + m(0.7), -d / 2 + m(0.05));
-    k.post('paint', C.blueGrey, m(0.04), m(0.04), w / 2 - m(0.1), h, h + m(0.7), -d / 2 + m(0.05));
-    k.box('paint', '#c9cdc6', w, m(0.03), m(0.3), [0, h + m(0.4), -d / 2 + m(0.16)]);
-    k.box('paint', '#d9dcdf', w * 0.8, m(0.05), m(0.1), [0, h + m(0.7), -d / 2 + m(0.12)]);
-    k.box('glow', '#f4f8ff', w * 0.76, m(0.01), m(0.06), [0, h + m(0.674), -d / 2 + m(0.12)]);
-    return k.build();
-  }), [w, d, h, f.qa]);
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
       <CuboidCollider args={[w / 2, m(0.025), d / 2]} position={[0, h - m(0.025), 0]} />
@@ -669,83 +726,135 @@ function Bench({ f }) {
         <CuboidCollider key={i} args={[m(0.03), (h - m(0.05)) / 2, m(0.03)]} position={[sx * (w / 2 - m(0.08)), (h - m(0.05)) / 2, sz * (d / 2 - m(0.08))]} />
       ))}
       <CuboidCollider args={[w / 2, m(0.35), m(0.15)]} position={[0, h + m(0.35), -d / 2 + m(0.16)]} />
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
     </RigidBody>
   );
 }
 
-// ---- the SMT clean room's machines
-function SmtMachine({ f }) {
-  const { x, z, w, d, h, type } = f;
-  const oven = type === 'factory_oven';
-  const geo = useMemo(() => cached(`smt${type}${w.toFixed(1)}`, () => {
-    const k = new Kit();
-    k.box('paint', '#e4e7ea', w, h - m(0.25), d, [0, m(0.25) + (h - m(0.25)) / 2, 0]);
-    k.box('paint', C.joint, w - m(0.1), m(0.25), d - m(0.1), [0, m(0.125), 0]);
-    k.box('paint', oven ? '#3a3d42' : C.brand, w + m(0.01), m(0.08), d + m(0.01), [0, h - m(0.3), 0]);
-    if (oven) {
-      // the long orange window along the front, and the conveyor mouth
-      k.box('glow', '#ff7a1a', w * 0.8, m(0.12), m(0.01), [0, m(0.85), -d / 2 - m(0.006)]);
-      for (let i = 0; i < 6; i++) k.box('paint', '#9aa0a6', m(0.02), m(0.2), m(0.012), [-w * 0.4 + i * (w * 0.16), m(0.85), -d / 2 - m(0.012)]);
-      for (let i = 0; i < 10; i++) k.box('paint', '#c8ccd0', m(0.12), m(0.06), m(0.08), [-w / 2 + m(0.3) + i * (w - m(0.6)) / 9, h + m(0.03), 0]);
-    } else {
-      // the machine's glass lid, the feeder bank along the front
-      k.box('paint', C.joint, w * 0.9, m(0.3), m(0.12), [0, m(0.55), -d / 2 - m(0.06)]);
-      for (let i = 0; i < 8; i++) k.box('paint', i % 3 ? '#d4d6d8' : '#2f6fd6', w * 0.1, m(0.14), m(0.1), [-w * 0.4 + i * w * 0.115, m(0.78), -d / 2 - m(0.05)]);
-      k.box('glow', '#7fc4ff', m(0.3), m(0.2), m(0.01), [w * 0.3, h - m(0.55), -d / 2 - m(0.006)]);
-      // stack light
-      k.cyl('paint', C.joint, m(0.02), m(0.02), m(0.3), [w / 2 - m(0.1), h + m(0.15), d / 2 - m(0.1)]);
-      k.cyl('glow', '#2ee06a', m(0.045), m(0.045), m(0.08), [w / 2 - m(0.1), h + m(0.34), d / 2 - m(0.1)]);
+// Printers on the QA shelves push a test page out every few seconds; it
+// slides out, tips off the shelf and flutters down onto the bench — onto
+// whoever is driving along it. One instanced mesh for every page in flight.
+const QA_SLOTS = [-0.28, 0.28];
+const QA_PERIOD = 3.2;
+const _pg = new THREE.Object3D();
+function QaPages({ map }) {
+  const ref = useRef();
+  const slots = useMemo(() => {
+    const out = [];
+    for (const b of map.FURNITURE.filter((e) => e.type === 'factory_bench' && e.qa)) {
+      const c = Math.cos(b.rotY), sn = Math.sin(b.rotY);
+      for (const px of QA_SLOTS) {
+        const lx = px * b.w, lz = -b.d / 2 + m(0.16);
+        out.push({ x: b.x + lx * c + lz * sn, z: b.z - lx * sn + lz * c, y: b.h + m(0.47), top: b.h, rot: b.rotY, seed: out.length * 1.37 });
+      }
     }
-    return k.build();
-  }), [w, d, h, type]);
+    return out;
+  }, [map]);
+  const drift = useMemo(() => {
+    // pages that already made it to the floor, around the benches and the
+    // big printer (the paper-storm event's aftermath, every day)
+    const k = new Kit();
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    for (const [cx, cz, n, spread] of map.PAPER || []) {
+      for (let i = 0; i < n; i++) {
+        const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * spread;
+        k.add('paper', new THREE.PlaneGeometry(m(0.21), m(0.297)), i % 5 ? '#f6f6f2' : '#e8eef8', [m(cx + Math.cos(a) * r), 0.02 + i * 0.0006, m(cz + Math.sin(a) * r)], [-Math.PI / 2, 0, rnd() * Math.PI]);
+      }
+    }
+    return k.parts.size ? k.build().paper : null;
+  }, [map]);
+  const paperMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }), []);
+  useFrame(() => {
+    if (!ref.current) return;
+    const t = LINE.t;
+    slots.forEach((sl, i) => {
+      const c = ((t + sl.seed) % QA_PERIOD) / QA_PERIOD; // 0…1 through one page
+      const out = Math.min(1, c / 0.35); // feeding out of the printer
+      const fall = Math.max(0, (c - 0.35) / 0.3); // tipping off the shelf
+      const f2 = Math.min(1, fall);
+      const fwd = m(0.14) + out * m(0.16) + f2 * m(0.22);
+      const cs = Math.cos(sl.rot), sn = Math.sin(sl.rot);
+      _pg.position.set(sl.x + fwd * sn, sl.y - f2 * f2 * (sl.y - sl.top - 0.02) + Math.sin(f2 * Math.PI) * m(0.03), sl.z + fwd * cs);
+      _pg.rotation.set(-Math.PI / 2 + (1 - f2) * 0.15 + Math.sin(f2 * 9 + sl.seed) * 0.25 * (1 - f2), sl.rot + f2 * 0.6, 0);
+      _pg.scale.setScalar(c > 0.94 ? 0.0001 : 1);
+      _pg.updateMatrix();
+      ref.current.setMatrixAt(i, _pg.matrix);
+    });
+    ref.current.instanceMatrix.needsUpdate = true;
+  });
+  return (
+    <group>
+      <instancedMesh ref={ref} args={[null, null, Math.max(1, slots.length)]} frustumCulled={false}>
+        <planeGeometry args={[m(0.21), m(0.297)]} />
+        <meshStandardMaterial color="#f8f8f4" roughness={0.9} side={THREE.DoubleSide} />
+      </instancedMesh>
+      {drift && <mesh geometry={drift} material={paperMat} receiveShadow />}
+    </group>
+  );
+}
+
+// ---- the SMT clean room's machines
+function smtMachineInto(k, f) {
+  const { w, d, h, type } = f;
+  const oven = type === 'factory_oven';
+  k.box('paint', '#e4e7ea', w, h - m(0.25), d, [0, m(0.25) + (h - m(0.25)) / 2, 0]);
+  k.box('paint', C.joint, w - m(0.1), m(0.25), d - m(0.1), [0, m(0.125), 0]);
+  k.box('paint', oven ? '#3a3d42' : C.brand, w + m(0.01), m(0.08), d + m(0.01), [0, h - m(0.3), 0]);
+  if (oven) {
+    // the long orange window along the front, and the conveyor mouth
+    k.box('glow', '#ff7a1a', w * 0.8, m(0.12), m(0.01), [0, m(0.85), -d / 2 - m(0.006)]);
+    for (let i = 0; i < 6; i++) k.box('paint', '#9aa0a6', m(0.02), m(0.2), m(0.012), [-w * 0.4 + i * (w * 0.16), m(0.85), -d / 2 - m(0.012)]);
+    for (let i = 0; i < 10; i++) k.box('paint', '#c8ccd0', m(0.12), m(0.06), m(0.08), [-w / 2 + m(0.3) + i * (w - m(0.6)) / 9, h + m(0.03), 0]);
+  } else {
+    // the machine's glass lid, the feeder bank along the front
+    k.box('paint', C.joint, w * 0.9, m(0.3), m(0.12), [0, m(0.55), -d / 2 - m(0.06)]);
+    for (let i = 0; i < 8; i++) k.box('paint', i % 3 ? '#d4d6d8' : '#2f6fd6', w * 0.1, m(0.14), m(0.1), [-w * 0.4 + i * w * 0.115, m(0.78), -d / 2 - m(0.05)]);
+    k.box('glow', '#7fc4ff', m(0.3), m(0.2), m(0.01), [w * 0.3, h - m(0.55), -d / 2 - m(0.006)]);
+    // stack light
+    k.cyl('paint', C.joint, m(0.02), m(0.02), m(0.3), [w / 2 - m(0.1), h + m(0.15), d / 2 - m(0.1)]);
+    k.cyl('glow', '#2ee06a', m(0.045), m(0.045), m(0.08), [w / 2 - m(0.1), h + m(0.34), d / 2 - m(0.1)]);
+    k.box('pane', '#ffffff', w * 0.9, m(0.26), d * 0.8, [0, h - m(0.14), 0]);
+  }
+}
+
+function SmtMachine({ f }) {
+  const { x, z, w, d, h } = f;
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} friction={0.6}>
       <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
-      {!oven && (
-        <mesh position={[0, h - m(0.14), 0]} material={matFor('glass')}>
-          <boxGeometry args={[w * 0.9, m(0.26), d * 0.8]} />
-        </mesh>
-      )}
     </RigidBody>
   );
 }
 
 // ---- the carton sealer: a tunnel of rollers the lap drives through
+function sealerInto(k, f) {
+  const { w, d, h } = f;
+  const IN = m(0.95), CLEAR = m(0.72); // inner width, headroom
+  const side = (d - IN) / 2;
+  for (const s of [-1, 1]) {
+    k.box('paint', '#dfe3e6', w, CLEAR, side, [0, CLEAR / 2, s * (IN / 2 + side / 2)]);
+    k.box('paint', C.brand, w + m(0.01), m(0.06), side + m(0.01), [0, CLEAR - m(0.1), s * (IN / 2 + side / 2)]);
+    // side belts that squeeze the carton
+    k.box('matte', C.belt, w - m(0.2), m(0.2), m(0.03), [0, m(0.25), s * (IN / 2 - m(0.015))]);
+  }
+  k.box('paint', '#dfe3e6', w, h - CLEAR, d, [0, CLEAR + (h - CLEAR) / 2, 0]);
+  k.box('paint', C.joint, w + m(0.01), m(0.05), d + m(0.01), [0, CLEAR + m(0.02), 0]);
+  // the tape head hanging in the mouth, and a hazard edge
+  k.box('paint', C.joint, m(0.18), m(0.1), m(0.3), [0, CLEAR - m(0.05), 0]);
+  k.cyl('matte', '#c9a36a', m(0.09), m(0.09), m(0.05), [m(0.1), CLEAR - m(0.1), 0], [Math.PI / 2, 0, 0], 14);
+  k.box('glow', '#2ee06a', m(0.05), m(0.05), m(0.01), [w / 2 - m(0.1), h - m(0.15), -d / 2 - m(0.006)]);
+  for (const s of [-1, 1]) k.add('hazard', worldPlane(d, m(0.1), m(0.1)), '#ffffff', [s * (w / 2 + m(0.004)), CLEAR + m(0.08), 0], [0, s * Math.PI / 2, 0]);
+}
+
 function Sealer({ f }) {
   const { x, z, w, d, h } = f;
   const IN = m(0.95), CLEAR = m(0.72); // inner width, headroom
-  const geo = useMemo(() => cached('sealer', () => {
-    const k = new Kit();
-    const side = (d - IN) / 2;
-    for (const s of [-1, 1]) {
-      k.box('paint', '#dfe3e6', w, CLEAR, side, [0, CLEAR / 2, s * (IN / 2 + side / 2)]);
-      k.box('paint', C.brand, w + m(0.01), m(0.06), side + m(0.01), [0, CLEAR - m(0.1), s * (IN / 2 + side / 2)]);
-      // side belts that squeeze the carton
-      k.box('matte', C.belt, w - m(0.2), m(0.2), m(0.03), [0, m(0.25), s * (IN / 2 - m(0.015))]);
-    }
-    k.box('paint', '#dfe3e6', w, h - CLEAR, d, [0, CLEAR + (h - CLEAR) / 2, 0]);
-    k.box('paint', C.joint, w + m(0.01), m(0.05), d + m(0.01), [0, CLEAR + m(0.02), 0]);
-    // the tape head hanging in the mouth, and a hazard edge
-    k.box('paint', C.joint, m(0.18), m(0.1), m(0.3), [0, CLEAR - m(0.05), 0]);
-    k.cyl('matte', '#c9a36a', m(0.09), m(0.09), m(0.05), [m(0.1), CLEAR - m(0.1), 0], [Math.PI / 2, 0, 0], 14);
-    k.box('glow', '#2ee06a', m(0.05), m(0.05), m(0.01), [w / 2 - m(0.1), h - m(0.15), -d / 2 - m(0.006)]);
-    return k.build();
-  }), [w, d, h]);
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} friction={0.6}>
       {[-1, 1].map((s) => (
         <CuboidCollider key={s} args={[w / 2, CLEAR / 2, (d - IN) / 4]} position={[0, CLEAR / 2, s * (IN / 2 + (d - IN) / 4)]} />
       ))}
       <CuboidCollider args={[w / 2, (h - CLEAR) / 2, d / 2]} position={[0, CLEAR + (h - CLEAR) / 2, 0]} />
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
-      <mesh position={[w / 2 + m(0.004), CLEAR + m(0.08), 0]} rotation-y={Math.PI / 2} material={matFor('hazard')}>
-        <planeGeometry args={[d, m(0.1)]} />
-      </mesh>
-      <mesh position={[-w / 2 - m(0.004), CLEAR + m(0.08), 0]} rotation-y={-Math.PI / 2} material={matFor('hazard')}>
-        <planeGeometry args={[d, m(0.1)]} />
-      </mesh>
     </RigidBody>
   );
 }
@@ -799,66 +908,102 @@ function Turntable({ f }) {
       </group>
       <RigidBody type="fixed" colliders={false} position={[x - R - m(0.55), 0, z]}>
         <CuboidCollider args={[m(0.2), m(1.2), m(0.25)]} position={[0, m(1.2), 0]} />
-        {Object.entries(mast).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow />)}
+        <KitMeshes geo={mast} receive={false} />
       </RigidBody>
     </>
   );
 }
 
+// ---- the packing station: a table you drive under, the kit on top
+function packTableInto(k, f) {
+  const { w, d, h } = f;
+  const top = m(0.04);
+  k.box('paint', '#c9b48a', w, top, d, [0, h - top / 2, 0]);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.post('paint', C.blueGrey, m(0.05), m(0.05), sx * (w / 2 - m(0.06)), 0, h - top, sz * (d / 2 - m(0.06)));
+  // a carton being packed, flaps open, a printer going in
+  k.box('carton', '#ffffff', m(0.5), m(0.42), m(0.4), [-w * 0.2, h + m(0.21), 0]);
+  for (const s of [-1, 1]) k.box('matte', C.card, m(0.5), m(0.01), m(0.2), [-w * 0.2, h + m(0.47), s * m(0.28)], [s * 0.9, 0, 0]);
+  k.box('paint', C.printer, m(0.42), m(0.1), m(0.32), [-w * 0.2, h + m(0.47), 0]);
+  // the tape gun, a scale with its display, a label printer, a monitor
+  k.box('paint', C.red, m(0.18), m(0.12), m(0.05), [w * 0.1, h + m(0.06), m(0.2)]);
+  k.cyl('matte', '#c9a36a', m(0.05), m(0.05), m(0.05), [w * 0.1 + m(0.06), h + m(0.1), m(0.2)], [Math.PI / 2, 0, 0], 12);
+  k.box('metal', C.galv, m(0.36), m(0.04), m(0.36), [w * 0.32, h + m(0.02), 0]);
+  k.box('glow', '#7fe3a0', m(0.12), m(0.04), m(0.01), [w * 0.32, h + m(0.03), m(0.186)]);
+  k.box('paint', '#e8e8e4', m(0.22), m(0.18), m(0.26), [w * 0.1, h + m(0.09), m(-0.22)]);
+  k.post('paint', C.joint, m(0.03), m(0.03), w * 0.42, h, h + m(0.5), -d / 2 + m(0.06));
+  k.box('paint', C.joint, m(0.4), m(0.26), m(0.03), [w * 0.42, h + m(0.52), -d / 2 + m(0.1)]);
+  k.box('glow', '#4fa3ff', m(0.36), m(0.22), m(0.005), [w * 0.42, h + m(0.52), -d / 2 + m(0.118)]);
+  // a roll of bubble wrap and flat cartons on the shelf underneath (above
+  // car roofs — the shelf is at 0.45 m and cars drive under the table)
+  k.box('paint', C.blueGrey, w - m(0.1), m(0.02), d - m(0.1), [0, m(0.55), 0]);
+  k.box('carton', '#ffffff', w * 0.6, m(0.08), d * 0.7, [-w * 0.1, m(0.6), 0]);
+  k.cyl('film', '#dfe8ee', m(0.14), m(0.14), d * 0.8, [w * 0.33, m(0.7), 0], [Math.PI / 2, 0, 0], 16);
+}
+
+function PackTable({ f }) {
+  const { x, z, w, d, h, rotY } = f;
+  return (
+    <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
+      <CuboidCollider args={[w / 2, (h - m(0.54)) / 2, d / 2]} position={[0, (h + m(0.54)) / 2, 0]} />
+      {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
+        <CuboidCollider key={i} args={[m(0.025), m(0.27), m(0.025)]} position={[sx * (w / 2 - m(0.06)), m(0.27), sz * (d / 2 - m(0.06))]} />
+      ))}
+    </RigidBody>
+  );
+}
+
 // ---- canteen: long tables you drive under, vending machines
+function tableInto(k, f) {
+  const { w, d, h } = f;
+  const top = m(0.03), inX = m(0.12);
+  k.box('paint', '#eceae4', w, top, d, [0, h - top / 2, 0]);
+  k.box('paint', '#9aa0a6', w + m(0.01), m(0.012), d + m(0.01), [0, h - top - m(0.006), 0]);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) k.post('paint', '#5b6167', m(0.04), m(0.04), sx * (w / 2 - inX), 0, h - top, sz * (d / 2 - inX));
+  }
+  // the rails under the top run along the long side, above car height
+  const along = w >= d;
+  for (const s of [-1, 1]) {
+    k.box('paint', '#5b6167', along ? w - inX * 2 : m(0.03), m(0.05), along ? m(0.03) : d - inX * 2, along ? [0, h - top - m(0.035), s * (d / 2 - inX)] : [s * (w / 2 - inX), h - top - m(0.035), 0]);
+  }
+}
+
 function Table({ f }) {
   const { x, z, w, d, h, rotY } = f;
-  const geo = useMemo(() => cached(`table${w.toFixed(2)}${d.toFixed(2)}`, () => {
-    const k = new Kit();
-    const top = m(0.03), inX = m(0.12);
-    k.box('paint', '#eceae4', w, top, d, [0, h - top / 2, 0]);
-    k.box('paint', '#9aa0a6', w + m(0.01), m(0.012), d + m(0.01), [0, h - top - m(0.006), 0]);
-    for (const sx of [-1, 1]) {
-      for (const sz of [-1, 1]) k.post('paint', '#5b6167', m(0.04), m(0.04), sx * (w / 2 - inX), 0, h - top, sz * (d / 2 - inX));
-    }
-    // the rails under the top run along the long side, above car height
-    const along = w >= d;
-    for (const s of [-1, 1]) {
-      k.box('paint', '#5b6167', along ? w - inX * 2 : m(0.03), m(0.05), along ? m(0.03) : d - inX * 2, along ? [0, h - top - m(0.035), s * (d / 2 - inX)] : [s * (w / 2 - inX), h - top - m(0.035), 0]);
-    }
-    return k.build().paint;
-  }), [w, d, h]);
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
       <CuboidCollider args={[w / 2, m(0.03), d / 2]} position={[0, h - m(0.03), 0]} />
       {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
         <CuboidCollider key={i} args={[m(0.02), (h - m(0.03)) / 2, m(0.02)]} position={[sx * (w / 2 - m(0.12)), (h - m(0.03)) / 2, sz * (d / 2 - m(0.12))]} />
       ))}
-      <mesh geometry={geo} material={matFor('paint')} castShadow receiveShadow />
     </RigidBody>
   );
 }
 
 // a drinks or snacks machine beside the real vending machine (the one the
 // event pays out of is the built-in 'vending'); faces +z
+function vendingInto(k, f) {
+  const { w, d, h } = f;
+  const snacks = f.kind === 'snacks';
+  k.box('paint', snacks ? '#1f6fd6' : '#c4221a', w, h, d, [0, h / 2, 0]);
+  k.box('paint', C.joint, w * 0.7, h * 0.66, m(0.02), [-w * 0.08, h * 0.58, d / 2 + m(0.005)]);
+  // the lit products behind the glass
+  const cols = ['#f2c200', '#e8332a', '#2ecc71', '#f07a1a', '#ffffff', '#3498db'];
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 4; col++) {
+      k.box('glow', cols[(row * 3 + col) % cols.length], w * 0.12, m(snacks ? 0.1 : 0.14), m(0.01), [-w * 0.33 + col * w * 0.17, h * 0.34 + row * h * 0.1, d / 2 + m(0.018)]);
+    }
+  }
+  k.box('glow', '#e8f4ff', w * 0.7, m(0.02), m(0.01), [-w * 0.08, h * 0.9, d / 2 + m(0.018)]);
+  k.box('paint', '#d9dcdf', w * 0.18, h * 0.3, m(0.03), [w * 0.36, h * 0.62, d / 2 + m(0.01)]);
+  k.box('paint', C.black, w * 0.6, h * 0.08, m(0.03), [-w * 0.08, h * 0.14, d / 2 + m(0.01)]);
+}
+
 function Vending({ f }) {
   const { x, z, w, d, h } = f;
-  const snacks = f.kind === 'snacks';
-  const geo = useMemo(() => cached(`vend${f.kind}`, () => {
-    const k = new Kit();
-    k.box('paint', snacks ? '#1f6fd6' : '#c4221a', w, h, d, [0, h / 2, 0]);
-    k.box('paint', C.joint, w * 0.7, h * 0.66, m(0.02), [-w * 0.08, h * 0.58, d / 2 + m(0.005)]);
-    // the lit products behind the glass
-    const cols = ['#f2c200', '#e8332a', '#2ecc71', '#f07a1a', '#ffffff', '#3498db'];
-    for (let row = 0; row < 5; row++) {
-      for (let col = 0; col < 4; col++) {
-        k.box('glow', cols[(row * 3 + col) % cols.length], w * 0.12, m(snacks ? 0.1 : 0.14), m(0.01), [-w * 0.33 + col * w * 0.17, h * 0.34 + row * h * 0.1, d / 2 + m(0.018)]);
-      }
-    }
-    k.box('glow', '#e8f4ff', w * 0.7, m(0.02), m(0.01), [-w * 0.08, h * 0.9, d / 2 + m(0.018)]);
-    k.box('paint', '#d9dcdf', w * 0.18, h * 0.3, m(0.03), [w * 0.36, h * 0.62, d / 2 + m(0.01)]);
-    k.box('paint', C.black, w * 0.6, h * 0.08, m(0.03), [-w * 0.08, h * 0.14, d / 2 + m(0.01)]);
-    return k.build();
-  }), [w, d, h, f.kind]);
   return (
     <RigidBody type="fixed" colliders={false} position={[x, 0, z]} friction={0.6}>
       <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow={k !== 'glow'} />)}
     </RigidBody>
   );
 }
@@ -881,6 +1026,12 @@ function Label({ text, at, w, rotY = 0, fg = '#ffffff', bg = '#1f2429' }) {
   );
 }
 
+// static pieces drawn by the Dressing's batch (StaticStock), not per piece
+const BATCHED = {
+  factory_bench: benchInto, factory_table: tableInto, factory_vending: vendingInto,
+  factory_packtable: packTableInto, factory_ppm: smtMachineInto, factory_oven: smtMachineInto, factory_sealer: sealerInto,
+};
+
 // what themes/index.js registers
 export const PIECES = {
   factory_rack: ColliderPiece,
@@ -900,6 +1051,7 @@ export const PIECES = {
   factory_sealer: Sealer,
   factory_turntable: Turntable,
   factory_table: Table,
+  factory_packtable: PackTable,
   factory_vending: Vending,
 };
 
@@ -930,6 +1082,7 @@ export function Dressing({ map }) {
       <group name="Safety"><SafetyBoard map={map} /></group>
       <group name="Curtains"><Curtains map={map} /></group>
       <group name="Shopfloor"><Shopfloor /></group>
+      <group name="QaPages"><QaPages map={map} /></group>
     </group>
   );
 }
@@ -938,8 +1091,9 @@ export function Dressing({ map }) {
 // pallets and their loads, the flow racks and their bins, the lockers, the
 // bollards. Five draw calls for most of the hall's clutter.
 function StaticStock({ map }) {
-  const geo = useMemo(() => {
+  const { geo, mesh } = useMemo(() => {
     const k = new Kit();
+    const meshPanels = [];
     const hash = (a, b) => {
       let h = (Math.round(a * 97) * 374761393 + Math.round(b * 131) * 668265263) | 0;
       h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -1021,9 +1175,18 @@ function StaticStock({ map }) {
         }
         if (p.load === 'wrapped') k.box('film', '#dfe8ee', m(1.22), top + m(0.02), m(1.02), [p.x, m(0.15) + top / 2, p.z], [0, p.rotY, 0]);
       } else if (p.load === 'parts') {
-        // a gitterbox of parts: galvanised mesh cage, parts in it
-        k.box('metal', C.galv, m(1.2), top, m(1.0), at(0, m(0.15) + top / 2, 0), [0, p.rotY, 0]);
-        k.box('paint', C.printerDark, m(1.1), m(0.02), m(0.9), at(0, m(0.15) + top + m(0.01), 0), [0, p.rotY, 0]);
+        // a gitterbox of parts: galvanised frame, mesh sides, parts heaped in
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.box('metal', C.galv, m(0.04), top, m(0.04), at(sx * m(0.58), m(0.15) + top / 2, sz * m(0.48)), [0, p.rotY, 0]);
+        for (const [lx, lz, len, r] of [[0, 0.5, 1.2, 0], [0, -0.5, 1.2, 0], [0.6, 0, 1.0, Math.PI / 2], [-0.6, 0, 1.0, Math.PI / 2]]) {
+          k.box('metal', C.galv, m(len), m(0.03), m(0.03), at(m(lx), m(0.15) + top, m(lz)), [0, p.rotY + r, 0]);
+          const g = worldPlane(m(len), top - m(0.03), m(0.05));
+          _eul.set(0, p.rotY + r, 0); _quat.setFromEuler(_eul);
+          g.applyMatrix4(_mat4.compose(_pos.set(...at(m(lx), m(0.15) + top / 2, m(lz))), _quat, _scl.set(1, 1, 1)));
+          meshPanels.push(g);
+        }
+        for (let i = 0; i < 9; i++) {
+          k.box('paint', ['#3a3d42', '#1f6fd6', '#b9bec3'][i % 3], m(0.22), m(0.1), m(0.16), at(m(-0.4 + (i % 3) * 0.4), m(0.15) + top - m(0.08) - (i > 5 ? m(0.08) : 0), m(-0.3 + Math.floor(i / 3) * 0.3)), [0, p.rotY + i, 0]);
+        }
       } else if (p.load === 'flat') {
         // flat-packed cartons, strapped
         k.box('carton', '#ffffff', m(1.18), top, m(0.98), at(0, m(0.15) + top / 2, 0), [0, p.rotY, 0]);
@@ -1060,19 +1223,24 @@ function StaticStock({ map }) {
       }
       k.box('paint', C.blueGrey, l.w + m(0.02), m(0.1), along + m(0.02), [l.x, m(0.05), l.z]);
     }
+    // ---- the static pieces whose colliders are their own (benches, tables,
+    // vending, the packing table, the SMT machines, the sealer): drawn here
+    for (const e of F) {
+      const into = BATCHED[e.type];
+      if (into) k.inFrame(e.x, e.z, e.rotY, () => into(k, e));
+    }
     // ---- bollards: yellow steel with black bands
     for (const b of F.filter((e) => e.type === 'factory_bollard')) {
       k.cyl('paint', C.yellow, b.w / 2, b.w / 2, b.h, [b.x, b.h / 2, b.z], [0, 0, 0], 14);
       for (const y of [0.55, 0.85]) k.cyl('paint', C.black, b.w / 2 + m(0.004), b.w / 2 + m(0.004), m(0.07), [b.x, m(y), b.z], [0, 0, 0], 14);
       k.add('paint', new THREE.SphereGeometry(b.w / 2, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), C.yellow, [b.x, b.h, b.z]);
     }
-    return k.build();
+    return { geo: k.build(), mesh: meshPanels.length ? mergeGeometries(meshPanels) : null };
   }, [map]);
   return (
     <group>
-      {Object.entries(geo).map(([k, g]) => (
-        <mesh key={k} geometry={g} material={matFor(k)} castShadow={k !== 'film'} receiveShadow={k !== 'film'} />
-      ))}
+      <KitMeshes geo={geo} />
+      {mesh && <mesh geometry={mesh} material={matFor('meshGalv')} />}
     </group>
   );
 }
@@ -1081,6 +1249,7 @@ function StaticStock({ map }) {
 // bodies, one for the parts each station adds), plus a kinematic collider
 // each so a car that hops onto the assembly line meets them.
 const _o = new THREE.Object3D();
+const LAMPS = ['#ff3b30', '#ffb020', '#2ee06a'].map((c) => new THREE.Color(c));
 function AssemblyPrinters() {
   const bodies = useRef([]);
   const shell = useRef(), parts = useRef();
@@ -1602,7 +1771,7 @@ function ChainConveyor() {
     k.box('paint', C.printer, m(0.42), m(0.16), m(0.32), [0, -m(0.48), 0]);
     k.box('paint', C.printerDark, m(0.3), m(0.02), m(0.12), [m(0.04), -m(0.4), m(0.08)]);
     k.box('paint', C.brand, m(0.42), m(0.02), m(0.01), [0, -m(0.5), m(0.161)]);
-    return k.build().paint ? mergeGeometries([k.build().paint, k.build().metal]) : null;
+    return k.build().paint;
   }), []);
   useFrame(() => {
     if (!ref.current) return;
@@ -1651,7 +1820,7 @@ function Fan({ at }) {
         <meshStandardMaterial color="#6d747a" metalness={0.6} roughness={0.4} />
       </mesh>
       <group ref={blades}>
-        {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow />)}
+        <KitMeshes geo={geo} receive={false} />
       </group>
     </group>
   );
@@ -1763,7 +1932,7 @@ function Andon({ map }) {
   if (!A) return null;
   return (
     <group position={[m(A.x), 0, m(A.z)]}>
-      {Object.entries(frame).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow />)}
+      <KitMeshes geo={frame} receive={false} />
       {[1, -1].map((s) => (
         <mesh key={s} position={[s * m(0.065), m(2.05), 0]} rotation-y={s > 0 ? Math.PI / 2 : -Math.PI / 2} material={board.mat}>
           <planeGeometry args={[m(2.9), m(0.8)]} />
@@ -1868,11 +2037,44 @@ function Shopfloor() {
       k.cyl('paint', C.yellow, m(0.18), m(0.18), m(0.12), [m(x + 0.9), m(4.2), m(z)], [Math.PI / 2, 0, 0], 16);
       k.cyl('matte', C.black, m(0.012), m(0.012), m(1.6), [m(x + 0.9), m(3.3), m(z)], [0, 0, 0], 6);
       k.box('paint', C.joint, m(0.1), m(0.14), m(0.06), [m(x + 0.9), m(2.45), m(z)]);
+      // the cell's stack light pole (the lamps are instanced below)
+      const sx = x === -5.4 || x === 1.0 ? x + 0.6 : x - 1.55, sz = x === -5.4 || x === 1.0 ? 11.6 : 6.1;
+      k.post('paint', C.joint, m(0.03), m(0.03), m(sx), m(1.2), m(1.68), m(sz));
+      k.cyl('paint', C.joint, m(0.045), m(0.045), m(0.03), [m(sx), m(1.99), m(sz)], [0, 0, 0], 12);
     }
     return k.build();
   }), []);
+  // stack lights on each robot cell: green while it works, amber while a
+  // big arm is swinging across the transfer belt (your warning), red when
+  // the line stops. One instanced mesh, colours per frame.
+  const lamps = useRef();
+  const cells = useMemo(() => [[-2.2, 'S'], [4.2, 'S'], [-5.4, 'N'], [1.0, 'N']].map(([x, side]) => ({
+    x: m(side === 'S' ? x - 1.55 : x + 0.6), z: m(side === 'S' ? 6.1 : 11.6), side,
+  })), []);
+  useLayoutEffect(() => {
+    cells.forEach((c, i) => {
+      for (let j = 0; j < 3; j++) {
+        _o.position.set(c.x, m(1.72) + j * m(0.09), c.z);
+        _o.rotation.set(0, 0, 0); _o.scale.set(1, 1, 1); _o.updateMatrix();
+        lamps.current.setMatrixAt(i * 3 + j, _o.matrix);
+      }
+    });
+    lamps.current.instanceMatrix.needsUpdate = true;
+  }, [cells]);
   useFrame(() => {
     const t = shopTime();
+    if (lamps.current) {
+      const tau = cyclePhase(LINE.t);
+      const swinging = (tau > 1.1 && tau < 2.2) || tau > 2.8 || tau < -1.1;
+      cells.forEach((c, i) => {
+        const state = LINE.stopped ? 0 : c.side === 'S' && swinging ? 1 : 2; // red, amber, green
+        const blink = LINE.stopped ? ((t * 2) % 1 < 0.5 ? 1 : 0.15) : 1;
+        for (let j = 0; j < 3; j++) {
+          lamps.current.setColorAt(i * 3 + j, _col.copy(LAMPS[2 - j]).multiplyScalar(j === 2 - state ? 1.8 * blink : 0.1));
+        }
+      });
+      lamps.current.instanceColor.needsUpdate = true;
+    }
     // PA chime, every 45 s of shop time, heard across the hall
     const slot = Math.floor(t / 45);
     if (slot !== nextPa.current) {
@@ -1886,6 +2088,10 @@ function Shopfloor() {
   return (
     <group>
       {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} />)}
+      <instancedMesh ref={lamps} args={[null, null, cells.length * 3]} frustumCulled={false}>
+        <cylinderGeometry args={[m(0.04), m(0.04), m(0.085), 12]} />
+        <meshBasicMaterial toneMapped={false} />
+      </instancedMesh>
     </group>
   );
 }
@@ -1921,7 +2127,7 @@ function MeshFence({ walls }) {
   }, [walls]);
   return (
     <group>
-      {Object.entries(steel).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={steel} />
       <mesh geometry={panels} material={matFor('mesh')} />
     </group>
   );
@@ -1940,7 +2146,7 @@ function GuardRail({ walls }) {
     }
     return k.build();
   }, [walls]);
-  return <group>{Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow />)}</group>;
+  return <group><KitMeshes geo={geo} receive={false} /></group>;
 }
 
 // steel columns: an I-section, a black and yellow wrap at the foot
@@ -1971,7 +2177,7 @@ function Columns({ walls }) {
   }, [walls]);
   return (
     <group>
-      {Object.entries(steel).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={steel} />
       <mesh geometry={wrap} material={matFor('hazard')} castShadow />
     </group>
   );
@@ -2034,13 +2240,48 @@ function DockDoors({ walls }) {
   }, [walls]);
   return (
     <group>
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={geo} />
       <mesh geometry={outside} material={outsideMat} />
     </group>
   );
 }
 
+// Glazed partitions (the labs): aluminium framing every 1.2 m, a grey kick
+// panel at car height, one pane — the whole building's glass in two draws.
+function GlassWalls({ walls }) {
+  const { frame, glass } = useMemo(() => {
+    const k = new Kit();
+    const gl = [];
+    for (const w of walls) {
+      const along = w.w >= w.d, len = along ? w.w : w.d, rot = along ? 0 : Math.PI / 2;
+      const c = Math.cos(rot), s = Math.sin(rot);
+      const n = Math.max(1, Math.round(len / m(1.2)));
+      for (let i = 0; i <= n; i++) {
+        const o = -len / 2 + (i * len) / n;
+        k.post('paint', '#aeb4ba', m(0.05), m(0.08), w.x + o * c, 0, w.h, w.z - o * s);
+      }
+      k.box('paint', '#6f777e', len, m(0.3), m(0.06), [w.x, m(0.15), w.z], [0, rot, 0]);
+      k.box('paint', '#aeb4ba', len, m(0.06), m(0.1), [w.x, w.h - m(0.03), w.z], [0, rot, 0]);
+      k.box('paint', '#aeb4ba', len, m(0.04), m(0.07), [w.x, m(0.32), w.z], [0, rot, 0]);
+      // the frosted manifestation band, so nobody walks into it
+      k.box('paint', '#e8eef2', len, m(0.05), m(0.02), [w.x, m(1.05), w.z], [0, rot, 0]);
+      const g = new THREE.PlaneGeometry(len, w.h - m(0.36));
+      g.rotateY(rot);
+      g.translate(w.x, m(0.34) + (w.h - m(0.36)) / 2, w.z);
+      gl.push(g);
+    }
+    return { frame: k.build(), glass: mergeGeometries(gl) };
+  }, [walls]);
+  return (
+    <group>
+      <KitMeshes geo={frame} />
+      <mesh geometry={glass} material={matFor('pane')} />
+    </group>
+  );
+}
+
 export const WALL_STYLES = {
+  factory_glass: GlassWalls,
   factory_mesh: MeshFence,
   factory_guard: GuardRail,
   factory_column: Columns,
@@ -2090,7 +2331,7 @@ function PlateRamp({ r, len, angle }) {
   const mat = useMemo(() => once('plateMat', () => new THREE.MeshStandardMaterial({ map: checkerTex(), roughness: 0.4, metalness: 0.7 })), []);
   return (
     <group>
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={geo} />
       <mesh geometry={deck} material={mat} position={[0, r.rise / 2 + m(0.012), 0]} rotation-x={-Math.PI / 2 - angle} receiveShadow />
     </group>
   );
@@ -2120,7 +2361,7 @@ function FeedRamp({ r, len, angle }) {
   }, [len, r.w]);
   return (
     <group>
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}
+      <KitMeshes geo={geo} />
       <mesh geometry={belt} material={BELTS.transfer.mat()} position={[0, r.rise / 2 + m(0.004), 0]} rotation-x={-angle} receiveShadow />
     </group>
   );
@@ -2139,7 +2380,7 @@ function RollerChute({ r, len, angle }) {
     }
     return k.build();
   }, [r, len, angle]);
-  return <group>{Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow receiveShadow />)}</group>;
+  return <group><KitMeshes geo={geo} /></group>;
 }
 
 export const RAMP_SKINS = {
@@ -2191,7 +2432,7 @@ export function Robot() {
   }), []);
   return (
     <group ref={inner}>
-      {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} castShadow />)}
+      <KitMeshes geo={geo} receive={false} />
       <mesh ref={lidar} position={[0, m(0.8), m(0.3)]}>
         <cylinderGeometry args={[m(0.05), m(0.05), m(0.06), 12]} />
         <meshStandardMaterial color="#1c1d1f" metalness={0.5} roughness={0.3} />
@@ -2235,7 +2476,7 @@ const Printer = ({ p }) => {
     k.box('paint', C.printerDark, m(0.45), m(0.04), m(0.36), [0, m(0.13), 0]);
     k.box('paint', C.printerDark, m(0.3), m(0.02), m(0.16), [0, m(0.05), m(0.18)], [0.5, 0, 0]);
     k.box('paint', C.brand, m(0.12), m(0.02), m(0.005), [m(0.12), m(0.07), m(0.181)]);
-    k.box('glow', '#2ee06a', m(0.015), m(0.015), m(0.005), [m(0.19), m(0.07), m(0.182)]);
+    k.box('paint', '#2ee06a', m(0.015), m(0.015), m(0.005), [m(0.19), m(0.07), m(0.182)]);
   });
   return (
     <Body p={p} mass={2.4} friction={0.8}>

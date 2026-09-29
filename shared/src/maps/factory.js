@@ -73,7 +73,7 @@ const hwall = run(true);
 const vwall = run(false);
 const MESH = { style: 'factory_mesh', h: 2.2 };
 const BLOCK = { h: 3 };
-const GLASS = { glass: true, h: 3 };
+const GLASS = { glass: true, h: 3, style: 'factory_glass' };
 // knee-high steel guard rail where the bridge crosses a fence line: cars
 // can't climb it, bots ignore it (low), the belt passes over it
 const GUARD = { style: 'factory_guard', h: 0.55, low: true, t: 0.12 };
@@ -211,6 +211,7 @@ const FURNITURE = [
   f('factory_pallet', 13.2, -12.2, 1.2, 1.0, 1.1, 0, { load: 'wrapped' }),
   f('factory_pallet', 13.2, -3.2, 1.0, 1.2, 0.9, 0, { load: 'flat' }),
   f('factory_bench', 11.6, -12.4, 2.2, 0.8, 0.9, 0, { driveUnder: true }),
+  f('factory_packtable', 11.6, -5.3, 2, 0.8, 0.9, Math.PI, { driveUnder: true }),
   // ---- Canteen: long tables you drive under (one has a ramp: the lap goes
   // over it), lockers, vending and the coffee counter
   f('factory_table', 19.2, -5.6, 0.8, 2.4, 0.75, 0, { driveUnder: true }),
@@ -269,40 +270,40 @@ const PROPS = [
   // ---- store: cartons on the floor by the racks, a pallet jack, a reel
   p('factory_carton', -19.3, 12.4), p('factory_carton', -18.7, 12.5, 0, 0.4), p('factory_carton', -19.0, 12.45, 0.44),
   p('factory_jack', -11.4, 4.0, 0, 0.2), p('factory_reel', -14.6, 12.2), p('factory_tote', -15.3, 3.6, 0, 1.1),
-  p('factory_carton', -11.0, 12.2, 0, 0.9), p('box', -18.1, 9.9), p('box', -15.4, 11.9),
+  p('factory_carton', -11.0, 12.2, 0, 0.9),
   // ---- Line 2: printers waiting line-side, toner, totes, a chair at the bench
   p('factory_printer', 1.5, 3.1, 1.1), p('factory_printer', 1.6, 3.35, 1.4, 0.1),
-  p('factory_toner', -3.4, 3.0, 0.6), p('factory_toner', -3.0, 3.2, 0.6, 1.2), p('factory_toner', -3.1, 2.9, 0.6, 2.6),
+  p('factory_toner', -3.4, 3.0, 0.6), p('factory_toner', -3.0, 3.2, 0.6, 1.2),
   p('factory_tote', -6.2, 12.0), p('factory_tote', -1.6, 12.0, 0, 0.1), p('factory_tote', 4.4, 12.0),
-  p('factory_tote', -7.4, 3.2, 0.9), p('keyboard', -6.6, 3.2, 0.9), p('mug', -6.0, 3.3, 0.9),
+  p('factory_tote', -7.4, 3.2, 0.9), p('mug', -6.0, 3.3, 0.9),
   p('chair', -6.8, 4.1, 0, Math.PI), p('factory_helmet', 9.4, 12.2, 0.9), p('factory_toner', 10.4, 12.1, 0.9),
   p('factory_reel', -8.4, 5.4), p('factory_cone', 7.8, 6.2), p('trash', 11.3, 2.6),
   // ---- Goods In: cartons fallen off a pallet, cones on the dock plates
   p('factory_carton', -19.2, -9.6), p('factory_carton', -18.6, -9.9, 0, 0.5), p('factory_carton', -12.9, -10.6, 0, 1.4),
   p('factory_cone', -18.5, -11.8), p('factory_cone', -14.5, -11.8), p('factory_tote', -21.2, -7.8),
-  p('factory_jack', -17.6, -4.2, 0, 1.4), p('factory_carton', -20.7, -2.8, 0.6),
+  p('factory_jack', -17.6, -4.2, 0, 1.4),
   // ---- Shipping: loose cartons around the pitch edge
   p('factory_carton', -10.6, -4.2), p('factory_carton', 2.6, -4.1, 0, 0.7), p('factory_carton', -4.1, -12.5, 0, 0.2),
   p('factory_tote', 2.9, -8.9), p('factory_cone', -11.5, -2.6),
   // ---- Packing: printers waiting to be boxed, cartons, tape, a chair
   p('factory_printer', 11.2, -12.4, 0.9), p('factory_carton', 12.1, -12.4, 0.9), p('factory_carton', 13.2, -3.2, 0.9),
-  p('factory_carton', 5.0, -12.3), p('factory_carton', 5.6, -12.4, 0, 0.3), p('factory_carton', 5.3, -12.35, 0.44, 0.8),
-  p('factory_printer', 4.8, -4.2, 0, 0.6), p('roll', 12.4, -12.2, 0.9), p('chair', 11.6, -11.5),
+  p('factory_carton', 5.0, -12.3), p('factory_carton', 5.6, -12.4, 0, 0.3),
+  p('factory_printer', 4.8, -4.2, 0, 0.6), p('chair', 11.6, -11.5),
   p('factory_tote', 7.3, -3.2),
   // ---- Canteen: chairs round the tables, mugs, bottles, a plant
   p('factory_stool', 15.4, -6.1), p('factory_stool', 16.9, -6.15, 0, 0.2), p('factory_stool', 15.5, -4.7, 0, Math.PI),
   p('factory_stool', 17.0, -4.65, 0, Math.PI - 0.3), p('factory_stool', 15.5, -11.1), p('factory_stool', 17.0, -9.7, 0, Math.PI),
   p('factory_stool', 21.3, -9.0, 0, -Math.PI / 2), p('factory_stool', 21.3, -10.2, 0, -Math.PI / 2 + 0.3),
-  p('mug', 16.4, -5.4, 0.75), p('mug', 15.8, -10.4, 0.75), p('bottle', 16.8, -10.3, 0.75), p('mug', 20.2, -12.6, 0.92),
-  p('factory_helmet', 20.6, -9.9, 0.75), p('plant', 21.5, -2.6), p('trash', 14.6, -12.4), p('bottle', 19.2, -5.2, 0.75),
+  p('mug', 16.4, -5.4, 0.75), p('bottle', 16.8, -10.3, 0.75), p('mug', 20.2, -12.6, 0.92),
+  p('factory_helmet', 20.6, -9.9, 0.75), p('plant', 21.5, -2.6), p('bottle', 19.2, -5.2, 0.75),
   // ---- QA: printers under test on the benches, reams, a stack of pages
   p('factory_printer', 16.9, 4.45, 0.9), p('factory_printer', 19.4, 4.45, 0.9, 0.2),
-  p('stack', 15.6, 4.4, 0.9), p('stack', 17.2, 3.0), p('stack', 20, 5.6), p('stack', 16.4, 6.2),
-  p('factory_toner', 18.3, 4.5, 0.9), p('chair', 17.6, 5.6, 0, Math.PI),
+  p('stack', 15.6, 4.4, 0.9), p('stack', 17.2, 3.0), p('stack', 20, 5.6),
+  p('factory_toner', 18.3, 4.5, 0.9),
   // ---- clean room & office
   p('factory_tote', 13.0, 10.2), p('factory_tote', 17.0, 12.5),
-  p('monitor', 20.2, 12.0, 0.74), p('keyboard', 20.2, 11.6, 0.74), p('mug', 20.8, 11.7, 0.74), p('lamp', 19.6, 12.0, 0.74),
-  p('chair', 20.2, 10.9, 0, Math.PI), p('plant', 21.5, 12.5), p('stack', 18.4, 12.4), p('factory_helmet', 21.3, 8.2, 1.3),
+  p('monitor', 20.2, 12.0, 0.74), p('keyboard', 20.2, 11.6, 0.74), p('mug', 20.8, 11.7, 0.74),
+  p('chair', 20.2, 10.9, 0, Math.PI), p('plant', 21.5, 12.5), p('factory_helmet', 21.3, 8.2, 1.3),
 ];
 
 // Race grid — the east end of the aisle under the Andon board, three abreast,
@@ -400,9 +401,9 @@ const SUMO_ZONE = { x: u(-4), z: u(-7.5), r0: u(34), r1: u(1.5) };
 const POWERUP_PADS = [
   cp(-2, 0.9), cp(10.8, -0.9), cp(-17, 0.2),
   cp(-18.6, 8.8), cp(-11.3, 3.8),
-  cp(-8.5, 11.8), cp(3.5, 4.6), cp(10.5, 4.6),
+  cp(3.5, 4.6), cp(10.5, 4.6),
   cp(-17.2, -10.4), cp(-7, -10.8), cp(0, -4.2),
-  cp(6.2, -6.4), cp(21, -4.2), cp(15.4, 3.9), cp(14.6, 12.4),
+  cp(6.2, -6.4), cp(21, -4.2), cp(15.4, 3.9),
 ];
 
 const VENDING = { x: u(16.4), z: u(-12.55), radius: u(1.5), minSpeed: 12, cooldownS: 8, goldenChance: 0.3 };
@@ -623,6 +624,25 @@ export const FACTORY = {
       shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.55 },
       practical: 1, wet: false,
     },
+    // a power cut: the high-bays die, the skylights still let a little sky
+    // in, the emergency lights and the machines on UPS do the rest
+    lightsOut: {
+      label: 'Power cut', clock: '--:--',
+      sun: { pos: [30, 220, 20], color: '#9fb4e0', intensity: 0.32 },
+      amb: { intensity: 0.1, color: '#8f9ec4' },
+      hemi: { intensity: 0.22, sky: '#8fa4d4', ground: '#1a1814' },
+      ceiling: 0,
+      env: {
+        intensity: 0.12, bg: '#05060a',
+        window: { color: '#3a4e88', intensity: 0.8 }, ceil: { color: '#3a4e88', intensity: 0.5 },
+        warm: { color: '#4a3a28', intensity: 0.2 }, key: { color: '#5a6480', intensity: 0.3 },
+      },
+      shaft: { opacity: 0, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
+      pool: 0, panel: 0.02,
+      bloom: { intensity: 0.7, threshold: 0.7 },
+      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.3 },
+      practical: 0.9, wet: false,
+    },
     // the ceiling point lights: 5000 K, and they reach across the hall
     points: { color: '#f2f6ff', distance: 30 },
     glow: { at: [13.5, 0], color: '#ffae3d' }, // the Andon board
@@ -634,6 +654,8 @@ export const FACTORY = {
   ANDON: { x: 13.5, z: 0, span: 3.6 },
   // the safety board on the canteen wall, facing the aisle
   SAFETY: { at: [15.2, 1.55, -1.89], rotY: 0 },
+  // paper on the floor: [x, z, sheets, spread (m)] — QA's printers never stop
+  PAPER: [[20.2, 3.6, 14, 1.2], [17.4, 5.4, 9, 1.4], [14.8, 3, 6, 0.8], [11.2, -12.1, 4, 0.6]],
   // strip curtains in the lab doorways: [x, z, width, rotY]
   CURTAINS: [[12, 4.3, 1.8, Math.PI / 2], [12, 10.1, 1.8, Math.PI / 2]],
   // the HVLS fan over the Shipping Hall (and the sumo ring)
