@@ -1,7 +1,7 @@
 // WebSocket client: connection, snapshot interpolation buffers, event bus.
 // Everything a useFrame loop reads lives on the mutable `net` object —
 // zustand only gets things React actually renders.
-import { MSG, INTERP_DELAY_MS, PHASE, decodeSnapshot } from '@rc/shared';
+import { MSG, INTERP_DELAY_MS, PHASE, DEFAULT_MAP, decodeSnapshot } from '@rc/shared';
 import { setUrlRoom } from './rooms.js';
 import { useStore } from './store.js';
 
@@ -24,7 +24,29 @@ export const net = {
   padCooldowns: new Map(),
   spawnIndex: 0,
   teams: {},
+  joinSpawn: null, // { x, y, z, rotY } — where the server put us on a mid-match join
+  racePlace: 0, // our Desk Dash finishing place, once we have one
 };
+// The server stamps deadlines with its own wall clock (endsAt, cooldowns);
+// this machine's can be off by seconds or minutes, and the HUD compares them
+// with Date.now() — a phone a minute fast showed a match clock stuck on 0:00
+// and every pad cooling down for a minute. Deadlines are moved into the local
+// clock as they arrive (clockOffset maps server time onto performance.now).
+export const toLocalTime = (ts) => (ts ? ts - (performance.now() + net.clockOffset - Date.now()) : ts);
+
+// An office event starting (or already running, for a drop-in) with this
+// many ms left
+function startEvent(msg, ms) {
+  const S = useStore;
+  S.setState({ event: { ...msg, until: Date.now() + ms }, eventWarn: null });
+  S.getState().pushFeed(`${msg.icon} ${msg.name} — ${msg.desc}`);
+  emit('office_event', msg);
+  setTimeout(() => {
+    const ev = S.getState().event;
+    if (ev && ev.id === msg.id) S.setState({ event: null });
+  }, ms);
+}
+
 // debug/tooling hook (mirrors window.__rcTelemetry in LocalCar)
 if (typeof window !== 'undefined') window.__rcNet = net;
 
@@ -102,6 +124,8 @@ function handleMessage(msg) {
   switch (msg.t) {
     case MSG.WELCOME: {
       net.myId = msg.id;
+      // server clock now, before any snapshot has set the offset
+      if (msg.now) net.clockOffset = msg.now - performance.now();
       // Remember the room for reconnects. A private room also goes in the
       // address bar (reload = back with your friends, and the bar IS the
       // invite link); quick play keeps the bar clean.
@@ -126,22 +150,39 @@ function handleMessage(msg) {
       net.rockets = [];
       S.setState({
         connected: true, connectError: null, myId: msg.id,
-        phase: msg.phase, modeId: msg.mode, endsAt: msg.endsAt, players,
+        phase: msg.phase, modeId: msg.mode, endsAt: toLocalTime(msg.endsAt), players,
         // mid-countdown joiners get the remaining time; everyone else gets 0
         countdownEnd: msg.countdownMs ? Date.now() + msg.countdownMs : 0,
         mutator: msg.mutator || null,
         variant: msg.variant || 'classic',
-        powerup: null, spectating: false, spectateTarget: null,
+        mapId: msg.map || DEFAULT_MAP,
+        powerup: null, spectateTarget: null,
         event: null, eventWarn: null, podium: null,
         scores: {}, raceProgress: {}, myBeans: 0,
-        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, lcs: null,
+        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, sumoRest: 0, lcs: null,
+        // a Last Car Standing drop-in after the first knockout watches
+        spectating: !!msg.spectating,
+        // always set, so a reconnect into a non-cup room drops a stale chip
+        cup: msg.cup || null,
       });
+      // a drop-in is put down by the server (the respawn policy): LocalCar
+      // mounts there, or teleports there if it is already running
+      net.joinSpawn = msg.spawn || null;
+      net.racePlace = 0;
+      if (msg.spawn) emit('respawn_at', { ...msg.spawn, freeze: 0, protect: 0 });
+      // a drop-in never got START's team list: the players carry the teams
+      net.teams = Object.fromEntries(msg.players.map((p) => [p.id, p.team || 0]));
+      // …nor the pads already taken, nor an office event already running
+      // (a drop-in during Sprinkler Test drove on dry floors)
+      net.padCooldowns.clear();
+      for (const [i, until] of msg.pads || []) net.padCooldowns.set(i, toLocalTime(until));
+      if (msg.event) startEvent(msg.event, msg.event.left);
       break;
     }
     case MSG.LOBBY: {
       const players = {};
       for (const p of msg.players) players[p.id] = p;
-      S.setState({ players, votes: msg.votes || {}, phase: msg.phase, endsAt: msg.endsAt || 0 });
+      S.setState({ players, votes: msg.votes || {}, mapVotes: msg.mapVotes || {}, phase: msg.phase, endsAt: toLocalTime(msg.endsAt || 0), ...(msg.map ? { mapId: msg.map } : {}) });
       break;
     }
     case MSG.PLAYER_JOIN: {
@@ -163,18 +204,21 @@ function handleMessage(msg) {
       for (const p of msg.players) players[p.id] = p;
       net.spawnIndex = msg.spawns?.[net.myId] ?? 0;
       net.teams = msg.teams || {};
+      net.joinSpawn = null;
+      net.racePlace = 0;
       net.remotes.clear();
       net.puddles = [];
       net.rockets = [];
       net.ball = null;
       S.setState({
-        phase: PHASE.COUNTDOWN, modeId: msg.mode, endsAt: msg.endsAt,
+        phase: PHASE.COUNTDOWN, modeId: msg.mode, endsAt: toLocalTime(msg.endsAt),
         countdownEnd: Date.now() + msg.countdown * 1000,
         players, scores: {}, teamScores: [0, 0], podium: null, powerup: null,
         raceProgress: {}, myBeans: 0, event: null,
-        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false,
+        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, sumoRest: 0,
         spectating: false, spectateTarget: null, lcs: null, rivalry: null, nemesis: null,
         mutator: msg.mutator || null, cup: msg.cup || null, variant: msg.variant || 'classic',
+        mapId: msg.map || S.getState().mapId,
         abilityReadyAt: 0, printerFlashUntil: 0,
       });
       emit('match_start', msg);
@@ -222,7 +266,8 @@ function handleMessage(msg) {
         if (!cur || cur.alive !== msg.lcs.alive
           || (cur.locked?.length || 0) !== (msg.lcs.locked?.length || 0)
           || cur.warn?.room !== msg.lcs.warn?.room) {
-          S.setState({ lcs: msg.lcs });
+          const w = msg.lcs.warn;
+          S.setState({ lcs: w ? { ...msg.lcs, warn: { ...w, until: toLocalTime(w.until) } } : msg.lcs });
         }
       }
       if (msg.teamScores) {
@@ -243,6 +288,8 @@ function handleMessage(msg) {
         const mine = msg.sumo?.out?.find((o) => o[0] === net.myId);
         const outLeft = mine ? mine[1] / 10 : null;
         if (st.sumoOutLeft !== outLeft) S.setState({ sumoOutLeft: outLeft });
+        const rest = msg.sumo?.rest ? Math.ceil(msg.sumo.rest) : 0;
+        if (st.sumoRest !== rest) S.setState({ sumoRest: rest });
       }
       break;
     }
@@ -256,9 +303,12 @@ function handleMessage(msg) {
       if (msg.powerup) emit('pickup', msg);
       break;
     case MSG.EFFECT:
-      if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, msg.until);
+      if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, toLocalTime(msg.until));
+      // shield / shrink deadlines are read against Date.now() too
+      if ((msg.type === 'shield' || msg.type === 'shrink') && msg.until) msg.until = toLocalTime(msg.until);
       if (msg.type === 'eliminated' && msg.id === net.myId) S.setState({ spectating: true });
-      if (msg.type === 'ability' && msg.id === net.myId) S.setState({ abilityReadyAt: msg.readyAt || 0 });
+      if (msg.type === 'race_finish' && msg.id === net.myId) net.racePlace = msg.place;
+      if (msg.type === 'ability' && msg.id === net.myId) S.setState({ abilityReadyAt: toLocalTime(msg.readyAt || 0) });
       if (msg.type === 'printer' && msg.targets?.includes(net.myId)) {
         S.setState({ printerFlashUntil: Date.now() + (msg.blindMs || 1400) });
       }
@@ -275,13 +325,7 @@ function handleMessage(msg) {
         }, (msg.startsIn || 3) * 1000 + 500);
         break;
       }
-      S.setState({ event: { ...msg, until: Date.now() + msg.duration * 1000 }, eventWarn: null });
-      S.getState().pushFeed(`${msg.icon} ${msg.name} — ${msg.desc}`);
-      emit('office_event', msg);
-      setTimeout(() => {
-        const ev = S.getState().event;
-        if (ev && ev.id === msg.id) S.setState({ event: null });
-      }, msg.duration * 1000);
+      startEvent(msg, msg.duration * 1000);
       break;
     case MSG.FEED:
       S.getState().pushFeed(msg.text);
@@ -292,6 +336,9 @@ function handleMessage(msg) {
     case MSG.MATCH_END: {
       S.setState({
         phase: PHASE.PODIUM, podium: msg.podium,
+        // lights out / wind / wet floors end with the match, not whenever
+        // their duration timer happens to fire
+        event: null, eventWarn: null,
         rivalry: msg.rivalries?.[net.myId] || null, nemesis: msg.nemesis || null,
         cup: msg.cup || null,
       });

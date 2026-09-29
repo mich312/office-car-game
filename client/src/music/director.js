@@ -2,7 +2,7 @@
 // Runs outside React: a store subscription for the moments (phase changes,
 // laps) plus a slow poll for the clock (the last 30 s has no event of its
 // own).
-import { MODES } from '@rc/shared';
+import { MODES, raceLaps, mapById } from '@rc/shared';
 import { useStore } from '../store.js';
 import { audio } from '../audio.js';
 import { music } from './player.js';
@@ -17,7 +17,7 @@ function read() {
     modeId: s.modeId,
     timeLeft: s.endsAt ? (s.endsAt - Date.now()) / 1000 : null,
     lap: prog ? prog[0] : 0,
-    laps: MODES.desk_dash?.laps || 0,
+    laps: raceLaps(mapById(s.mapId), MODES.desk_dash?.laps || 0),
     alive: s.lcs?.alive ?? 0,
     spectating: s.spectating,
     event: s.event?.id || null,

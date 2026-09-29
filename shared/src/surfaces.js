@@ -6,33 +6,42 @@
 // grips but drags, hardwood is fast but slides, tile is neutral but its grout
 // clicks under the wheels, concrete is rough. Nothing is simply better.
 //
-// Bumps line up with what you SEE: a floor texture is stretched once across
-// each room's plane (Office.jsx), so a room's tile grid and plank seams sit
-// at its own width / repeat — the same numbers here.
-import { ROOMS, FURNITURE } from './map.js';
+// Bumps line up with what you SEE: every floor texture is laid in world space
+// with a real cell size (`cell`, metres — one tile, one slab, one run of
+// planks), continuous from room to room, and the seams here sit on the same
+// grid (Office.jsx builds the floor UVs from these numbers).
+import { MAPS, DEFAULT_MAP } from './map.js';
+import { M } from './constants.js';
 
 export const SURFACES = {
-  carpet: { name: 'Carpet', grip: 1.1, drag: 1.45, top: 0.93, rough: 0.0022 },
-  wood: { name: 'Hardwood', grip: 0.86, drag: 0.72, top: 1.05, rough: 0.0005, seams: { along: 'z', per: 80, depth: 0.006, width: 0.035 } },
-  tile: { name: 'Tile', grip: 0.96, drag: 0.9, top: 1.0, rough: 0.0003, seams: { grid: 14, depth: 0.01, width: 0.05 } },
-  concrete: { name: 'Concrete', grip: 1.02, drag: 1.08, top: 0.97, rough: 0.004 },
-  dark: { name: 'Raised floor', grip: 0.97, drag: 0.95, top: 1.0, rough: 0.0008 },
+  carpet: { name: 'Carpet', grip: 1.1, drag: 1.45, top: 0.93, rough: 0.0022, cell: 1 },
+  // a texture cell is 8 planks of 18 cm running east–west; the joints between
+  // planks are the seams
+  wood: { name: 'Hardwood', grip: 0.86, drag: 0.72, top: 1.05, rough: 0.0005, cell: 1.44, seams: { plank: 0.18, depth: 0.006, width: 0.035 } },
+  tile: { name: 'Tile', grip: 0.96, drag: 0.9, top: 1.0, rough: 0.0003, cell: 0.6, seams: { grid: true, depth: 0.01, width: 0.05 } },
+  concrete: { name: 'Concrete', grip: 1.02, drag: 1.08, top: 0.97, rough: 0.004, cell: 2 },
+  // 60 cm access-floor panels: barely-there joints
+  dark: { name: 'Raised floor', grip: 0.97, drag: 0.95, top: 1.0, rough: 0.0008, cell: 0.6, seams: { grid: true, depth: 0.003, width: 0.03 } },
   rug: { name: 'Rug', grip: 1.14, drag: 1.6, top: 0.92, rough: 0.0028 },
+  // polished stone: the fastest floor in the game and the least forgiving
+  marble: { name: 'Marble', grip: 0.855, drag: 0.68, top: 1.06, rough: 0.0002, cell: 1.2, seams: { grid: true, depth: 0.004, width: 0.03 } },
+  // poured resin on a factory floor: neutral, smooth, a touch slow
+  epoxy: { name: 'Epoxy', grip: 1.0, drag: 0.94, top: 0.985, rough: 0.0003, cell: 2 },
+  // coin-pattern rubber matting: sticky and draggy
+  rubber: { name: 'Rubber mat', grip: 1.12, drag: 1.5, top: 0.925, rough: 0.0018, cell: 0.5 },
 };
 // carpet2 is the same pile in another colour
 SURFACES.carpet2 = SURFACES.carpet;
 
-const RUGS = FURNITURE.filter((f) => f.type === 'rug');
-
-// Which surface is under (x, z): a rug wins over the room's floor.
-export function surfaceAt(x, z) {
-  for (const r of RUGS) {
+// Which surface is under (x, z) on a map: a rug wins over the room's floor.
+export function surfaceAt(x, z, map = MAPS[DEFAULT_MAP]) {
+  for (const r of map.RUGS) {
     const c = Math.cos(-r.rotY), s = Math.sin(-r.rotY);
     const dx = x - r.x, dz = z - r.z;
     const lx = dx * c - dz * s, lz = dx * s + dz * c;
     if (Math.abs(lx) <= r.w / 2 && Math.abs(lz) <= r.d / 2) return { id: 'rug', room: null };
   }
-  for (const room of ROOMS) {
+  for (const room of map.ROOMS) {
     if (Math.abs(x - room.x) <= room.w / 2 && Math.abs(z - room.z) <= room.d / 2) return { id: room.floor, room };
   }
   return { id: 'concrete', room: null };
@@ -54,9 +63,10 @@ function grain(x, z, cell) {
   return (a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz) * 2 - 1; // −1…1
 }
 
-// Distance from p to the nearest grid line of a room's texture tiling.
-function toLine(p, origin, period) {
-  const t = (p - origin) / period;
+// Distance from p to the nearest line of a grid of this period (world units),
+// anchored at the world origin like the floor textures.
+function toLine(p, period) {
+  const t = p / period;
   return Math.abs(t - Math.round(t)) * period;
 }
 
@@ -66,14 +76,9 @@ function toLine(p, origin, period) {
 export function floorHeight(surf, x, z) {
   const S = SURFACES[surf.id] || SURFACES.concrete;
   let h = S.rough ? grain(x, z, 0.35) * S.rough : 0;
-  const sm = S.seams, room = surf.room;
-  if (sm && room) {
-    let d = Infinity;
-    if (sm.grid) {
-      d = Math.min(toLine(x, room.x - room.w / 2, room.w / sm.grid), toLine(z, room.z - room.d / 2, room.d / sm.grid));
-    } else if (sm.along === 'z') {
-      d = toLine(z, room.z - room.d / 2, room.d / sm.per);
-    }
+  const sm = S.seams;
+  if (sm) {
+    const d = sm.grid ? Math.min(toLine(x, S.cell * M), toLine(z, S.cell * M)) : toLine(z, sm.plank * M);
     if (d < sm.width) h -= sm.depth * (1 - d / sm.width);
   }
   return h;
@@ -82,10 +87,9 @@ export function floorHeight(surf, x, z) {
 // Which seam cell a point is in — changes when a wheel crosses grout or a
 // plank joint (for the click you hear). null on seamless floors.
 export function seamCell(surf, x, z) {
-  const sm = (SURFACES[surf.id] || {}).seams, room = surf.room;
-  if (!sm || !room) return null;
-  if (sm.grid) {
-    return `${Math.floor((x - room.x + room.w / 2) / (room.w / sm.grid))}:${Math.floor((z - room.z + room.d / 2) / (room.d / sm.grid))}`;
-  }
-  return `${Math.floor((z - room.z + room.d / 2) / (room.d / sm.per))}`;
+  const S = SURFACES[surf.id] || {};
+  const sm = S.seams;
+  if (!sm) return null;
+  if (sm.grid) return `${Math.floor(x / (S.cell * M))}:${Math.floor(z / (S.cell * M))}`;
+  return `${Math.floor(z / (sm.plank * M))}`;
 }

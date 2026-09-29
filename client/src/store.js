@@ -38,6 +38,8 @@ export const useStore = create((set, get) => ({
   countdownEnd: 0,
   players: {}, // id → { name, car, paint, ready, bot, team }
   votes: {},
+  mapVotes: {},
+  mapId: 'office', // which map the room is on (shared/src/map.js)
   scores: {},
   teamScores: [0, 0],
   raceProgress: {}, // id → [lap, cp]
@@ -46,6 +48,7 @@ export const useStore = create((set, get) => ({
   sumoRound: 0,
   sumoOutLeft: null, // seconds until elimination while outside the sumo zone
   sumoDead: false, // eliminated for the current sumo round
+  sumoRest: 0, // seconds left in the break between sumo rounds (0 = a round is on)
   feed: [], // [{ key, text }]
   event: null, // { id, name, icon, desc, until }
   podium: null,

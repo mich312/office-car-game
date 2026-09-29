@@ -1,7 +1,7 @@
 // The player's car: rigid body + 4-ray suspension, arcade forces tuned for
 // drift/boost feel, chase camera, particles, sound, network reporting,
 // and application of every server-side effect that touches "me".
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, useRapier, useBeforePhysicsStep } from '@react-three/rapier';
 import * as THREE from 'three';
@@ -13,21 +13,24 @@ import {
   SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS, SLIPSTREAM,
-  SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
+  POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX,
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
-  landingStrength, impactStrength, chaseHeading, raceSpawn,
+  landingStrength, impactStrength, chaseHeading, raceSpawn, soccerKickoff,
   SURFACES, surfaceAt, floorHeight, seamCell,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
 import { useControls } from './useControls.js';
-import CarModel from './CarModel.jsx';
+import CarModel, { tyreScale } from './CarModel.jsx';
 import Particles, { burst, puff } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
 import { audio } from '../audio.js';
 import { rumble } from './rumble.js';
+import { currentMap } from './activeMap.js';
+
+const NO_ZONES = [];
 
 const BASE_MASS = 14;
 // Camera motion (shake, landing dip, hit punch, slide swing) is scaled way
@@ -53,6 +56,10 @@ const _n = { x: 0, y: 1, z: 0 }; // righting reference normal
 const _torque = { x: 0, y: 0, z: 0 }; // righting torque impulse
 const _worldUp = { x: 0, y: 1, z: 0 };
 const _camTarget = new THREE.Vector3();
+// what the chase camera may not sit inside: fixed colliders that aren't
+// sensors (QueryFilterFlags ONLY_FIXED | EXCLUDE_SENSORS) — props and other
+// cars move, and pulling the lens in for them would make it twitch
+const CAM_BLOCKERS = 6 | 8;
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _chase = [0, 1];
@@ -96,6 +103,7 @@ export default function LocalCar() {
 
   // the reused suspension ray (created on the first step, once rapier is up)
   const _ray = useRef(null);
+  const _camRay = useRef(null);
 
   const S = useRef({
     boost: BOOST_MAX,
@@ -124,7 +132,7 @@ export default function LocalCar() {
     frozenUntil: 0, // respawn input freeze
     protectUntil: 0, // spawn protection (can't hit or be hit)
     pendingRespawnAt: 0, // waiting for the server's RESPAWN_AT
-    safePoses: [], // ring buffer of recent grounded [x, z, yaw]
+    safePoses: [], // ring buffer of recent grounded [x, z, yaw, y]
     lastSafeAt: 0,
     lastFwdSpeed: 0, // forward speed entering this physics step
     selfBump: new Map(), // other id → t of locally-applied bump impulse
@@ -150,7 +158,7 @@ export default function LocalCar() {
   // measured weight transfer (rad): roll from lateral G, pitch from accel/brake
   const leanRef = useRef({ roll: 0, pitch: 0 });
   // per-wheel visual Y (local) so the wheels follow the suspension rays
-  const wheelR = carId === 'monster' ? 0.18 : 0.13;
+  const wheelR = (carId === 'monster' ? 0.18 : 0.13) * tyreScale(style?.tyre);
   const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - car.settle + wheelR));
 
   const teleport = (x, y, z, rotY) => {
@@ -164,6 +172,13 @@ export default function LocalCar() {
     S.postHSpeed = -1; // a teleport's speed change is not a crash
     S.drift = newDriftState(); // nor does a drift survive one
   };
+  // headless testing / screenshots, alongside window.__rcTelemetry: park the
+  // car at (x, z) meters facing rotY
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    window.__rcTeleport = (x, z, rotY = 0) => teleport(x * M, SPAWN_Y, z * M, rotY);
+    return () => { delete window.__rcTeleport; };
+  });
 
   // Ask the server for a respawn. It scores the spawn slots (races get our
   // safe-pose proposal instead) and answers with RESPAWN_AT → we teleport,
@@ -176,10 +191,24 @@ export default function LocalCar() {
       S.pendingRespawnAt = nowMs;
       send({ t: MSG.RESPAWN, safe: S.safePoses.length ? S.safePoses[0] : null });
     } else {
-      const sp = SPAWNS[net.spawnIndex % SPAWNS.length];
+      const SP = currentMap().SPAWNS;
+      const sp = SP[net.spawnIndex % SP.length];
       teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
       S.boost = Math.max(S.boost, 40);
     }
+  };
+
+  // spawnIndex is GLOBAL join order and teams alternate by it, so a team's
+  // members hold every other index — indexing the 6 team spots by it
+  // repeats once a team has 4+ members, teleporting teammates into the same
+  // spot (two overlapping bodies explode at GO). Use the player's ordinal
+  // within their own team: unique per team, and identical on every client
+  // (and the server, which places bots the same way) since the teams arrive
+  // in the same order everywhere.
+  const myKickoff = () => {
+    const team = net.teams[net.myId] || 0;
+    const ord = Object.keys(net.teams).filter((id) => (net.teams[id] || 0) === team).indexOf(net.myId);
+    return soccerKickoff(currentMap(), team, ord >= 0 ? ord : net.spawnIndex);
   };
 
   // ------------------------------------------------ server events → physics
@@ -188,21 +217,11 @@ export default function LocalCar() {
       on('match_start', () => {
         const st = useStore.getState();
         if (st.modeId === 'soccer') {
-          const team = net.teams[net.myId] || 0;
-          const spots = SOCCER.kickoff.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
-          // spawnIndex is GLOBAL join order and teams alternate by it, so a
-          // team's members hold every other index — indexing the 6 team spots
-          // by it repeats once a team has 4+ members, teleporting teammates
-          // into the same spot (two overlapping bodies explode at GO).
-          // Use the player's ordinal within their own team: unique per team,
-          // and identical on every client since msg.teams arrives in the
-          // same order everywhere.
-          const ord = Object.keys(net.teams).filter((id) => (net.teams[id] || 0) === team).indexOf(net.myId);
-          const sp = spots[(ord >= 0 ? ord : net.spawnIndex) % spots.length] || SOCCER.kickoff[0];
+          const sp = myKickoff();
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         } else {
           // the grid faces the lap's first checkpoint: north for a reverse race
-          const sp = raceSpawn(net.spawnIndex, st.modeId === 'desk_dash' ? st.variant : 'classic');
+          const sp = raceSpawn(net.spawnIndex, st.modeId === 'desk_dash' ? st.variant : 'classic', currentMap());
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         }
         S.boost = BOOST_MAX;
@@ -216,7 +235,11 @@ export default function LocalCar() {
         rb.current?.setGravityScale(1, true); // back from the ghost realm
       }),
       on('respawn_at', (msg) => {
-        teleport(msg.x, SPAWN_Y, msg.z, msg.rotY);
+        teleport(msg.x, Math.max(SPAWN_Y, msg.y ?? SPAWN_Y), msg.z, msg.rotY);
+        // a car put into play is never a weightless ghost: an LCS ghost that
+        // reconnected into a later match came back on a WELCOME spawn with
+        // gravity still off, and only a START ever turned it on again
+        if (!useStore.getState().spectating) rb.current?.setGravityScale(1, true);
         const nowMs = performance.now();
         S.pendingRespawnAt = 0;
         S.frozenUntil = nowMs + (msg.freeze || 0);
@@ -283,9 +306,15 @@ export default function LocalCar() {
             }
             break;
           case 'swap':
-            if (fx.a === me) teleport(fx.pa[0], fx.pa[1] + 0.5, fx.pa[2], 0);
-            if (fx.b === me) teleport(fx.pb[0], fx.pb[1] + 0.5, fx.pb[2], 0);
-            if (fx.a === me || fx.b === me) S.shake = 0.6;
+            if (fx.a === me) teleport(fx.pa[0], fx.pa[1] + 0.5, fx.pa[2], fx.ra || 0);
+            if (fx.b === me) teleport(fx.pb[0], fx.pb[1] + 0.5, fx.pb[2], fx.rb || 0);
+            if (fx.a === me || fx.b === me) {
+              S.shake = 0.6;
+              // the server dropped its record of our old ground; so do we, or
+              // the next respawn proposes a spot it can't match (→ the grid)
+              S.safePoses.length = 0;
+              S.lastSafeAt = 0;
+            }
             break;
           case 'shield':
             if (fx.id === me) S.shieldUntil = performance.now() + (fx.until - Date.now());
@@ -419,12 +448,18 @@ export default function LocalCar() {
 
   // Forces run per PHYSICS STEP (fixed dt) so handling is framerate-independent.
   useBeforePhysicsStep(() => {
+    const map = currentMap();
     const body = rb.current;
     if (!body) return;
     const dt = PHYS_TIMESTEP;
     const nowMs = performance.now();
     const st = useStore.getState();
-    if (st.spectating) return; // ghosts are parked; no forces, no inputs
+    if (st.spectating) {
+      // ghosts are parked; no forces, no inputs. A drop-in that arrives
+      // already out never saw its 'eliminated' effect, so park it here.
+      if (body.gravityScale() !== 0) { body.setGravityScale(0, true); teleport(0, -40, 0, 0); }
+      return;
+    }
     const k = keys.current;
     k.poll?.(); // refresh gamepad axes/buttons once per physics step
 
@@ -466,7 +501,7 @@ export default function LocalCar() {
         const hitY = _p.y + ray.dir.y * len;
         if (Math.abs(hitY) < 0.08) {
           const wx = _p.x + ray.dir.x * len, wz = _p.z + ray.dir.z * len;
-          const surf = surfaceAt(wx, wz);
+          const surf = surfaceAt(wx, wz, map);
           len -= floorHeight(surf, wx, wz);
           if (wi === 0) S.wheelSurf = surf; // front-left wheel: seam clicks
         } else if (wi === 0) S.wheelSurf = null;
@@ -578,13 +613,16 @@ export default function LocalCar() {
         Math.round(pos.x * 100) / 100,
         Math.round(pos.z * 100) / 100,
         Math.round(Math.atan2(_fwd.x, _fwd.z) * 100) / 100,
+        // the height too: a pose on a counter top is ON the counter, and put
+        // back at floor height it is inside it
+        Math.round(pos.y * 100) / 100,
       ]);
       if (S.safePoses.length > SAFE_POSE_BUFFER) S.safePoses.shift();
     }
 
     // ---------------- the floor: carpet grips but drags, hardwood is quick
     // but slides (shared/src/surfaces.js) — only while actually on it
-    const floorSurf = grounded && pos.y < 0.9 ? SURFACES[surfaceAt(pos.x, pos.z).id] || SURFACES.concrete : null;
+    const floorSurf = grounded && pos.y < 0.9 ? SURFACES[surfaceAt(pos.x, pos.z, map).id] || SURFACES.concrete : null;
     telemetry.surface = floorSurf ? floorSurf.name : null;
 
     // ---------------- puddles & event modifiers
@@ -594,6 +632,24 @@ export default function LocalCar() {
       if (d < POWERUP_EFFECT.PUDDLE_RADIUS) {
         if (pu.kind === 'oil') gripMul = Math.min(gripMul, 0.1);
         else speedMul = Math.min(speedMul, 0.55);
+      }
+    }
+    // the map's own zones (map.ZONES, world units): a patch of oil or a
+    // puddle (grip), a conveyor belt that carries you (push, units/s), a
+    // terrace gust on a cycle everyone shares (gust + period/dur seconds).
+    // Each only acts between its y0..y1 (default: at floor level).
+    for (const zn of map.ZONES || NO_ZONES) {
+      if (Math.abs(pos.x - zn.x) > zn.w / 2 || Math.abs(pos.z - zn.z) > zn.d / 2) continue;
+      if (pos.y < (zn.y0 ?? -1) || pos.y > (zn.y1 ?? 0.9)) continue;
+      if (zn.grip != null && grounded) gripMul *= zn.grip;
+      if (zn.top != null && grounded) speedMul *= zn.top;
+      if (zn.push && grounded) {
+        const tr = body.translation();
+        body.setTranslation({ x: tr.x + zn.push[0] * dt, y: tr.y, z: tr.z + zn.push[1] * dt }, true);
+      }
+      // on the server's clock, so every player feels the same gust at once
+      if (zn.gust && ((performance.now() + net.clockOffset) / 1000) % (zn.period || 15) < (zn.dur || 3)) {
+        body.applyImpulse({ x: zn.gust[0] * dt * mass * 0.12, y: 0, z: zn.gust[1] * dt * mass * 0.12 }, true);
       }
     }
     if (shrunk) speedMul *= 0.85;
@@ -907,6 +963,7 @@ export default function LocalCar() {
 
   // Camera, audio, telemetry & network run per RENDER frame.
   useFrame((state, rawDt) => {
+    const map = currentMap();
     const body = rb.current;
     if (!body) return;
     const dt = Math.min(rawDt, 1 / 20);
@@ -957,6 +1014,25 @@ export default function LocalCar() {
       camera.position.lerp(_camTarget, lerpK);
       // keep the camera above the floor
       if (camera.position.y < 0.7) camera.position.y = 0.7;
+      // ...and out of walls and furniture: backed against a wall or parked
+      // under a bench it sat inside them and filled the screen with their
+      // insides. One ray from the car to the lens against fixed colliders;
+      // the lens comes forward to just short of whatever is in the way.
+      {
+        const cam = camera.position, oy = pos.y + 0.8;
+        const dx = cam.x - pos.x, dy = cam.y - oy, dz = cam.z - pos.z;
+        const len = Math.hypot(dx, dy, dz);
+        if (len > 0.6) {
+          const cr = _camRay.current || (_camRay.current = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }));
+          cr.origin.x = pos.x; cr.origin.y = oy; cr.origin.z = pos.z;
+          cr.dir.x = dx / len; cr.dir.y = dy / len; cr.dir.z = dz / len;
+          const hit = world.castRay(cr, len, true, CAM_BLOCKERS, undefined, undefined, body);
+          if (hit) {
+            const t = Math.max(0.6, (hit.timeOfImpact ?? hit.toi) - 0.25);
+            cam.set(pos.x + cr.dir.x * t, oy + cr.dir.y * t, pos.z + cr.dir.z * t);
+          }
+        }
+      }
       // keep the car anchored in the lower third: modest look-ahead, higher aim
       _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85 - dip * 0.4, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
       // trauma-style shake: amplitude ∝ shake², plus a rotational component —
@@ -1021,7 +1097,12 @@ export default function LocalCar() {
         audio.seam(S.wheelSurf?.id, S.speed / car.topSpeed);
       }
     }
-    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
+    // the map's room tone (map.AMBIENCE): the office has rain on the glass,
+    // the cellar only its ballast hum; a blackout kills anything electric
+    const amb = map.AMBIENCE || { rain: true };
+    const dark = st.event?.id === 'lights_out';
+    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : amb.rain === false ? 0 : map.roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
+    audio.setBeds({ hum: dark ? 0 : amb.hum || 0, rumble: amb.rumble || 0, air: dark ? 0 : amb.air || 0 });
 
     // ---------------- network send
     if (nowMs - S.lastSend > 1000 / INPUT_SEND_RATE) {
@@ -1044,13 +1125,22 @@ export default function LocalCar() {
       | (nowMs < S.protectUntil ? 64 : 0);
   });
 
-  const startSpawn = SPAWNS[0];
+  // a mid-match drop-in starts where the server put it (WELCOME's spawn).
+  // The pose is fixed for the car's lifetime: as a render-time value it
+  // changed with the map at START, and rapier re-applied it right after
+  // match_start had teleported the car, so every round on a new floor
+  // began on grid slot 0 (at times facing backwards). Rounds place the car
+  // with teleport(), never with these props.
+  const [start] = useState(() => {
+    const s = net.joinSpawn || { ...currentMap().SPAWNS[0], y: SPAWN_Y };
+    return { position: [s.x, Math.max(SPAWN_Y, s.y), s.z], rotation: [0, s.rotY, 0] };
+  });
   return (
     <>
       <RigidBody
         ref={rb}
-        position={[startSpawn.x, SPAWN_Y, startSpawn.z]}
-        rotation={[0, startSpawn.rotY, 0]}
+        position={start.position}
+        rotation={start.rotation}
         colliders={false}
         canSleep={false}
         ccd

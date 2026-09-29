@@ -3,7 +3,9 @@
 import { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 
-export default function TextSprite({ text, size = 0.5, color = 'white', outline = 'rgba(0,0,0,0.85)', y = 0 }) {
+// overlay: drawn over whatever stands in front of it (a label that must be
+// readable through the room's furniture)
+export default function TextSprite({ text, size = 0.5, color = 'white', outline = 'rgba(0,0,0,0.85)', y = 0, overlay = false }) {
   const { texture, aspect } = useMemo(() => {
     const fs = 72;
     const pad = 24;
@@ -29,8 +31,8 @@ export default function TextSprite({ text, size = 0.5, color = 'white', outline 
   }, [text, color, outline]);
   useEffect(() => () => texture.dispose(), [texture]);
   return (
-    <sprite position={[0, y, 0]} scale={[size * aspect, size, 1]}>
-      <spriteMaterial map={texture} depthWrite={false} transparent />
+    <sprite position={[0, y, 0]} scale={[size * aspect, size, 1]} renderOrder={overlay ? 10 : 0}>
+      <spriteMaterial map={texture} depthWrite={false} depthTest={!overlay} transparent />
     </sprite>
   );
 }

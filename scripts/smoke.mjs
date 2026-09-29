@@ -13,8 +13,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const server = spawn('node', ['server/src/index.js'], {
   cwd: new URL('..', import.meta.url).pathname,
   // bots hold no items here: a bot's Position Swap teleports the scripted
-  // clients, which never report again, and turned the sumo KO check flaky
-  env: { ...process.env, PORT: String(PORT), RC_MATCH_SECONDS: '60', RC_BOT_ITEMS: 'off' },
+  // clients, which never report again, and turned the sumo KO check flaky.
+  // Pinned to the office: the checks below park cars at office coordinates
+  // (the sumo "far corner" is inside a bigger floor's starting ring), and
+  // quick play would otherwise pick any floor for each round.
+  env: { ...process.env, PORT: String(PORT), RC_MATCH_SECONDS: '60', RC_BOT_ITEMS: 'off', RC_MAP: 'office' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', (d) => process.stderr.write('[server] ' + d));
@@ -75,7 +78,8 @@ await playMode('tag', async (a, b) => {
   const itBefore = a.snaps[a.snaps.length - 1].it;
   a.send({ t: 'bump', target: b.id });
   await sleep(300);
-  const hit = a.all('fx').find((m) => m.type === 'bump' && m.kind === 'hit');
+  // (between these two cars: the room's bots bump too)
+  const hit = a.all('fx').find((m) => m.type === 'bump' && m.kind === 'hit' && m.a === a.id && m.b === b.id);
   check('tag: high-rel-speed bump classified as hit', !!hit);
   snap = a.snaps[a.snaps.length - 1];
   const tagged = a.all('fx').some((m) => m.type === 'tag');
@@ -92,23 +96,36 @@ await playMode('tag', async (a, b) => {
   const rub = a.all('fx').find((m) => m.type === 'bump' && m.kind === 'rub');
   check('tag: low-rel-speed bump classified as rub', !!rub);
 
-  // Respawn flow: request → RESPAWN_AT with freeze/protect, protection flag set
-  a.send({ t: 'respawn' });
+  // Respawn flow: request → RESPAWN_AT with freeze/protect, protection flag set.
+  // Whoever is It gets no protection (a respawn is not an escape), so the
+  // flow is checked on a car that isn't.
+  const itNow = a.snaps[a.snaps.length - 1].it;
+  const [r, o] = itNow === a.id ? [b, a] : [a, b];
+  r.send({ t: 'respawn' });
   await sleep(300);
-  const rs = a.last('rsat');
+  const rs = r.last('rsat');
   check('respawn: server answers RESPAWN_AT', !!rs && Number.isFinite(rs.x) && Number.isFinite(rs.z));
   check('respawn: freeze+protect windows included', rs?.freeze > 0 && rs?.protect > 0);
-  const snap2 = a.snaps[a.snaps.length - 1];
-  check('respawn: protection flag (64) visible in snapshot', !!(snap2.players[a.id].f & 64));
+  const snap2 = r.snaps[r.snaps.length - 1];
+  check('respawn: protection flag (64) visible in snapshot', !!(snap2.players[r.id].f & 64));
 
   // Protected player can't be hit
-  a.msgs.length = 0;
-  state(b, [rs.x + 1, 1, rs.z], [20, 0, 0]);
-  state(a, [rs.x, 1, rs.z], [-20, 0, 0]);
+  r.msgs.length = 0;
+  state(o, [rs.x + 1, 1, rs.z], [20, 0, 0]);
+  state(r, [rs.x, 1, rs.z], [-20, 0, 0]);
   await sleep(150);
-  b.send({ t: 'bump', target: a.id });
+  o.send({ t: 'bump', target: r.id });
   await sleep(300);
-  check('respawn: protected car ignores bumps', !a.all('fx').some((m) => m.type === 'bump' && m.kind === 'hit'));
+  // only hits on the protected car count: bots bump each other in the same
+  // room, and their hits reach every client too
+  check('respawn: protected car ignores bumps', !r.all('fx').some((m) => m.type === 'bump' && m.kind === 'hit' && (m.a === r.id || m.b === r.id)));
+
+  // …once: pressing R again inside the cooldown renews nothing
+  await sleep(1300); // respawn requests are rate limited
+  r.send({ t: 'respawn' });
+  await sleep(300);
+  const rs2 = r.last('rsat');
+  check('respawn: a second respawn inside the cooldown adds no protection', !!rs2 && rs2 !== rs && rs2.protect < rs.protect);
 
   // Prop momentum relay: A whacked prop 0 → B receives the fx, A does not
   b.msgs.length = 0;
@@ -135,18 +152,24 @@ await playMode('koth', async (a) => {
 
 // --------------------------------------------------------------- sumo mode
 await playMode('sumo', async (a, b) => {
-  await sleep(1000);
+  // both start the round inside the ring: the server still has them where
+  // the grid of the LAST map put them (the client's move to the new grid
+  // is what a real client reports), and the grace is short. A jump that far
+  // is a teleport: repeated, consistent reports get through.
   let snap = a.snaps[a.snaps.length - 1];
+  for (let i = 0; i < 12; i++) { state(a, [snap.zone.x + 2, 1, snap.zone.z]); state(b, [snap.zone.x, 1, snap.zone.z]); }
+  await sleep(1000);
+  snap = a.snaps[a.snaps.length - 1];
   check('sumo: zone present with start radius', !!snap.zone && snap.zone.r > 40);
   check('sumo: round number in snapshot', snap.sumo?.round >= 1);
-  // A leaves the zone far away (map corner, outside even the starting ring)
-  // → out-timer appears, then elimination
-  state(a, [90, 1, -50], [0, 0, 0]);
-  state(b, [snap.zone.x, 1, snap.zone.z], [0, 0, 0]);
-  await sleep(1500);
+  // A leaves the zone far away (past the map's corner — the server clamps it
+  // just outside the floor plan, outside even the starting ring, which
+  // covers every room) → out-timer appears, then elimination
+  for (let i = 0; i < 12; i++) state(a, [1000, 1, 1000]);
+  await sleep(1000);
   snap = a.snaps[a.snaps.length - 1];
   check('sumo: out-of-zone timer ticking for A', (snap.sumo?.out || []).some(([id]) => id === a.id));
-  await sleep(5500);
+  await sleep(3000);
   snap = a.snaps[a.snaps.length - 1];
   check('sumo: A eliminated (KO flag 128)', !!(snap.players[a.id].f & 128));
   check('sumo: KO effect broadcast', a.all('fx').some((m) => m.type === 'sumo_out' && m.id === a.id));

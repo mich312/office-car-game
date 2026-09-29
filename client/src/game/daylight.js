@@ -168,5 +168,12 @@ export const LIGHTS_OUT = {
 export const hourAfter = (id) => HOURS[(HOURS.indexOf(id) + 1) % HOURS.length];
 
 // What the renderers actually ask for: the blackout wins over the clock.
-export const lightingFor = (hour, lightsOut) =>
-  (lightsOut ? LIGHTS_OUT : DAYLIGHT[hour] || DAYLIGHT.golden);
+// A map can bring its own light (map.LIGHTING, shared/src/maps/*.js): a
+// `fixed` state for a windowless floor, or its own table per hour; anything
+// it leaves out falls back to the office's daylight.
+export const lightingFor = (hour, lightsOut, map = null) => {
+  const L = map?.LIGHTING;
+  if (lightsOut) return L?.lightsOut || LIGHTS_OUT;
+  if (L?.fixed) return L.fixed;
+  return L?.[hour] || DAYLIGHT[hour] || DAYLIGHT.golden;
+};

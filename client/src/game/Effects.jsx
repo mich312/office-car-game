@@ -7,11 +7,12 @@ import { ToneMappingMode } from 'postprocessing';
 import SpeedFX from './SpeedFX.jsx';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
+import { useMap } from './activeMap.js';
 
 export default function Effects() {
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
-  const { bloom } = lightingFor(hour, event?.id === 'lights_out');
+  const { bloom } = lightingFor(hour, event?.id === 'lights_out', useMap());
   return (
     <EffectComposer multisampling={0}>
       <N8AO aoRadius={2.2} intensity={2.4} distanceFalloff={1.6} quality="performance" halfRes />

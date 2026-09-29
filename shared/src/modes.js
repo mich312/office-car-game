@@ -1,9 +1,11 @@
+import { groundAt } from './ground.js';
+
 export const MODES = {
   desk_dash: {
     id: 'desk_dash',
     name: 'Desk Dash',
     icon: '🏁',
-    desc: 'Race 2 laps through all thirteen rooms of the office. Shortcuts everywhere.',
+    desc: 'A race round the whole floor, lap after lap. Shortcuts everywhere.',
     laps: 2, // the v2 office lap is nearly twice as long
     seconds: 210,
   },
@@ -11,7 +13,7 @@ export const MODES = {
     id: 'coffee_run',
     name: 'Coffee Run',
     icon: '☕',
-    desc: 'Collect beans, deliver to the kitchen machine. Bump rivals to make them spill.',
+    desc: 'Collect beans, deliver to the coffee machine. Bump rivals to make them spill.',
     maxCarry: 5,
     beanScore: 10,
     // Spilled beans sweep themselves up if nobody grabs them: long enough to
@@ -41,7 +43,7 @@ export const MODES = {
     id: 'koth',
     name: 'Standup Standoff',
     icon: '📍',
-    desc: 'The meeting zone moves between rooms. Hold it to score — don’t be late.',
+    desc: 'The meeting zone moves between rooms. Hold it alone to score — share it and you split it. Don’t be late.',
     scorePerSecond: 3,
     hopSeconds: 20, // zone relocates this often
     seconds: 180,
@@ -61,7 +63,9 @@ export const MODES = {
     icon: '🥋',
     desc: 'The safe zone shrinks. Shove rivals out of it. Last car rolling wins the round.',
     roundSeconds: 45,
-    outSeconds: 6, // grace timer outside the zone before you're out
+    closeFrac: 0.75, // the ring reaches its final size this far into the round, then holds
+    outSeconds: 2.5, // grace outside the zone before you're out
+    refillRate: 0.5, // grace comes back at half the rate it drains (s per s inside)
     restSeconds: 4, // breather between rounds
     placeScore: 15, // per player you outlasted
     winBonus: 40,
@@ -71,7 +75,7 @@ export const MODES = {
     id: 'last_standing',
     name: 'Last Car Standing',
     icon: '👑',
-    desc: 'Facilities locks the office down room by room. Escape closing rooms, dodge the robot, outlive everyone.',
+    desc: 'Facilities locks the floor down room by room. Escape closing rooms, dodge the robot, outlive everyone.',
   },
   free_roam: {
     id: 'free_roam',
@@ -80,14 +84,17 @@ export const MODES = {
     desc: 'Open world, no rules. Ten minutes of playground — style points for drifting, air time and mayhem.',
     seconds: 600, // long sessions; the lobby votes again afterwards
     driftPerS: 2,
+    driftMinSpeed: 6, // units/s — a drift parked on the spot is not style
     airPerS: 1.5,
+    airMinY: 0.6, // units above the floor to count as air
+    airCapS: 3, // air points per jump stop after this long
     bumpScore: 5,
   },
   office_cup: {
     id: 'office_cup',
     name: 'Office Cup',
     icon: '🏆',
-    desc: 'Three random modes back-to-back. Cumulative score. Grand ceremony at the end.',
+    desc: 'Three random modes back-to-back. Placement points each round (10-8-6-5…). Grand ceremony at the end.',
     rounds: 3,
   },
 };
@@ -97,7 +104,20 @@ export const MODES = {
 // escapable. One refuge room always survives for the final showdown.
 export const LCS = {
   FIRST_LOCK_S: 15, // breathing room after GO before the first closure
-  LOCK_INTERVAL_S: 16,
+  // Closures are paced to the map: every room but the refuge is closed by
+  // FINALE_S before the whistle (a 13-room office every ~14 s, an 8-room
+  // cellar every ~26 s), clamped to this range.
+  LOCK_INTERVAL_MIN_S: 8,
+  LOCK_INTERVAL_MAX_S: 30,
+  // Finale: once only the refuge is open, a zap ring closes inside it
+  FINALE_S: 40,
+  FINALE_R1_M: 0.8, // final ring radius, metres
+  // The cleaning robot joins once a third of the rooms are closed, patrols
+  // the open ones and zaps what it touches
+  ROBOT_AFTER: 1 / 3,
+  ROBOT_SPEED_MS: 1.4, // metres per second — a car outruns it, a parked one doesn't
+  ROBOT_REACH_M: 0.5,
+  ROBOT_DIGEST_S: 3, // it stops this long after each zap
   WARN_S: 5, // "closing in 5…" telegraph, mirrors office-event warnings
   ZAP_GRACE_S: 2.5, // seconds inside a locked room before elimination
   SURVIVAL_SCORE_PER_S: 1.5,
@@ -106,6 +126,15 @@ export const LCS = {
 };
 
 export const MODE_IDS = Object.keys(MODES);
+
+// Up on the furniture: standing on something taller than a rug or a hump —
+// a desk, a sofa, a crate stack. Bots can't climb (they drive under it), and
+// a car parked on the garage desk row kept It / the battery for the whole
+// match with a bot beneath it 90 % of the time. So neither stays up there
+// for long: after PERCH_HOLD_S the battery slides off, It passes on.
+export const PERCH_MIN_Y = 1.0; // units (22 cm)
+export const PERCH_HOLD_S = 5;
+export const perched = (map, x, y, z) => groundAt(map, x, z, y + 0.1) > PERCH_MIN_Y;
 
 // The cup draws real objective modes — no meta-modes, no sandboxes.
 export const CUP_POOL = MODE_IDS.filter((m) => m !== 'office_cup' && m !== 'free_roam');
@@ -125,7 +154,7 @@ export const ABILITY_FX = { RAM_S: 2, OVERDRIFT_S: 3, DRS_S: 3, DRS_TOP_MULT: 1.
 // Mutators: a 30% post-lobby twist on the next round, announced at START.
 export const MUTATORS = {
   moon_gravity: { id: 'moon_gravity', name: 'Moon Gravity', icon: '🌙', desc: 'Facilities broke gravity. Everything floats.', gravity: 0.45 },
-  giant_ball: { id: 'giant_ball', name: 'Giant Ball', icon: '🎈', desc: 'Someone inflated the ball overnight.', scale: 1.8, soccerOnly: true },
+  giant_ball: { id: 'giant_ball', name: 'Giant Ball', icon: '🎈', desc: 'Someone inflated the ball overnight.', scale: 1.5, soccerOnly: true },
   mug_rain: { id: 'mug_rain', name: 'Mug Rain', icon: '☕', desc: 'The ceiling is raining mugs. Naturally.', intervalS: 3.5 },
   tiny_cars: { id: 'tiny_cars', name: 'Tiny Cars', icon: '🐜', desc: 'Everyone got shrunk in the wash.' },
 };

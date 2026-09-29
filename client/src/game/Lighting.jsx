@@ -15,9 +15,11 @@ import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
+import { useMap } from './activeMap.js';
 
 // Ceiling downlights — few big points; the environment does the rest. Light
-// count is the #1 fragment cost, so this list stays short.
+// count is the #1 fragment cost, so this list stays short. A map can bring
+// its own (CEILING_LIGHTS, meters).
 const CEILING = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, -2], [-11, 0]];
 
 // ---------------------------------------------------------------- shadows
@@ -85,12 +87,16 @@ export default function Lighting() {
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
+  const map = useMap();
+  const ceilingSpots = map.CEILING_LIGHTS || CEILING;
+  const points = map.LIGHTING?.points || {};
+  const glow = map.LIGHTING ? map.LIGHTING.glow : { at: [9.5, 4.5], color: '#3d7bff' };
   const sun = useRef();
   const amb = useRef();
   const hemi = useRef();
   const ceiling = useRef();
 
-  const target = useMemo(() => lightingFor(hour, lightsOut), [hour, lightsOut]);
+  const target = useMemo(() => lightingFor(hour, lightsOut, map), [hour, lightsOut, map]);
 
   // Scratch colours and vectors, allocated once — this runs every frame.
   const tmp = useMemo(() => ({
@@ -261,25 +267,27 @@ export default function Lighting() {
       </directionalLight>
 
       <group ref={ceiling}>
-        {CEILING.map(([x, z], i) => (
+        {ceilingSpots.map(([x, z], i) => (
           <pointLight
-            key={i}
-            position={[x * M, 2.7 * M, z * M]}
+            key={`${map.id}${i}`}
+            position={[x * M, map.WALL_HEIGHT - 0.3 * M, z * M]}
             intensity={13}
-            distance={26 * M}
+            distance={(points.distance || 26) * M}
             decay={1.5}
-            color="#fff2dc"
+            color={points.color || '#fff2dc'}
           />
         ))}
       </group>
 
       {/* Server room ominous glow (doubles as the lights-out emergency light) */}
-      <pointLight
-        position={[9.5 * M, 1.2 * M, 4.5 * M]}
-        intensity={lightsOut ? 8 : 4}
-        distance={9 * M}
-        color={lightsOut ? '#ff5040' : '#3d7bff'}
-      />
+      {glow && (
+        <pointLight
+          position={[glow.at[0] * M, 1.2 * M, glow.at[1] * M]}
+          intensity={lightsOut ? 8 : 4}
+          distance={9 * M}
+          color={lightsOut ? '#ff5040' : glow.color || '#3d7bff'}
+        />
+      )}
     </>
   );
 }

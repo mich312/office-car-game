@@ -6,7 +6,7 @@
 // (lobby, effects, feed) stays JSON. decodeSnapshot returns the exact object
 // shape the old JSON snapshot had, so the client's handler is unchanged.
 import { MSG } from './protocol.js';
-import { ROOMS } from './map.js';
+import { ALL_ROOM_IDS } from './map.js';
 
 // Section bits
 const S_PUDDLES = 1;
@@ -21,6 +21,10 @@ const S_ZONE = 256;
 const S_IT = 512;
 const S_SUMO = 1024;
 const S_LCS = 2048; // Last Car Standing: locked rooms, closure warning, alive count
+// Heights of dropped things (the battery, beans) that landed on furniture.
+// Written after every other section so a decoder that doesn't know it just
+// ignores the tail; absent (all on the floor) it costs nothing.
+const S_DROP_Y = 1 << 14;
 
 const POS = 100; // 1 cm
 const QUAT = 1000;
@@ -96,6 +100,8 @@ export function encodeSnapshot(snap) {
   if (snap.it != null) sections |= S_IT;
   if (snap.sumo) sections |= S_SUMO;
   if (snap.lcs) sections |= S_LCS;
+  const beansOut = snap.beans && snap.beans.length > 255 ? snap.beans.slice(0, 255) : snap.beans;
+  if ((snap.battery && snap.battery.y) || (beansOut && beansOut.some((b) => b[3]))) sections |= S_DROP_Y;
 
   w.f64(t);
   w.u16(sections);
@@ -139,9 +145,8 @@ export function encodeSnapshot(snap) {
   if (sections & S_BEANS) {
     // the count byte is u8: write exactly the entries the count promises, or
     // a 256+ bean pile shifts every later section into garbage on decode
-    const beans = snap.beans.length > 255 ? snap.beans.slice(0, 255) : snap.beans;
-    w.u8(beans.length);
-    for (const [id, x, z] of beans) { w.id16(id); w.i16(x * POS); w.i16(z * POS); }
+    w.u8(beansOut.length);
+    for (const [id, x, z] of beansOut) { w.id16(id); w.i16(x * POS); w.i16(z * POS); }
   }
   if (sections & S_BATTERY) {
     w.i16(snap.battery.x * POS); w.i16(snap.battery.z * POS);
@@ -157,6 +162,9 @@ export function encodeSnapshot(snap) {
     w.i16(snap.zone.x * POS); w.i16(snap.zone.z * POS);
     w.u16(snap.zone.r * POS);
     w.u32(snap.zone.until ? Math.max(0, snap.zone.until - t) : 0);
+    // standup: cars sharing the zone, and where it goes next
+    w.u8(snap.zone.n || 0);
+    if (snap.zone.next) { w.u8(1); w.i16(snap.zone.next.x * POS); w.i16(snap.zone.next.z * POS); } else w.u8(0);
   }
   if (sections & S_IT) w.str(snap.it);
   if (sections & S_SUMO) {
@@ -164,9 +172,10 @@ export function encodeSnapshot(snap) {
     const out = snap.sumo.out || [];
     w.u8(out.length);
     for (const [id, tenths] of out) { w.str(id); w.u8(tenths); }
+    w.u8((snap.sumo.rest || 0) * 10); // the break between rounds, tenths left
   }
   if (sections & S_LCS) {
-    const roomIdx = (id) => Math.max(0, ROOMS.findIndex((r) => r.id === id));
+    const roomIdx = (id) => Math.max(0, ALL_ROOM_IDS.indexOf(id));
     w.u8(snap.lcs.locked.length);
     for (const id of snap.lcs.locked) w.u8(roomIdx(id));
     if (snap.lcs.warn) {
@@ -177,6 +186,10 @@ export function encodeSnapshot(snap) {
       w.u8(0);
     }
     w.u8(snap.lcs.alive || 0);
+  }
+  if (sections & S_DROP_Y) {
+    if (sections & S_BATTERY) w.i16((snap.battery.y || 0) * POS);
+    if (sections & S_BEANS) for (const b of beansOut) w.i16((b[3] || 0) * POS);
   }
   return w.bytes();
 }
@@ -245,20 +258,28 @@ export function decodeSnapshot(data) {
     snap.zone = { x: r.i16() / POS, z: r.i16() / POS, r: r.u16() / POS };
     const d = r.u32();
     if (d) snap.zone.until = time + d;
+    snap.zone.n = r.u8();
+    if (r.u8()) snap.zone.next = { x: r.i16() / POS, z: r.i16() / POS };
   }
   if (sections & S_IT) snap.it = r.str();
   if (sections & S_SUMO) {
     snap.sumo = { round: r.u8(), out: [] };
     const c = r.u8();
     for (let i = 0; i < c; i++) snap.sumo.out.push([r.str(), r.u8()]);
+    const rest = r.u8();
+    if (rest) snap.sumo.rest = rest / 10;
   }
   if (sections & S_LCS) {
     const locked = [];
     const c = r.u8();
-    for (let i = 0; i < c; i++) locked.push(ROOMS[r.u8()]?.id);
+    for (let i = 0; i < c; i++) locked.push(ALL_ROOM_IDS[r.u8()]);
     let warn = null;
-    if (r.u8()) warn = { room: ROOMS[r.u8()]?.id, until: time + r.u32() };
+    if (r.u8()) warn = { room: ALL_ROOM_IDS[r.u8()], until: time + r.u32() };
     snap.lcs = { locked, warn, alive: r.u8() };
+  }
+  if (sections & S_DROP_Y) {
+    if (snap.battery) snap.battery.y = r.i16() / POS;
+    if (snap.beans) for (const b of snap.beans) b.push(r.i16() / POS);
   }
   return snap;
 }

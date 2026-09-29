@@ -2,12 +2,14 @@
 // chase beans/batteries/balls with a poor-man's navmesh (the racing line
 // doubles as a corridor graph), grab powerups and generally cause trouble.
 import {
-  BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER, CHECKPOINTS, CHECKPOINT_RADIUS,
-  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
+  CARS, CAR_IDS, CHECKPOINT_RADIUS,
+  COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
   POWERUP_EFFECT as FX, BATTERY_SPEED_PENALTY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN, BOOST_TOP_MULT,
   DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
+import { wallBoxesOf, lineBlocked, navTo, navOf, navField, navStep, roomGraph } from './nav.js';
+import { navGridOf } from './navgrid.js';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -20,32 +22,57 @@ const BOT_TURBO_S = 1.5; // how long a turbo item surges a bot
 const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
+// modes whose goals can be anywhere on the floor route on the nav grid
+const GRID_NAV_MODES = new Set(['coffee_run', 'battery', 'soccer', 'tag']);
+const BOT_CONTACT = 1.05; // centre distance that counts as two bots touching (separate()'s personal space)
+const SOCCER_LINED_UP = 0.7; // cos of the angle behind the ball a striker attacks from
+const SUMO_HUNT_RANGE = 10; // a sumo bot goes after rivals this close (units)
+const SUMO_LOOKAHEAD_S = 6; // Moving Meeting: bots head for where the ring will be this far ahead
+const LCS_CLOSED_COST = 6; // route cost of a closed room's floor, per unit of open floor
+const LCS_ROBOT_FEAR = 12; // bots bolt from the robot inside this range (units)
+const NAV_MODES = new Set(['koth', 'sumo', 'last_standing']); // goals routed over the door graph (nav.js)
 
-const wallBoxes = WALLS.filter((w) => !w.low).map((w) => ({
-  minX: w.x - w.w / 2 - 0.35, maxX: w.x + w.w / 2 + 0.35,
-  minZ: w.z - w.d / 2 - 0.35, maxZ: w.z + w.d / 2 + 0.35,
-}));
-
-function lineBlocked(x1, z1, x2, z2) {
-  // sampled 2D segment vs wall AABBs — cheap and good enough for nav
-  const steps = Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 1.5) + 1;
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const x = x1 + (x2 - x1) * t, z = z1 + (z2 - z1) * t;
-    for (const b of wallBoxes) {
-      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
-    }
-  }
-  return false;
-}
-
-function nearestWp(x, z, path = BOT_PATH) {
+function nearestWp(x, z, path) {
   let best = 0, bd = Infinity;
   for (let i = 0; i < path.length; i++) {
     const d = Math.hypot(path[i].x - x, path[i].z - z);
     if (d < bd) { bd = d; best = i; }
   }
   return best;
+}
+
+// Which segment of the bots' line (waypoint i → i+1) carries each
+// checkpoint, walking the line in lap order: the first segment after the
+// previous checkpoint's that passes within reach, else the nearest. A
+// checkpoint the line crosses twice (the cellar crossroads) gets the pass
+// that counts. Cached per (line, checkpoint list).
+const segCache = new WeakMap();
+function segDist(c, a, b) {
+  const dx = b.x - a.x, dz = b.z - a.z, L = dx * dx + dz * dz || 1;
+  const t = Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.z - a.z) * dz) / L));
+  return Math.hypot(c.x - (a.x + dx * t), c.z - (a.z + dz * t));
+}
+function cpSegments(path, cps) {
+  let byCps = segCache.get(path);
+  if (!byCps) segCache.set(path, (byCps = new WeakMap()));
+  let segs = byCps.get(cps);
+  if (segs) return segs;
+  segs = [];
+  const N = path.length;
+  let from = 0;
+  for (const c of cps) {
+    let pick = -1, best = -1, bd = Infinity;
+    for (let k = 0; k < N; k++) {
+      const i = (from + k) % N;
+      const d = segDist(c, path[i], path[(i + 1) % N]);
+      if (d < 1.5) { pick = i; break; }
+      if (d < bd) { bd = d; best = i; }
+    }
+    from = pick >= 0 ? pick : best;
+    segs.push(from);
+  }
+  byCps.set(cps, segs);
+  return segs;
 }
 
 export class Bots {
@@ -58,9 +85,16 @@ export class Bots {
     this.items = process.env.RC_BOT_ITEMS !== 'off';
   }
 
+  // Top the room up to `count` cars — and take bots out again when the room
+  // has outgrown the grid: a cup keeps its room between rounds, and 11
+  // drop-ins on top of 5 bots put two cars on each of five grid slots.
   fillTo(count) {
-    const current = this.room.players.size;
-    for (let i = current; i < count; i++) this.add();
+    const grid = this.room.map.SPAWNS.length;
+    for (const [id, p] of this.room.players) {
+      if (this.room.players.size <= grid) break;
+      if (p.bot) this.room.players.delete(id);
+    }
+    for (let i = this.room.players.size; i < count; i++) this.add();
   }
 
   add() {
@@ -96,7 +130,7 @@ export class Bots {
     const k = p.kick;
     if (!k || (Math.abs(k.x) < 0.05 && Math.abs(k.z) < 0.05)) return;
     let px = p.p[0] + k.x * dt, pz = p.p[2] + k.z * dt;
-    for (const b of wallBoxes) {
+    for (const b of wallBoxesOf(this.room.map)) {
       if (px > b.minX && px < b.maxX && pz > b.minZ && pz < b.maxZ) {
         const dl = px - b.minX, drr = b.maxX - px, dtp = pz - b.minZ, dbt = b.maxZ - pz;
         const m = Math.min(dl, drr, dtp, dbt);
@@ -125,7 +159,24 @@ export class Bots {
         }
       }
     }
+    this.contacts();
     this.separate();
+  }
+
+  // Bots have no client to report their contacts, so the server raises the
+  // bot-vs-bot ones (before separate() pushes them apart). Bot-vs-human is
+  // left to the human's client, whose real colliders saw the contact — this
+  // circle would echo knockback for touches that never happened. onBump
+  // decides who hit whom and owns the per-pair cooldowns.
+  contacts() {
+    const bots = [...this.room.players.values()].filter((p) => p.bot && !p.eliminated);
+    for (let i = 0; i < bots.length; i++) {
+      for (let j = i + 1; j < bots.length; j++) {
+        const a = bots[i], b = bots[j];
+        if (Math.abs(a.p[1] - b.p[1]) > 1) continue; // one is hopping over the other
+        if (Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]) < BOT_CONTACT) this.room.onBump(a, b);
+      }
+    }
   }
 
   // Bots have no collision shapes, so without this they drive through each
@@ -135,17 +186,17 @@ export class Bots {
   separate() {
     const all = [...this.room.players.values()];
     for (const b of all) {
-      if (!b.bot) continue;
+      if (!b.bot || b.eliminated) continue;
       for (const o of all) {
-        if (o === b) continue;
+        if (o === b || o.eliminated) continue; // ghosts take up no space
         const dx = b.p[0] - o.p[0], dz = b.p[2] - o.p[2];
         const d = Math.hypot(dx, dz);
-        const minD = 1.05;
+        const minD = BOT_CONTACT;
         if (d >= minD) continue;
         if (d < 1e-4) { b.p[0] += 0.1; continue; }
         const push = (minD - d) * (o.bot ? 0.5 : 1);
         let px = b.p[0] + (dx / d) * push, pz = b.p[2] + (dz / d) * push;
-        for (const w of wallBoxes) {
+        for (const w of wallBoxesOf(this.room.map)) {
           if (px > w.minX && px < w.maxX && pz > w.minZ && pz < w.maxZ) {
             const dl = px - w.minX, drr = w.maxX - px, dtp = pz - w.minZ, dbt = w.maxZ - pz;
             const m = Math.min(dl, drr, dtp, dbt);
@@ -174,7 +225,7 @@ export class Bots {
   // The racing line this round: reversed for a Reverse Desk Dash, the
   // classic loop otherwise (it doubles as the corridor graph for every mode).
   path() {
-    return raceBotPath(this.room.modeId === 'desk_dash' ? this.room.variant : 'classic');
+    return raceBotPath(this.room.modeId === 'desk_dash' ? this.room.variant : 'classic', this.room.map);
   }
 
   // Where does this bot want to go, given the mode?
@@ -183,9 +234,10 @@ export class Bots {
     const mode = this.room.mode;
     const modeId = this.room.modeId;
     let goal = null;
+    let routed = false; // goal is already the next step of a route
     if (modeId === 'coffee_run' && mode) {
       if (p.beans >= 4) {
-        goal = { x: COFFEE_MACHINE.deliverX, z: COFFEE_MACHINE.deliverZ };
+        goal = { x: this.room.map.COFFEE_MACHINE.deliverX, z: this.room.map.COFFEE_MACHINE.deliverZ };
       } else {
         let bd = Infinity;
         for (const b of mode.beans) {
@@ -196,37 +248,17 @@ export class Bots {
       }
     } else if (modeId === 'battery' && mode) {
       const b = mode.battery;
+      const c = b.carrier && this.room.players.get(b.carrier);
       if (b.carrier === p.id) goal = null; // run the lap while holding it
-      else goal = { x: b.x, z: b.z };
+      else goal = c ? this.intercept(p, c) : { x: b.x, z: b.z };
     } else if (modeId === 'last_standing' && mode) {
-      const bad = (id) => mode.locked.includes(id) || mode.warn?.room === id;
-      const myRoom = roomAt(p.p[0], p.p[2]);
-      if (myRoom && bad(myRoom.id)) {
-        // flee to the nearest room that's still open
-        let best = null, bd = Infinity;
-        for (const r of ROOMS) {
-          if (bad(r.id)) continue;
-          const d = Math.hypot(r.x - p.p[0], r.z - p.p[2]);
-          if (d < bd) { bd = d; best = r; }
-        }
-        if (best) goal = { x: best.x, z: best.z };
-      } else {
-        // cruise the racing line, skipping waypoints inside closed rooms
-        for (let k = 0; k < PATH.length; k++) {
-          const wp = PATH[p.wp % PATH.length];
-          const rm = roomAt(wp.x, wp.z);
-          if (!rm || !bad(rm.id)) break;
-          p.wp = (p.wp + 1) % PATH.length;
-        }
-      }
+      goal = this.lcsGoal(p, mode);
+      // lcsGoal routes round the closed rooms itself; the plain door graph
+      // below re-routed its step the short way — through them. The finale's
+      // ring is the one goal it leaves to the door graph.
+      routed = !mode.finale;
     } else if (modeId === 'soccer' && mode) {
-      const ball = mode.ball;
-      // Aim slightly behind the ball relative to the opposing goal
-      const opp = SOCCER.goals[1 - p.team];
-      const gx = opp.x, gz = opp.z;
-      const dx = ball.p[0] - gx, dz = ball.p[2] - gz;
-      const len = Math.hypot(dx, dz) || 1;
-      goal = { x: ball.p[0] + (dx / len) * 1.2, z: ball.p[2] + (dz / len) * 1.2 };
+      goal = this.soccerTarget(p, mode);
     } else if (modeId === 'koth' && mode) {
       // park inside the zone, spread out on a per-bot orbit angle
       const z = mode.zonePos();
@@ -243,10 +275,7 @@ export class Bots {
       if (p.sumoDead) {
         goal = null; // cruise the racing line as a mobile chicane
       } else {
-        const z = mode.zone;
-        const a = this.botAngle(p);
-        const r = Math.min(z.r * 0.5, 6);
-        goal = { x: z.x + Math.cos(a) * r, z: z.z + Math.sin(a) * r };
+        goal = this.sumoGoal(p, mode);
       }
     } else if (modeId === 'desk_dash' && !p.finished) {
       // The race line is a driving line, not the checkpoint list: bots swap
@@ -254,10 +283,10 @@ export class Bots {
       // inside a checkpoint and miss it — the balcony corner (#15) cost every
       // bot every lap, and races ended with the bots still on lap one.
       // Once the next checkpoint is close and in sight, drive through it.
-      const cps = mode?.cps || CHECKPOINTS;
+      const cps = mode?.cps || this.room.map.CHECKPOINTS;
       const cp = cps[p.nextCp % cps.length];
       if (Math.hypot(cp.x - p.p[0], cp.z - p.p[2]) < CHECKPOINT_RADIUS + 6
-          && !lineBlocked(p.p[0], p.p[2], cp.x, cp.z)) goal = cp;
+          && !lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], cp.x, cp.z)) goal = cp;
     }
     // Every item pad sits 2-29 units off the race line and the pickup radius
     // is 1.6, so a bot that only follows the line never holds an item.
@@ -265,8 +294,19 @@ export class Bots {
     const pad = this.padTarget(p, goal);
     if (pad) return pad;
     if (!goal) return this.followRaceLine(p);
+    if (routed) return goal;
+    // the zone modes route through doors: a zone behind a wall is reached
+    // round it, not by jamming against it at the nearest racing-line point
+    if (NAV_MODES.has(modeId)) return navTo(this.room.map, { x: p.p[0], z: p.p[2] }, goal);
     // Navigate: direct if clear, else route along the path loop
-    if (!lineBlocked(p.p[0], p.p[2], goal.x, goal.z)) return goal;
+    if (!lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], goal.x, goal.z)) return goal;
+    // Chasing a thing (beans, the machine, the battery, the ball, It): the
+    // grid finds rooms the racing line never enters
+    if (GRID_NAV_MODES.has(modeId)) {
+      const boxes = wallBoxesOf(this.room.map);
+      const wp = navGridOf(this.room.map).toward(p.p[0], p.p[2], goal.x, goal.z, (x1, z1, x2, z2) => lineBlocked(boxes, x1, z1, x2, z2));
+      if (wp) return wp;
+    }
     const wpB = nearestWp(goal.x, goal.z, PATH);
     let wpA = nearestWp(p.p[0], p.p[2], PATH);
     const N = PATH.length;
@@ -277,10 +317,78 @@ export class Bots {
     for (let k = 0; k < 3; k++) {
       const peek = (next + dir + N) % N;
       if (peek === wpB) break;
-      if (!lineBlocked(p.p[0], p.p[2], PATH[peek].x, PATH[peek].z)) next = peek;
+      if (!lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], PATH[peek].x, PATH[peek].z)) next = peek;
       else break;
     }
     return PATH[next];
+  }
+
+  // Line up behind the ball, then drive into it at the goal. Aiming at a
+  // point just behind the ball (inside kick reach) from the wrong side kicked
+  // it into the bot's own goal: 30-40 % of all goals were own goals. So the
+  // striker on the goal side swings round the ball's flank, clear of its
+  // reach, until it is behind it — and only then attacks. The rest of the
+  // team don't all pile in (six cars on the ball is a scrum nobody scores
+  // from): the next one backs up the striker, the others keep goal.
+  soccerTarget(p, mode) {
+    const ball = mode.ball;
+    const goals = this.room.map.SOCCER.goals;
+    const opp = goals.find((g) => g.team !== p.team) || goals[0];
+    const own = goals.find((g) => g.team === p.team) || goals[1];
+    let ux = ball.p[0] - opp.x, uz = ball.p[2] - opp.z; // goal → ball: "behind" the ball
+    const ul = Math.hypot(ux, uz) || 1;
+    ux /= ul; uz /= ul;
+    const reach = mode.R + 0.75;
+    const set = reach + 1.5;
+    // role by distance to the ball within the team (humans count)
+    const d = (q) => Math.hypot(q.p[0] - ball.p[0], q.p[2] - ball.p[2]);
+    const mine = d(p);
+    let rank = 0;
+    for (const q of this.room.players.values()) {
+      if (q !== p && q.team === p.team && !q.eliminated && (d(q) < mine || (d(q) === mine && q.id < p.id))) rank++;
+    }
+    if (rank === 2) {
+      // keeper: on the line from our goal to the ball, a few metres out
+      const kx = ball.p[0] - own.x, kz = ball.p[2] - own.z;
+      const kl = Math.hypot(kx, kz) || 1;
+      const out = Math.min(kl * 0.5, 8);
+      return { x: own.x + (kx / kl) * out, z: own.z + (kz / kl) * out };
+    }
+    if (rank > 2) {
+      // one keeper a side: a second one parked on the same line walled the
+      // mouth, and with 8+ cars on the office pitch nobody scored at all
+      // (0.3 goals a match). The rest hang wide behind the play, alternate
+      // flanks, for the loose ball.
+      const side = rank % 2 ? 1 : -1;
+      const w = 8 + 2 * Math.floor((rank - 3) / 2);
+      return { x: ball.p[0] + ux * (set + 10) - uz * side * w, z: ball.p[2] + uz * (set + 10) + ux * side * w };
+    }
+    const bx = p.p[0] - ball.p[0], bz = p.p[2] - ball.p[2];
+    const bl = Math.hypot(bx, bz) || 1;
+    const behind = (bx * ux + bz * uz) / bl;
+    // lined up: aim just behind the ball on the goal line, so the car meets
+    // it square from behind and the kick goes goalward. The support car
+    // hangs back behind the play instead, ready for the rebound.
+    if (rank === 0 && behind > SOCCER_LINED_UP) return { x: ball.p[0] + ux * 1.2, z: ball.p[2] + uz * 1.2 };
+    if (behind > 0) {
+      const back = rank === 0 ? set : set + 4;
+      return { x: ball.p[0] + ux * back, z: ball.p[2] + uz * back };
+    }
+    // goal side: round the flank this bot is already on
+    const side = bx * -uz + bz * ux >= 0 ? 1 : -1;
+    return { x: ball.p[0] + (-uz * side + ux * 0.5) * set, z: ball.p[2] + (ux * side + uz * 0.5) * set };
+  }
+
+  // Where to aim for a battery carrier: where it's going to be. Tailing it
+  // closes only at the speed the battery costs it — a rub, never a hit — so
+  // a chaser aiming at its current spot could follow it for minutes (one bot
+  // kept the battery 164 s of 180). You're It keeps the plain chase: there
+  // any rub tags, and fleeing is meant to be the skill.
+  intercept(p, target) {
+    const d = Math.hypot(target.p[0] - p.p[0], target.p[2] - p.p[2]);
+    const lead = Math.min(1.2, d / Math.max(8, p.speed || 0));
+    const v = target.v || [0, 0, 0];
+    return { x: target.p[0] + v[0] * lead, z: target.p[2] + v[2] * lead };
   }
 
   // The world as the item logic needs it, in the bot's own frame.
@@ -289,7 +397,7 @@ export class Bots {
     const pv = p.v || [0, 0, 0];
     const rivals = [];
     for (const o of this.room.players.values()) {
-      if (o === p || o.eliminated) continue;
+      if (o === p || o.eliminated || o.finished) continue; // a finished racer is no target
       if (this.room.modeId === 'soccer' && o.team === p.team) continue;
       const dx = o.p[0] - p.p[0], dz = o.p[2] - p.p[2];
       const dist = Math.hypot(dx, dz) || 1e-3;
@@ -322,17 +430,185 @@ export class Bots {
 
   // A ready pad worth the detour, if the bot's hands are empty.
   padTarget(p, goal) {
-    if (!this.items || p.powerup || p.hasBattery) return null;
+    if (!this.items || p.powerup || p.hasBattery || p.sumoDead) return null;
     const t = now();
     const me = { x: p.p[0], z: p.p[2], heading: p.heading };
     let best = null, bd = Infinity;
+    const lcs = this.room.modeId === 'last_standing' ? this.room.mode : null;
     for (const pad of this.room.pads) {
       if (t < pad.readyAt) continue;
+      // no item is worth a detour into a room that is closed or closing
+      if (lcs) {
+        const id = this.room.map.roomAt(pad.x, pad.z)?.id;
+        if (id && (lcs.locked.includes(id) || lcs.warn?.room === id)) continue;
+      }
       if (!padWorthDetour(me, pad, goal)) continue;
       const d = Math.hypot(pad.x - me.x, pad.z - me.z);
-      if (d < bd && !lineBlocked(me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
+      if (d < bd && !lineBlocked(wallBoxesOf(this.room.map), me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
     }
     return best;
+  }
+
+  // Put a racing bot's line waypoint back in step with its race progress
+  // after it moved without driving there (a Position Swap, a stuck hop):
+  // the nearest waypoint between its last checkpoint and its next, aimed
+  // at. Without this it drove back to the waypoint it had before — on the
+  // cellar figure-8 that was most of a lap. False when not racing.
+  resync(p, x = p.p[0], z = p.p[2]) {
+    const cps = this.room.mode?.cps;
+    if (this.room.modeId !== 'desk_dash' || !cps || p.finished) return false;
+    const PATH = this.path(), N = PATH.length, n = cps.length;
+    const segs = cpSegments(PATH, cps);
+    const from = (segs[(p.nextCp - 1 + n) % n] + 1) % N;
+    const to = (segs[p.nextCp % n] + 1) % N;
+    let best = from, bd = Infinity;
+    for (let k = 0, i = from; k <= N; k++, i = (i + 1) % N) {
+      const d = Math.hypot(PATH[i].x - x, PATH[i].z - z);
+      if (d < bd) { bd = d; best = i; }
+      if (i === to) break;
+    }
+    if (bd < 5) best = (best + 1) % N; // on it already: aim down the line
+    p.wp = best;
+    p.heading = Math.atan2(PATH[best].x - x, PATH[best].z - z);
+    return true;
+  }
+
+  // Last Car Standing: dodge the robot, get out of any room that is closed
+  // or closing (and into the ring in the finale) along the door graph, and
+  // otherwise cruise the racing line through the open rooms only — a closed
+  // room costs so much to cross that the route goes round it when it can.
+  lcsGoal(p, mode) {
+    const map = this.room.map;
+    const bad = (id) => !!id && (mode.locked.includes(id) || mode.warn?.room === id);
+    const me = { x: p.p[0], z: p.p[2] };
+    const key = `lcs:${mode.locked.join(',')}:${mode.warn?.room || ''}`;
+    // a metre of closed floor costs this many metres of open floor
+    const R = mode.robot;
+    if (R && Math.hypot(R.x - me.x, R.z - me.z) < LCS_ROBOT_FEAR) {
+      // the open, visible node that puts the most floor between us and it
+      let best = null, bs = -Infinity;
+      for (const n of navOf(map).nodes) {
+        const d = Math.hypot(n.x - me.x, n.z - me.z);
+        if (d > 14 || d < 2 || bad(n.room) || lineBlocked(wallBoxesOf(map), me.x, me.z, n.x, n.z)) continue;
+        // not across a closed room — out of the robot's way and into a zap
+        let crosses = false;
+        for (let k = 1; k < 8 && !crosses; k++) crosses = bad(map.roomAt(me.x + ((n.x - me.x) * k) / 8, me.z + ((n.z - me.z) * k) / 8)?.id);
+        if (crosses) continue;
+        const s = Math.hypot(n.x - R.x, n.z - R.z) - 0.4 * d;
+        if (s > bs) { bs = s; best = n; }
+      }
+      if (best) return best;
+    }
+    const F = mode.finale;
+    if (F) {
+      if (Math.hypot(me.x - F.x, me.z - F.z) < F.r * 0.6) {
+        const a = this.botAngle(p);
+        return { x: F.x + Math.cos(a) * F.r * 0.3, z: F.z + Math.sin(a) * F.r * 0.3 };
+      }
+      return { x: F.x, z: F.z };
+    }
+    const here = map.roomAt(me.x, me.z)?.id;
+    if (bad(here)) {
+      // flee downhill on a field whose sources are the rooms we can live in.
+      // In a LOCKED room the zap is seconds away: the nearest way out to any
+      // unlocked room will do, even one that is only closing (it still has
+      // its warning). In a closing room: out to an open one, not through a
+      // locked one.
+      const locked = mode.locked.includes(here);
+      const safe = (n) => n.room && (locked ? !mode.locked.includes(n.room) : !bad(n.room));
+      // …but not through another locked room: the zap clock keeps running
+      // across it (tower bots fled the locked core through the locked pantry)
+      const w = (id) => (id !== here && mode.locked.includes(id) ? LCS_CLOSED_COST : 1);
+      const good = navOf(map).nodes.filter(safe);
+      return navStep(map, me, navField(map, good, w, `${key}:flee${locked ? `L${here}` : 'W'}`), w) || good[0] || null;
+    }
+    // cruise: the next racing-line waypoint in an open room we can reach
+    // without crossing a closed one — an open room on the far side of a
+    // locked one is as good as closed
+    const reach = new Set([here]);
+    const q = [here];
+    const g = roomGraph(map);
+    while (q.length) for (const n of g.get(q.shift()) || []) if (!reach.has(n) && !bad(n)) { reach.add(n); q.push(n); }
+    const ok = (pt) => { const id = map.roomAt(pt.x, pt.z)?.id; return !id || reach.has(id); };
+    const PATH = this.path();
+    let wp = this.followRaceLine(p);
+    let k = 0;
+    for (; k < PATH.length && !ok(wp); k++) {
+      p.wp = (p.wp + 1) % PATH.length;
+      wp = PATH[p.wp];
+    }
+    if (k >= PATH.length) {
+      // no stretch of the racing line left in our part of the floor: roam it
+      if (!p.roam || !ok(p.roam) || Math.hypot(p.roam.x - me.x, p.roam.z - me.z) < 4) {
+        const pool = navOf(map).nodes.filter(ok);
+        p.roam = pool[Math.floor(Math.random() * pool.length)] || me;
+      }
+      wp = p.roam;
+    }
+    // Routed only through rooms we can live in (it's in reach, so there is
+    // a way), even when the waypoint is in sight: the straight line to it
+    // may cut across a closed room.
+    const open = (id) => (reach.has(id) ? 1 : Infinity);
+    return navStep(map, me, navField(map, [wp], open, `${key}:${here}:${Math.round(wp.x)},${Math.round(wp.z)}`), open) || wp;
+  }
+
+  // Where a stuck bot may be put back down: the nearest racing-line point
+  // (or door node) that isn't somewhere the mode would kill it.
+  recoveryPoint(p) {
+    const PATH = this.path();
+    const mode = this.room.mode;
+    let ok = () => true;
+    if (this.room.modeId === 'last_standing' && mode) {
+      ok = (pt) => {
+        if (mode.finale) return Math.hypot(pt.x - mode.finale.x, pt.z - mode.finale.z) < mode.finale.r * 0.8;
+        const id = this.room.map.roomAt(pt.x, pt.z)?.id;
+        return !id || !(mode.locked.includes(id) || mode.warn?.room === id);
+      };
+    }
+    let best = null, bd = Infinity;
+    for (const pt of [...PATH, ...navOf(this.room.map).nodes]) {
+      if (!ok(pt)) continue;
+      const d = Math.hypot(pt.x - p.p[0], pt.z - p.p[2]);
+      if (d < bd) { bd = d; best = pt; }
+    }
+    return best || PATH[nearestWp(p.p[0], p.p[2], PATH)];
+  }
+
+  // Sumo is a shoving match: stay well inside the ring, and when a rival is
+  // close, drive through it toward the ring's edge — away from the centre —
+  // so contact knocks it outward. A bot near the edge heads back in first.
+  sumoGoal(p, mode) {
+    const z = mode.zone;
+    const a = this.botAngle(p);
+    // Moving Meeting: read where the ring is going. A bot chasing the ring's
+    // centre was left on the wrong side of a wall when it slid into a room
+    // (the garage's driveway ring into the house: half the knockouts were
+    // cars still looking for the door); aiming a few seconds ahead of the
+    // slide — kept well inside today's ring — sets off for the door in time.
+    let c = z;
+    if (mode.target && mode.centreAhead) {
+      const f = mode.centreAhead(SUMO_LOOKAHEAD_S);
+      const dx = f.x - z.x, dz = f.z - z.z, l = Math.hypot(dx, dz), k = Math.min(1, (z.r * 0.5) / (l || 1));
+      c = { x: z.x + dx * k, z: z.z + dz * k };
+    }
+    const mine = Math.hypot(p.p[0] - c.x, p.p[2] - c.z);
+    if (mine > z.r * 0.75) return { x: c.x + Math.cos(a) * z.r * 0.3, z: c.z + Math.sin(a) * z.r * 0.3 };
+    let prey = null, bd = Math.max(SUMO_HUNT_RANGE, z.r * 0.6);
+    for (const o of this.room.players.values()) {
+      if (o === p || o.sumoDead) continue;
+      const d = Math.hypot(o.p[0] - p.p[0], o.p[2] - p.p[2]);
+      if (d < bd) { bd = d; prey = o; }
+    }
+    if (prey) {
+      let ox = prey.p[0] - z.x, oz = prey.p[2] - z.z;
+      const ol = Math.hypot(ox, oz);
+      // prey dead centre: push it along our own line of attack instead
+      if (ol < 0.5) { ox = prey.p[0] - p.p[0]; oz = prey.p[2] - p.p[2]; }
+      const l = Math.hypot(ox, oz) || 1;
+      return { x: prey.p[0] + (ox / l) * 3, z: prey.p[2] + (oz / l) * 3 };
+    }
+    const r = Math.min(z.r * 0.5, 6);
+    return { x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r };
   }
 
   // stable per-bot angle so zone-seeking bots spread out instead of stacking
@@ -375,7 +651,7 @@ export class Bots {
     let speedMul = p.hasBattery ? BATTERY_SPEED_PENALTY : 1;
     if (p.shrinkUntil > t) speedMul *= 0.85;
     // the same floors the players drive on: carpet is slower, hardwood quicker
-    speedMul *= (SURFACES[surfaceAt(p.p[0], p.p[2]).id] || SURFACES.concrete).top;
+    speedMul *= (SURFACES[surfaceAt(p.p[0], p.p[2], this.room.map).id] || SURFACES.concrete).top;
     for (const pu of this.room.puddles) {
       if (Math.hypot(p.p[0] - pu.x, p.p[2] - pu.z) >= FX.PUDDLE_RADIUS) continue;
       if (pu.kind === 'oil') p.oilUntil = t + OIL_SLIDE_S * 1000;
@@ -427,7 +703,7 @@ export class Bots {
     const nz = p.p[2] + Math.cos(p.heading) * p.speed * dt;
     // wall pushout so they never clip through
     let px = nx, pz = nz;
-    for (const b of wallBoxes) {
+    for (const b of wallBoxesOf(this.room.map)) {
       if (px > b.minX && px < b.maxX && pz > b.minZ && pz < b.maxZ) {
         const dl = px - b.minX, drr = b.maxX - px, dtp = pz - b.minZ, dbt = b.maxZ - pz;
         const m = Math.min(dl, drr, dtp, dbt);
@@ -436,14 +712,21 @@ export class Bots {
         p.stuckT += dt;
       }
     }
+    // and never off the floor plan, whatever shoved them
+    const B = this.room.map.MAP_BOUNDS;
+    px = Math.min(B.maxX - 0.5, Math.max(B.minX + 0.5, px));
+    pz = Math.min(B.maxZ - 0.5, Math.max(B.minZ + 0.5, pz));
     const moved = Math.hypot(px - p.p[0], pz - p.p[2]);
     if (moved < p.speed * dt * 0.3 && p.speed > 5) p.stuckT += dt; else p.stuckT = Math.max(0, p.stuckT - dt);
     if (p.stuckT > 2.5) {
-      // recover: hop to the nearest racing-line waypoint
+      // recover: hop back onto the line — in a race, the nearest waypoint
+      // on the stretch to the next checkpoint (not one past it); otherwise
+      // the nearest point the mode won't zap it on (Last Car Standing's
+      // closed rooms)
       const PATH = this.path();
-      const wp = PATH[nearestWp(p.p[0], p.p[2], PATH)];
+      const wp = this.resync(p) ? PATH[p.wp] : this.recoveryPoint(p);
       px = wp.x; pz = wp.z; p.stuckT = 0; p.speed = 0;
-      p.wp = nearestWp(px, pz, PATH);
+      if (!this.resync(p, px, pz)) p.wp = nearestWp(px, pz, PATH);
     }
     p.v = [(px - p.p[0]) / dt, 0, (pz - p.p[2]) / dt];
     // ride height matches suspension sag; a spring item arcs it

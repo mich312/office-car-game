@@ -6,6 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useStore } from '../store.js';
+import { currentMap } from './activeMap.js';
 import { net, sampleRemote } from '../net.js';
 
 export default function SpectatorCam() {
@@ -68,10 +69,15 @@ export function PhotoOrbitCam() {
     S.t += dt * 0.1;
     const az = Math.sin(S.t) * 0.85; // sweep angle around south
     const k = Math.min(1, dt * 2);
-    camera.position.x += (Math.sin(az) * 72 - camera.position.x) * k;
-    camera.position.y += (46 - camera.position.y) * k;
-    camera.position.z += ((-Math.cos(az) * 52 - 6) - camera.position.z) * k;
-    camera.lookAt(0, -2, 2);
+    // sized to the floor: the office's numbers (72 / 46 / 52) scale with the
+    // map's extent, centred on it
+    const B = currentMap().MAP_BOUNDS;
+    const cx = (B.minX + B.maxX) / 2, cz = (B.minZ + B.maxZ) / 2;
+    const sx = (B.maxX - B.minX) / 186.7, sz = (B.maxZ - B.minZ) / 106.7;
+    camera.position.x += (cx + Math.sin(az) * 72 * sx - camera.position.x) * k;
+    camera.position.y += (46 * Math.max(sx, sz) - camera.position.y) * k;
+    camera.position.z += ((cz - Math.cos(az) * 52 * sz - 6) - camera.position.z) * k;
+    camera.lookAt(cx, -2, cz + 2);
   });
   return null;
 }

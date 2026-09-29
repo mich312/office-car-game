@@ -19,9 +19,9 @@ const snap = {
   battery: { x: 26.7, z: -2.2, carrier: 'p1' },
   race: { p1: [2, 11], bot2: [0, 3] },
   teamScores: [3, 5],
-  zone: { x: -13.3, z: -13.3, r: 44.4, until: t + 20000 },
+  zone: { x: -13.3, z: -13.3, r: 44.4, until: t + 20000, n: 3, next: { x: 21.5, z: -7.25 } },
   it: 'bot2',
-  sumo: { round: 2, out: [['p1', 43]] },
+  sumo: { round: 2, out: [['p1', 43]], rest: 3.2 },
   lcs: { locked: ['reception', 'storage'], warn: { room: 'games', until: t + 5000 }, alive: 4 },
 };
 
@@ -53,12 +53,25 @@ check('battery', approx(d.battery.x, 26.7, 0.011) && d.battery.carrier === 'p1')
 check('race', d.race.p1[0] === 2 && d.race.p1[1] === 11 && d.race.bot2[1] === 3);
 check('teamScores', d.teamScores[0] === 3 && d.teamScores[1] === 5);
 check('zone', approx(d.zone.r, 44.4, 0.011) && approx(d.zone.until, t + 20000, 1));
+check('zone: holders and the next spot', d.zone.n === 3 && approx(d.zone.next.x, 21.5, 0.011) && approx(d.zone.next.z, -7.25, 0.011));
 check('it', d.it === 'bot2');
 check('sumo', d.sumo.round === 2 && d.sumo.out.length === 1 && d.sumo.out[0][0] === 'p1' && d.sumo.out[0][1] === 43);
+check('sumo: the break between rounds', approx(d.sumo.rest, 3.2, 0.051));
 check('lcs locked', d.lcs.locked.length === 2 && d.lcs.locked[0] === 'reception' && d.lcs.locked[1] === 'storage');
 check('lcs warn', d.lcs.warn.room === 'games' && approx(d.lcs.warn.until, t + 5000, 1));
 check('lcs alive', d.lcs.alive === 4);
 check('min no lcs', decodeSnapshot(encodeSnapshot({ t: 'ss', time: t, players: {}, puddles: [] })).lcs === undefined);
+
+// dropped things on furniture carry their height (a tail section)
+check('no drop heights on the floor', d.battery.y === undefined && d.beans[0][3] === undefined);
+{
+  const up = decodeSnapshot(encodeSnapshot({ ...snap, battery: { x: 1, z: 2, y: 4.05, carrier: null }, beans: [[1001, 2.5, -3.5, 2.0], [4, -60.2, 39.9, 0]] }));
+  check('battery y', approx(up.battery.y, 4.05, 0.011) && up.battery.carrier === null);
+  check('bean y', approx(up.beans[0][3], 2.0, 0.011) && up.beans[1][3] === 0);
+  check('drop heights leave the other sections intact', up.lcs.alive === 4 && up.it === 'bot2');
+  const noBattery = decodeSnapshot(encodeSnapshot({ t: 'ss', time: t, players: {}, puddles: [], beans: [[3, 1, 1, 1.5]] }));
+  check('bean y without a battery section', approx(noBattery.beans[0][3], 1.5, 0.011));
+}
 
 // minimal snapshot (lobby phase: players only)
 const min = { t: 'ss', time: t, players: { p1: { p: [0, 1, 0], q: [0, 0, 0, 1], f: 0, c: 0 } }, puddles: [] };
