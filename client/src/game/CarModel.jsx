@@ -299,6 +299,11 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
       const tPitch = lean ? lean.pitch : 0;
       bodyRef.current.rotation.z += (tRoll - bodyRef.current.rotation.z) * Math.min(1, dt * 8);
       bodyRef.current.rotation.x += (tPitch - bodyRef.current.rotation.x) * Math.min(1, dt * 8);
+      // landing squash (local car): the shell sinks onto the wheels and
+      // bulges a touch, then springs back — the wheels stay planted
+      const sq = lean?.squash || 0;
+      bodyRef.current.scale.set(1 + sq * 0.06, 1 - sq * 0.13, 1 + sq * 0.06);
+      bodyRef.current.position.y = -sq * 0.045;
     }
     if (flameRef.current) {
       const on = boostingRef?.current;

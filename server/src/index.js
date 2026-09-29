@@ -19,11 +19,6 @@ const MIME = {
 };
 
 const server = http.createServer((req, res) => {
-  if (!fs.existsSync(DIST)) {
-    res.writeHead(200, { 'content-type': 'text/plain' });
-    res.end('Tiny RC Mayhem server running. Build the client (npm run build) or use the Vite dev server.');
-    return;
-  }
   // A malformed escape ("/%") makes decodeURIComponent throw. Unguarded, that
   // throw escapes the request handler and takes the process down — and with it
   // every match in progress, since there is one Room per process.
@@ -33,6 +28,12 @@ const server = http.createServer((req, res) => {
   } catch {
     res.writeHead(400, { 'content-type': 'text/plain' });
     res.end('Bad request');
+    return;
+  }
+  // Validated first, so a bad URL is a 400 whether or not the client is built.
+  if (!fs.existsSync(DIST)) {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('Tiny RC Mayhem server running. Build the client (npm run build) or use the Vite dev server.');
     return;
   }
   if (urlPath === '/') urlPath = '/index.html';

@@ -350,13 +350,24 @@ Added in this pass:
   test proves each mode *starts*; this proves a race taken to the flag, a coffee carrier
   hit and dropped, and a sumo round fought to the last car all pay out what they claim.
 
-Still open:
+Closed since:
 
-- **No client-side tests** — including `LocalCar`, the most complex and most
-  physics-sensitive file in the project. `simulateDrive` already proves a deterministic 2-D
-  copy of the driving model can be unit-tested headlessly; the same harness could assert
-  handling invariants (top speed reached, drift charge tiers, brake distance) directly.
-  This is the biggest remaining gap.
+- **The driving model's decisions are tested.** `LocalCar` now drives with pure functions
+  from `shared/src/handling.js` (the drift-charge state machine, the brake) and
+  `shared/src/feel.js` (landing and impact strength, the chase-camera swing), and
+  `test-driving.mjs` asserts them directly: tier timing, release payouts, ramp hops,
+  stopping distances, and thresholds that must not fire on the car's own forces.
+  Writing those tests found three handling bugs, each then confirmed in the running
+  client:
+  - a drift carried over a ramp hop never paid its mini-turbo, and the unspent charge
+    leaked into the next drift (a 0.17 s flick could pay tier 2);
+  - a full-lock drift flickered on and off every few frames, because deep in the slide
+    the car's *forward* speed sags under the 8 u/s threshold while it is still sliding
+    at 7-9 u/s. Tight drifts never reached tier 1. Drifts now enter on forward speed
+    and hold on ground speed;
+  - the brake was weaker than lifting off at the top end (speed-proportional rolling
+    resistance only applied off-throttle), so pressing `S` at speed briefly slowed the
+    car *less* than letting go of `W`.
 
 ---
 
@@ -364,10 +375,9 @@ Still open:
 
 Everything in §4 is done, and the client is split. What remains from the original list:
 
-1. **Client-side tests for the driving model** — the one part of §6 not closed.
-2. **Give the modes variants rather than adding an eleventh.** Sumo with a moving ring,
+1. **Give the modes variants rather than adding an eleventh.** Sumo with a moving ring,
    soccer in the cafeteria, a reverse Desk Dash — the map and the mode controllers already
    support it, and it addresses the one-configuration-per-mode ceiling in §1.
-3. **Make Office Cup rounds commensurable.** Normalise per-mode scores before summing, or
+2. **Make Office Cup rounds commensurable.** Normalise per-mode scores before summing, or
    pay cup points by placement instead of raw score (§1). Untouched — it's a design
    decision, not a defect.

@@ -1,5 +1,7 @@
 export * from './constants.js';
 export * from './righting.js';
+export * from './handling.js';
+export * from './feel.js';
 export * from './cars.js';
 export * from './tuning.js';
 export * from './powerups.js';

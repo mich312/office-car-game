@@ -12,12 +12,12 @@ import {
   rightingTorque, airRightingK, groundRightingK, roofKickNeeded, recoveryTick, RECOVERY_AFTER_S,
   SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
-  DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS,
-  DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST, SLIPSTREAM, BRAKE_STRENGTH,
+  DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS, SLIPSTREAM,
   SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
-  tunedStats,
+  tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
+  landingStrength, impactStrength, chaseHeading,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
@@ -26,9 +26,14 @@ import CarModel from './CarModel.jsx';
 import Particles, { burst, puff } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
 import { audio } from '../audio.js';
+import { rumble } from './rumble.js';
 
 const BASE_MASS = 14;
-const driftTier = (c) => (c >= DRIFT_TIER_TIMES[2] ? 3 : c >= DRIFT_TIER_TIMES[1] ? 2 : c >= DRIFT_TIER_TIMES[0] ? 1 : 0);
+// Camera motion (shake, landing dip, hit punch, slide swing) is scaled way
+// down for players who've asked their OS for less motion.
+const MOTION = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.3 : 1;
+const DUST = ['#d9cfc0', '#c4b8a6', '#efe6d8'];
+const SPARKS = ['#ffe27a', '#ffb347', '#ffffff'];
 const HALF = { x: CAR_WIDTH / 2, y: CAR_HEIGHT / 2, z: CAR_LENGTH / 2 };
 const WHEELS = [
   [-0.28, -0.05, 0.34], [0.28, -0.05, 0.34], // front L/R
@@ -49,6 +54,7 @@ const _worldUp = { x: 0, y: 1, z: 0 };
 const _camTarget = new THREE.Vector3();
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
+const _chase = [0, 1];
 
 export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0 }; // read by HUD/minimap/controller
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
@@ -95,7 +101,7 @@ export default function LocalCar() {
     lastSend: 0,
     lastBumpSend: 0,
     driftTime: 0,
-    driftCharge: 0,
+    drift: newDriftState(), // charge + session, see shared/src/handling.js
     miniTurboUntil: 0,
     slipT: 0,
     slipBoostUntil: 0,
@@ -118,6 +124,12 @@ export default function LocalCar() {
     ramUntil: 0,
     drsUntil: 0,
     overdriftUntil: 0,
+    // feel: landing & impact detection, and the camera/body responses
+    postHSpeed: -1, // horizontal speed after our own impulses; -1 = skip next check
+    lastImpactAt: 0,
+    squash: 0, // 0…1 landing squash on the visual shell
+    camDip: 0, // 0…1 landing camera dip
+    fovPunch: 0, // degrees of zoom-in on a hit
   }).current;
 
   // the engine sound wears the selected car's voice
@@ -141,6 +153,8 @@ export default function LocalCar() {
     body.setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }, true);
     body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    S.postHSpeed = -1; // a teleport's speed change is not a crash
+    S.drift = newDriftState(); // nor does a drift survive one
   };
 
   // Ask the server for a respawn. It scores the spawn slots (races get our
@@ -215,13 +229,16 @@ export default function LocalCar() {
               _q.set(r.x, r.y, r.z, r.w);
               _fwd.set(0, 0, 1).applyQuaternion(_q);
               body.applyImpulse({ x: _fwd.x * mass * 9, y: 0, z: _fwd.z * mass * 9 }, true);
+              S.postHSpeed = -1; // our own impulse, not a crash
             }
             break;
           case 'spring':
             if (fx.id === me) {
               body.applyImpulse({ x: 0, y: mass * fx.impulse, z: 0 }, true);
+              S.postHSpeed = -1; // our own impulse, not a crash
               audio.jump();
               S.shake = Math.max(S.shake, 0.5);
+              rumble(0.4, 120);
             }
             break;
           case 'emp':
@@ -229,14 +246,18 @@ export default function LocalCar() {
               S.stunnedUntil = performance.now() + fx.stunMs;
               audio.stun();
               S.shake = Math.max(S.shake, 0.7);
+              rumble(0.6, 300);
             }
             break;
           case 'rocket_hit':
             if (fx.target === me && !fx.blocked) {
               S.stunnedUntil = performance.now() + fx.stunMs;
               body.applyImpulse({ x: (Math.random() - 0.5) * 90, y: mass * 9, z: (Math.random() - 0.5) * 90 }, true);
+              S.postHSpeed = -1; // our own impulse, not a crash
               audio.stun();
               S.shake = 1;
+              S.fovPunch = Math.max(S.fovPunch, 6);
+              rumble(1, 350);
             }
             if (fx.at) burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
             break;
@@ -244,8 +265,11 @@ export default function LocalCar() {
             if (fx.target === me) {
               S.stunnedUntil = performance.now() + 1400;
               body.applyImpulse({ x: (Math.random() - 0.5) * 120, y: mass * 7, z: (Math.random() - 0.5) * 120 }, true);
+              S.postHSpeed = -1; // our own impulse, not a crash
               audio.stun();
               S.shake = 0.8;
+              S.fovPunch = Math.max(S.fovPunch, 5);
+              rumble(0.9, 300);
             }
             break;
           case 'swap':
@@ -293,6 +317,10 @@ export default function LocalCar() {
             // Being hit by an active Ram Mode always lands in full.
             if (ramBoost === 1 && nowMs - (S.selfBump.get(otherId) || 0) < 900) break;
             if (nowMs < S.protectUntil) break;
+            // (below the echo check: a hit we already felt locally doesn't
+            // punch and buzz a second time one round-trip later)
+            S.fovPunch = Math.max(S.fovPunch, Math.min(5, 1.5 + (fx.rel || 0) * 0.12));
+            rumble(Math.min(1, 0.35 + (fx.rel || 0) * 0.025), 160);
             // Mass-scaled knockback: getting hit by a Micro Monster hurts,
             // getting hit by a Formula barely rocks you.
             const otherPos = fx.a === me ? fx.pb : fx.pa;
@@ -302,6 +330,7 @@ export default function LocalCar() {
               const dx = p.x - otherPos[0], dz = p.z - otherPos[2];
               const len = Math.hypot(dx, dz) || 1;
               body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio * ramBoost, y: mass * 1.1 * ramBoost, z: (dz / len) * mass * 3.2 * ratio * ramBoost }, true);
+              S.postHSpeed = -1; // our own impulse, not a crash
             }
             break;
           }
@@ -315,6 +344,7 @@ export default function LocalCar() {
             if (fx.id === me) {
               S.shake = Math.max(S.shake, 0.8);
               audio.stun();
+              rumble(0.8, 250);
             }
             break;
           case 'sumo_round':
@@ -337,6 +367,7 @@ export default function LocalCar() {
                   _q.set(r.x, r.y, r.z, r.w);
                   _fwd.set(0, 0, 1).applyQuaternion(_q);
                   body.applyImpulse({ x: _fwd.x * mass * 10, y: mass * 6.5, z: _fwd.z * mass * 10 }, true);
+                  S.postHSpeed = -1; // our own impulse, not a crash
                   break;
                 }
                 case 'drift': S.overdriftUntil = nowP + ABILITY_FX.OVERDRIFT_S * 1000; break;
@@ -436,8 +467,41 @@ export default function LocalCar() {
       }
     }
     const grounded = groundedWheels >= 2;
+    const wasGrounded = S.grounded;
     S.grounded = grounded;
     if (!grounded) { skid(0, null, 0); skid(1, null, 0); }
+    // ---------------- landings & impacts: feedback only, no forces
+    // Landing: first grounded step after real air time, scored on the fall
+    // speed we arrived with. Impact: horizontal speed the contact solver took
+    // away since the end of our last step (our own brake/grip/drag already
+    // happened by then, so they can't read as a crash — see feel.js).
+    const groundSpeed = Math.hypot(vel.x, vel.z);
+    let landing = 0;
+    if (grounded && !wasGrounded) {
+      landing = landingStrength(vel.y, S.sinceGrounded || 0);
+      if (landing > 0) {
+        S.squash = Math.max(S.squash, landing);
+        S.camDip = Math.max(S.camDip, landing);
+        S.shake = Math.max(S.shake, 0.12 + landing * 0.35);
+        burst([pos.x, pos.y - 0.12, pos.z], { count: Math.round(5 + landing * 14), color: DUST, speed: 2 + landing * 4, size: 0.09, ttl: 0.55, up: 0.9, gravity: 0.4 });
+        audio.thud(landing);
+        rumble(0.25 + landing * 0.6, 90 + landing * 120);
+      }
+    }
+    if (S.postHSpeed >= 0 && !landing && nowMs - S.lastImpactAt > 180 && nowMs - S.lastBumpSend > 200) {
+      const hit = impactStrength(S.postHSpeed, groundSpeed);
+      if (hit > 0) {
+        S.lastImpactAt = nowMs;
+        S.shake = Math.max(S.shake, 0.18 + hit * 0.5);
+        S.fovPunch = Math.max(S.fovPunch, 1 + hit * 4);
+        // sparks where we were headed, i.e. at whatever stopped us
+        const pl = S.postHSpeed || 1;
+        burst([pos.x + (S.postVX / pl) * 0.55, pos.y + 0.1, pos.z + (S.postVZ / pl) * 0.55],
+          { count: Math.round(4 + hit * 12), color: SPARKS, speed: 3 + hit * 5, size: 0.06, ttl: 0.35, up: 2 });
+        audio.impact(0.3 + hit * 0.7);
+        rumble(0.3 + hit * 0.7, 80 + hit * 140);
+      }
+    }
     if (grounded) {
       S.groundedTime += dt;
       S.sinceGrounded = 0;
@@ -519,7 +583,7 @@ export default function LocalCar() {
     const steerIn = gpSteer !== 0 ? gpSteer : (k.left ? 1 : 0) - (k.right ? 1 : 0);
     const steer = frozen || stunned ? 0 : steerIn;
     const driftHeld = k.drift || k.gpDrift;
-    const drifting = driftHeld && grounded && Math.abs(fwdSpeed) > 8;
+    const drifting = isDrifting(S.drift, driftHeld, grounded, fwdSpeed, groundSpeed);
     S.driftTime = drifting ? S.driftTime + dt : 0;
     steerRef.current += (steer - steerRef.current) * Math.min(1, dt * 10);
 
@@ -533,7 +597,7 @@ export default function LocalCar() {
       // brakes ≫ coast: holding back against forward motion stops you hard
       const braking = throttle < 0 && fwdSpeed > 1.5;
       if (braking) {
-        const decel = Math.min(fwdSpeed / dt, car.accel * BRAKE_STRENGTH * -throttle);
+        const decel = brakeDecel(fwdSpeed, car.accel, -throttle, dt);
         body.applyImpulse({ x: -_fwd.x * decel * mass * dt, y: 0, z: -_fwd.z * decel * mass * dt }, true);
       } else if (throttle !== 0) {
         const overspeed = throttle > 0 ? fwdSpeed > top : fwdSpeed < -top * 0.5;
@@ -590,7 +654,7 @@ export default function LocalCar() {
       // rolling resistance + parking brake: real deceleration off-throttle,
       // and below walking pace the car is pinned so it never creeps on its own
       if (throttle === 0) {
-        body.applyImpulse({ x: -_v.x * mass * 2.2 * dt, y: 0, z: -_v.z * mass * 2.2 * dt }, true);
+        body.applyImpulse({ x: -_v.x * mass * COAST_DRAG * dt, y: 0, z: -_v.z * mass * COAST_DRAG * dt }, true);
         const hSpeed = Math.hypot(_v.x, _v.z);
         // the upright gate matters: zeroing horizontal velocity on a TILTED
         // car freezes the fall the self-righting torque is trying to finish —
@@ -601,10 +665,20 @@ export default function LocalCar() {
         }
       }
       // drift charge — faster while actively steering the drift. Spark color
-      // on the rear wheels tells you the tier you've earned.
+      // on the rear wheels tells you the tier you've earned; each new tier
+      // also chimes and flares so you can feel it without looking down.
+      const dr = driftStep(S.drift, { drifting, driftHeld, grounded, steering: steer !== 0, overdrift }, dt);
+      if (dr.tierUp) {
+        audio.driftTier(dr.tierUp);
+        rumble(0.12 + dr.tierUp * 0.08, 50);
+        for (const rear of [WHEELS[2], WHEELS[3]]) {
+          _corner.set(rear[0], rear[1] - 0.05, rear[2]).applyQuaternion(_q);
+          burst([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z],
+            { count: 5 + dr.tierUp * 2, color: DRIFT_TIER_COLORS[dr.tierUp - 1], speed: 3.5, size: 0.07, ttl: 0.4, up: 2.2 });
+        }
+      }
       if (drifting) {
-        S.driftCharge += (steer !== 0 ? DRIFT_CHARGE_STEER : DRIFT_CHARGE_COAST) * (overdrift ? 2 : 1) * dt;
-        const tier = driftTier(S.driftCharge);
+        const tier = driftTier(S.drift.charge);
         if (tier > 0 && Math.random() < 0.55) {
           for (const rear of [WHEELS[2], WHEELS[3]]) {
             _corner.set(rear[0], rear[1] - 0.08, rear[2]).applyQuaternion(_q);
@@ -614,15 +688,13 @@ export default function LocalCar() {
         }
       }
       // mini-turbo fires on drift release, duration scales with tier reached
-      if (!drifting && S.prevDrifting) {
-        const tier = driftTier(S.driftCharge);
-        if (tier > 0) {
-          S.miniTurboUntil = nowMs + DRIFT_TIER_BOOST_S[tier - 1] * 1000;
-          body.applyImpulse({ x: _fwd.x * mass * 3, y: 0, z: _fwd.z * mass * 3 }, true);
-          burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2 });
-          audio.boostFire();
-        }
-        S.driftCharge = 0;
+      if (dr.release) {
+        const tier = dr.release;
+        S.miniTurboUntil = nowMs + DRIFT_TIER_BOOST_S[tier - 1] * 1000;
+        body.applyImpulse({ x: _fwd.x * mass * 3, y: 0, z: _fwd.z * mass * 3 }, true);
+        burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2 });
+        audio.boostFire();
+        rumble(0.3 + tier * 0.15, 150);
       }
       // tire smoke + skid marks on the floor
       if (S.slipping) {
@@ -658,9 +730,10 @@ export default function LocalCar() {
       body.setAngvel({ x: angNow.x, y: 0, z: angNow.z }, true);
     }
     S.prevDrifting = drifting;
-    // drift charge survives ramp hops (shift held through the air, MK style)
-    // but is forfeit if you let go of drift while airborne
-    if (!driftHeld && !grounded) S.driftCharge = 0;
+    // Off the grounded branch (airborne, or frozen) the drift session still
+    // needs its step: holding drift over a ramp hop keeps the charge for the
+    // landing, letting go in the air forfeits it.
+    if (!(grounded && !frozen)) driftStep(S.drift, { drifting: false, driftHeld, grounded, steering: false, overdrift: false }, dt);
 
     // ---------------- slipstream: hold a rival's wake to earn a free burst
     if (grounded && !frozen && !stunned && S.speed > car.topSpeed * SLIPSTREAM.MIN_SPEED_FRAC) {
@@ -737,6 +810,10 @@ export default function LocalCar() {
         const s = ANGVEL_CAP / am;
         body.setAngvel({ x: av.x * s, y: av.y * s, z: av.z * s }, true);
       }
+      // what we handed the solver: next step's impact check measures from here
+      const post = body.linvel();
+      S.postHSpeed = Math.hypot(post.x, post.z);
+      S.postVX = post.x; S.postVZ = post.z;
     }
     S.lastFwdSpeed = fwdSpeed;
     telemetry.boosting = S.boosting || freeBoost;
@@ -816,11 +893,18 @@ export default function LocalCar() {
       camera.position.lerp(_camTarget, 1 - Math.pow(0.005, dt));
       camera.lookAt(pos.x, pos.y, pos.z);
     } else if (!st.photoMode) {
-      const back = _camPos.set(-_fwd.x, 0, -_fwd.z).normalize();
+      // In a slide the camera swings part-way toward the direction of travel,
+      // so a drift shows where you're going, not just where the nose points
+      // (shared/src/feel.js). The position lerp below does the smoothing.
+      chaseHeading(_fwd.x, _fwd.z, vel.x, vel.z, _chase, 0.45 * MOTION);
+      const back = _camPos.set(-_chase[0], 0, -_chase[1]);
       const dist = 4.0 + Math.min(1.6, S.speed * 0.03);
+      // a hard landing dips the camera with the car, then it recovers
+      const dip = S.camDip * 0.7 * MOTION;
+      S.camDip *= Math.pow(0.004, dt);
       _camTarget.set(
         pos.x + back.x * dist,
-        pos.y + 2.0 + (grounded ? 0 : 0.4),
+        pos.y + 2.0 + (grounded ? 0 : 0.4) - dip,
         pos.z + back.z * dist,
       );
       // framerate-independent smoothing (unclamped dt so slow frames still converge)
@@ -829,10 +913,10 @@ export default function LocalCar() {
       // keep the camera above the floor
       if (camera.position.y < 0.7) camera.position.y = 0.7;
       // keep the car anchored in the lower third: modest look-ahead, higher aim
-      _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
+      _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85 - dip * 0.4, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
       // trauma-style shake: amplitude ∝ shake², plus a rotational component —
       // rotation is what makes a shake read as force instead of glitch
-      const trauma = S.shake * S.shake;
+      const trauma = S.shake * S.shake * MOTION;
       if (S.shake > 0.01) {
         _look.x += (Math.random() - 0.5) * trauma * 2.2;
         _look.y += (Math.random() - 0.5) * trauma * 1.7;
@@ -844,7 +928,11 @@ export default function LocalCar() {
       const boostingNow = S.boosting || nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil;
       const targetFov = 58 + Math.min(1, S.speed / car.topSpeed) * 11 + (boostingNow ? 8 : 0);
       S.fov += (targetFov - S.fov) * Math.min(1, dt * 5);
-      if (Math.abs(camera.fov - S.fov) > 0.05) { camera.fov = S.fov; camera.updateProjectionMatrix(); }
+      // a hit punches the lens in for a beat — outside the smoothing above,
+      // so it lands on the frame of the hit and snaps back
+      const fov = S.fov - S.fovPunch * MOTION;
+      S.fovPunch *= Math.pow(0.001, dt);
+      if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
     }
 
     // ---------------- body lean from measured acceleration
@@ -868,6 +956,8 @@ export default function LocalCar() {
       telemetry.roll = leanRef.current.roll;
       telemetry.pitch = leanRef.current.pitch;
     }
+    leanRef.current.squash = S.squash;
+    S.squash *= Math.pow(0.0008, dt);
 
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
@@ -934,11 +1024,15 @@ export default function LocalCar() {
               const dx = p.x - otherPos.x, dz = p.z - otherPos.z;
               const len = Math.hypot(dx, dz) || 1;
               body.applyImpulse({ x: (dx / len) * mass * 3.2 * ratio, y: mass * 1.1, z: (dz / len) * mass * 3.2 * ratio }, true);
+              S.postHSpeed = -1; // the car hit has its own feedback below
               S.shake = Math.max(S.shake, 0.35);
+              S.fovPunch = Math.max(S.fovPunch, 3);
               audio.impact(0.6);
+              rumble(0.6, 140);
             } else {
               S.shake = Math.max(S.shake, 0.12);
               audio.impact(0.25);
+              rumble(0.15, 60);
             }
             // Forgiveness: contact with another car never costs more than
             // (1 − BUMP_MIN_FWD_KEEP) of the forward speed we carried in.

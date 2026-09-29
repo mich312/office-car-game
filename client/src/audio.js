@@ -130,6 +130,37 @@ export const audio = {
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
     src.start(t); src.stop(t + 0.3);
   },
+  // Landing: a low body thump (a falling sine) under a short muffled crunch.
+  // Distinct from impact(), which is a bright noise hit — a landing is the
+  // suspension bottoming out, not the bodywork.
+  thud(strength = 1) {
+    if (!ensure()) return;
+    const s = Math.min(1, strength);
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + 0.18);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.1 + s * 0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t + 0.25);
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(0.15);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500 + s * 700;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.04 + s * 0.12, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    src.connect(lp); lp.connect(ng); ng.connect(master);
+    src.start(t); src.stop(t + 0.15);
+  },
+  // Drift tier reached: a rising chime per tier, so you can hear the charge
+  // without looking down at the rear wheels.
+  driftTier(tier) {
+    const f = [660, 880, 1175][tier - 1] || 880;
+    this.blip(f, 0.12, 0.1);
+    if (tier === 3) setTimeout(() => this.blip(f * 1.5, 0.16, 0.09), 70);
+  },
   glass() {
     if (!ensure()) return;
     for (let i = 0; i < 6; i++) {
