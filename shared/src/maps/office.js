@@ -214,7 +214,9 @@ export const FURNITURE = [
   f('table', 17.5, -10.5, 1, 0.6, 0.4),
   f('rug', 17, -9.5, 4.4, 3.6, 0.01),
   // Meeting room — the long table is a stage
-  f('table', 17, 1.5, 3.6, 1.4, 0.74),
+  // 0.9 m east of the room's centre, so the binder ramp's foot has a run-up
+  // (it stood 0.2 m off the west wall: only reachable side-on)
+  f('table', 17.9, 1.5, 3.6, 1.4, 0.74),
   f('whiteboard', 13.42, 3.6, 1.8, 0.6, 1.95, Math.PI / 2), // a mobile board on feet
   f('tv', 20.8, 1.5, 2, 0.15, 1.3, -Math.PI / 2),
   f('art', 15.5, -1.85, 1.5, 0.1, 1.2),
@@ -251,10 +253,12 @@ export const RAMPS = [
   ramp(2.5, 5.85, 1.9, 0.6, 0.74, Math.PI, 'plank'), // pod 4 from the north
   ramp(-3.4, -9.2, 1.8, 0.6, 0.92, Math.PI / 2, 'dustpan'), // dustpan onto the kitchen island
   ramp(4.9, -11.35, 1.8, 0.6, 0.92, -Math.PI / 2, 'steel'), // counter run-up — drive the kitchen top!
-  ramp(14.2, 1.5, 1.8, 0.6, 0.74, Math.PI / 2, 'binder'), // binder ramp onto the meeting table
+  ramp(15.2, 1.5, 1.8, 0.6, 0.74, Math.PI / 2, 'binder'), // binder ramp onto the meeting table
   ramp(18.5, 8.85, 1.7, 0.55, 0.78, 0, 'books'), // book-stack ramp onto the CEO desk
   ramp(-2.1, 11.3, 1.6, 0.6, 0.75, -Math.PI / 2, 'clipboard'), // clipboard onto the lounge sofa
-  ramp(14.05, -4.5, 1.7, 0.55, 0.85, Math.PI / 2, 'ruler'), // ruler ramp onto the foosball table
+  // ruler ramp onto the foosball table, from its open east end (off the west
+  // end its foot was 0.1 m from the wall: no way to line up on it)
+  ramp(17.05, -4.5, 1.7, 0.55, 0.85, -Math.PI / 2, 'ruler'),
   ramp(-17.5, -9.3, 1.8, 0.6, 1.05, Math.PI, 'plank'), // reception desk jump (tall!)
 ];
 
@@ -315,9 +319,9 @@ export const PROPS = [
   p('basketball', 18.5, -8.2), p('basketball', 19.6, -9.4), p('basketball', 16.8, -7.6), p('basketball', 20, -3.4),
   p('mug', 17.7, -10.4, 0.4), p('book', 14.8, -9.8, 0, 0.6), p('pen', 16, -8.8, 0, 2.5),
   // ---- meeting room
-  p('chair', 15.6, 0.3), p('chair', 17, 0.1), p('chair', 18.4, 0.3), p('chair', 15.6, 2.7, 0, Math.PI),
-  p('chair', 17, 2.9, 0, Math.PI), p('chair', 18.4, 2.7, 0, Math.PI), p('chair', 19.6, 1.5, 0, -Math.PI / 2),
-  p('mug', 16.4, 1.2, 0.74), p('mug', 17.8, 1.9, 0.74), p('stack', 17.2, 1, 0.74), p('pen', 14.5, 3.5, 0, 0.8),
+  p('chair', 16.5, 0.3), p('chair', 17.9, 0.1), p('chair', 19.3, 0.3), p('chair', 16.5, 2.7, 0, Math.PI),
+  p('chair', 17.9, 2.9, 0, Math.PI), p('chair', 19.3, 2.7, 0, Math.PI), p('chair', 20.3, 1.5, 0, -Math.PI / 2),
+  p('mug', 17.3, 1.2, 0.74), p('mug', 18.7, 1.9, 0.74), p('stack', 18.1, 1, 0.74), p('pen', 14.5, 3.5, 0, 0.8),
   // ---- ceo suite
   p('lamp', 19.3, 10.2, 0.78), p('mug', 18, 10.4, 0.78), p('book', 15.5, 11.2, 0, 0.3), p('book', 16.1, 11.5, 0, 1.2),
   p('plant', 20.4, 11.4), p('stack', 14, 5.8),
@@ -381,7 +385,7 @@ export const BEAN_SPAWNS = [
   cp(-19.5, -3), cp(-16.2, -9.5), cp(-11, -5.5), cp(-11.5, -10), cp(-11, -0.5),
   cp(-11, 5.5), cp(-5.5, 1.5), cp(1, -0.2), cp(-1, 5.8), cp(-6, -6),
   cp(1, -6.3), cp(8, -5.3), cp(11, -9.5), cp(9.5, 4.5), cp(9.5, -2.5),
-  cp(15, -8.5), cp(19, -9.8), cp(14.8, 1.5), cp(18.5, 3.8), cp(15.5, 8),
+  cp(15, -8.5), cp(19, -9.8), cp(13.9, 1.5), cp(18.5, 3.8), cp(15.5, 8),
   cp(19.5, 8.5), cp(-0.5, 9.8), cp(-8.5, 9.3), cp(6.5, 9.5), cp(-18, 6),
   cp(-18.5, 0.5),
 ];
