@@ -18,6 +18,7 @@ import {
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
   landingStrength, impactStrength, chaseHeading, raceSpawn,
+  SURFACES, surfaceAt, floorHeight, seamCell,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
@@ -458,7 +459,17 @@ export default function LocalCar() {
       // wheel visual sits where the ray hit (or droops at full travel in the air)
       wheelYRef.current[wi] = wy - (hit ? Math.min(hit.timeOfImpact ?? hit.toi, SUSPENSION_REST + 0.1) : SUSPENSION_REST * 0.8) + wheelR;
       if (hit) {
-        const len = hit.timeOfImpact ?? hit.toi;
+        // the floor under this wheel isn't perfectly flat: grout grooves,
+        // plank seams and pile (shared/src/surfaces.js). Only on the floor
+        // itself — a ramp or a desk top has no grout.
+        let len = hit.timeOfImpact ?? hit.toi;
+        const hitY = _p.y + ray.dir.y * len;
+        if (Math.abs(hitY) < 0.08) {
+          const wx = _p.x + ray.dir.x * len, wz = _p.z + ray.dir.z * len;
+          const surf = surfaceAt(wx, wz);
+          len -= floorHeight(surf, wx, wz);
+          if (wi === 0) S.wheelSurf = surf; // front-left wheel: seam clicks
+        } else if (wi === 0) S.wheelSurf = null;
         groundedWheels++;
         if (hit.normal && hit.normal.y > 0.3) { gnX += hit.normal.x; gnY += hit.normal.y; gnZ += hit.normal.z; }
         const compression = 1 - len / SUSPENSION_REST;
@@ -478,6 +489,12 @@ export default function LocalCar() {
     }
     const grounded = groundedWheels >= 2;
     const wasGrounded = S.grounded;
+    // grout/plank crossings, counted per physics step so none are skipped at speed
+    {
+      const cell = S.wheelSurf ? seamCell(S.wheelSurf, pos.x, pos.z) : null;
+      if (cell !== null && S.lastSeam != null && cell !== S.lastSeam) S.seamHits = (S.seamHits || 0) + 1;
+      S.lastSeam = cell;
+    }
     S.grounded = grounded;
     if (!grounded) { skid(0, null, 0); skid(1, null, 0); }
     // ---------------- landings & impacts: feedback only, no forces
@@ -563,8 +580,13 @@ export default function LocalCar() {
       if (S.safePoses.length > SAFE_POSE_BUFFER) S.safePoses.shift();
     }
 
+    // ---------------- the floor: carpet grips but drags, hardwood is quick
+    // but slides (shared/src/surfaces.js) — only while actually on it
+    const floorSurf = grounded && pos.y < 0.9 ? SURFACES[surfaceAt(pos.x, pos.z).id] || SURFACES.concrete : null;
+    telemetry.surface = floorSurf ? floorSurf.name : null;
+
     // ---------------- puddles & event modifiers
-    let gripMul = 1, speedMul = 1;
+    let gripMul = floorSurf ? floorSurf.grip : 1, speedMul = floorSurf ? floorSurf.top : 1;
     for (const pu of net.puddles) {
       const d = Math.hypot(pos.x - pu.x, pos.z - pu.z);
       if (d < POWERUP_EFFECT.PUDDLE_RADIUS) {
@@ -669,7 +691,8 @@ export default function LocalCar() {
       // rolling resistance + parking brake: real deceleration off-throttle,
       // and below walking pace the car is pinned so it never creeps on its own
       if (throttle === 0) {
-        body.applyImpulse({ x: -_v.x * mass * COAST_DRAG * dt, y: 0, z: -_v.z * mass * COAST_DRAG * dt }, true);
+        const drag = COAST_DRAG * (floorSurf ? floorSurf.drag : 1); // carpet pile stops you sooner
+        body.applyImpulse({ x: -_v.x * mass * drag * dt, y: 0, z: -_v.z * mass * drag * dt }, true);
         const hSpeed = Math.hypot(_v.x, _v.z);
         // the upright gate matters: zeroing horizontal velocity on a TILTED
         // car freezes the fall the self-righting torque is trying to finish —
@@ -964,10 +987,15 @@ export default function LocalCar() {
       _right.set(1, 0, 0).applyQuaternion(_q);
       const ax = (vel.x - (S.pvx ?? vel.x)) / dt;
       const az = (vel.z - (S.pvz ?? vel.z)) / dt;
-      S.pvx = vel.x; S.pvz = vel.z;
+      const ay = (vel.y - (S.pvy ?? vel.y)) / dt;
+      S.pvx = vel.x; S.pvz = vel.z; S.pvy = vel.y;
       const clampA = (n) => Math.max(-60, Math.min(60, n));
       const aLat = clampA(ax * _right.x + az * _right.z);
       const aLong = clampA(ax * _fwd.x + az * _fwd.z);
+      // the antenna wants the raw acceleration, not the smoothed lean
+      leanRef.current.aLat = aLat;
+      leanRef.current.aLong = aLong;
+      leanRef.current.aUp = clampA(ay);
       const tRoll = grounded ? Math.max(-0.14, Math.min(0.14, aLat * 0.0032)) : 0;
       const tPitch = grounded ? Math.max(-0.09, Math.min(0.09, -aLong * 0.0035)) : 0;
       const k = Math.min(1, dt * 7);
@@ -980,7 +1008,17 @@ export default function LocalCar() {
     S.squash *= Math.pow(0.0008, dt);
 
     // ---------------- audio
-    audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed });
+    audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed, surface: grounded ? S.wheelSurf?.id : null });
+    // a click per seam crossed; on hardwood at speed the seams come too fast
+    // to hear one by one and the rolling rumble carries them instead
+    if ((S.seamHits || 0) > (S.seamHeard || 0)) {
+      const n = S.seamHits - (S.seamHeard || 0);
+      S.seamHeard = S.seamHits;
+      if (n <= 2 && nowMs - (S.lastSeamSound || 0) > 35) {
+        S.lastSeamSound = nowMs;
+        audio.seam(S.wheelSurf?.id, S.speed / car.topSpeed);
+      }
+    }
     audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
 
     // ---------------- network send

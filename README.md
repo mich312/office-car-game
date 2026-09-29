@@ -72,6 +72,15 @@ tier chimes as you reach it; and in a slide the camera swings toward where
 you're actually going. Camera motion is toned down if your OS asks for
 reduced motion. Climbing assist keeps ramps drivable at full grade.
 
+**Floors matter.** Carpet grips but drags (about 7% slower flat out, and it
+stops a coasting car sooner); hardwood is about 5% quicker but slides; tile is
+neutral, but its grout clicks under the wheels; concrete is rough; rugs are
+the grippiest and slowest of all. Grout lines and plank joints are real little
+grooves your suspension feels, lined up with the ones you can see, and every
+surface sounds different under the tyres. Bots drive on the same floors. The
+antenna is a proper whip: it sweeps back with speed, flicks forward when you
+brake, leans out in corners and rings after a bump.
+
 **First time?** The lobby gives you a short **driving test** while everyone
 readies up: hit the gas, take a corner, brake, drift into a mini-turbo, burn
 the boost meter. Each step passes when your car actually does it, and the

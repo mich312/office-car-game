@@ -5,7 +5,7 @@ import {
   BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER, CHECKPOINTS, CHECKPOINT_RADIUS,
   ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
   POWERUP_EFFECT as FX, BATTERY_SPEED_PENALTY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN, BOOST_TOP_MULT,
-  DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath,
+  DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
 
@@ -374,6 +374,8 @@ export class Bots {
     // an oil slick dropped on a bot did nothing at all
     let speedMul = p.hasBattery ? BATTERY_SPEED_PENALTY : 1;
     if (p.shrinkUntil > t) speedMul *= 0.85;
+    // the same floors the players drive on: carpet is slower, hardwood quicker
+    speedMul *= (SURFACES[surfaceAt(p.p[0], p.p[2]).id] || SURFACES.concrete).top;
     for (const pu of this.room.puddles) {
       if (Math.hypot(p.p[0] - pu.x, p.p[2] - pu.z) >= FX.PUDDLE_RADIUS) continue;
       if (pu.kind === 'oil') p.oilUntil = t + OIL_SLIDE_S * 1000;

@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import {
   CARS, WHEEL_STYLES, DEFAULT_STYLE, sanitizeStyle, FINISHES,
   tunedStats, sanitizeTune, STOCK_TUNE,
+  antennaStep, newAntenna,
 } from '@rc/shared';
 import { vinylTopTex, vinylSideTex, glowTex, plateTex } from './textures.js';
 import { useStore } from '../store.js';
@@ -242,6 +243,8 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const batteryRef = useRef();
   const stunRef = useRef();
   const antennaRef = useRef();
+  const antennaSegs = useRef([]);
+  const antenna = useRef(newAntenna());
   const propellerRef = useRef();
   const driverRef = useRef();
   const trailAnchor = useRef();
@@ -326,11 +329,24 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
       stunRef.current.visible = !!(flags & 4);
       if (stunRef.current.visible) stunRef.current.rotation.y += dt * 8;
     }
-    // antenna sway: whips back with speed, bobbles with time, leans in turns
-    if (antennaRef.current) {
-      const sway = Math.min(1, Math.abs(speed) / 12);
-      antennaRef.current.rotation.x = Math.sin(t * 6) * 0.14 * sway - Math.min(0.35, Math.abs(speed) * 0.014);
-      antennaRef.current.rotation.z = steer * 0.18 * sway;
+    // The antenna is a whip on a spring (shared/src/feel.js), bent along its
+    // length: in-game cars feed it their real acceleration, so braking flicks
+    // it forward, corners throw it outward, bumps and landings set it ringing.
+    // The garage turntable has no acceleration to give, so it idles on steer.
+    if (antennaSegs.current[0]) {
+      const lean = leanRef?.current;
+      if (lean && lean.aLong !== undefined) {
+        antennaStep(antenna.current, lean.aLong, lean.aLat, lean.aUp || 0, speed, Math.min(dt, 0.05));
+      } else {
+        antenna.current.pitch = Math.sin(t * 1.3) * 0.05;
+        antenna.current.roll = steer * 0.12;
+      }
+      const { pitch, roll } = antenna.current;
+      for (const seg of antennaSegs.current) {
+        if (!seg) continue;
+        seg.rotation.x = pitch / ANTENNA_SEGS;
+        seg.rotation.z = -roll / ANTENNA_SEGS;
+      }
     }
     if (propellerRef.current) propellerRef.current.rotation.y += dt * (3 + Math.abs(speed) * 0.8);
     // the driver leans into corners and hunkers down with speed
@@ -404,7 +420,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
         )}
         {/* antenna (equipped variant or the stock whip) */}
         <group ref={antennaRef} position={[-0.2, 0.14, -0.4]}>
-          <Antenna kind={cosmetics?.antenna} />
+          <Antenna kind={cosmetics?.antenna} segs={antennaSegs} />
         </group>
         {/* hat, socketed to the roof */}
         {cosmetics?.hat && (
@@ -973,32 +989,46 @@ function Vinyl({ id, color, fit }) {
 const FLAG_SHAPE = new THREE.Shape();
 FLAG_SHAPE.moveTo(0, 0); FLAG_SHAPE.lineTo(0.22, 0.06); FLAG_SHAPE.lineTo(0, 0.12);
 
-function Antenna({ kind }) {
-  return (
-    <group>
-      <mesh position={[0, 0.22, 0]}>
-        <cylinderGeometry args={[0.008, 0.012, 0.45, 6]} />
-        <meshStandardMaterial color="#222" />
-      </mesh>
-      {kind === 'ball' ? (
-        <mesh position={[0, 0.48, 0]}>
-          <sphereGeometry args={[0.07, 10, 10]} />
-          <meshStandardMaterial color="#ffb347" emissive="#ff8c00" emissiveIntensity={0.35} roughness={0.3} />
-        </mesh>
-      ) : kind === 'flag' ? (
-        <mesh position={[0.005, 0.34, 0]} rotation-y={Math.PI / 2}>
-          <shapeGeometry args={[FLAG_SHAPE]} />
-          <meshStandardMaterial color="#e8332a" side={THREE.DoubleSide} roughness={0.8} />
-        </mesh>
-      ) : (
-        <mesh position={[0, 0.46, 0]}>
-          <sphereGeometry args={[0.035, 8, 8]} />
-          <meshStandardMaterial color="#ff3333" />
-        </mesh>
-      )}
-    </group>
+// The whip in ANTENNA_SEGS nested pieces, each bent a share of the total, so
+// the rod curves along its length like a real one instead of pivoting stiff
+// at the base. The tip decoration rides the last piece.
+const ANTENNA_SEGS = 4;
+const ANTENNA_LEN = 0.45;
+function Antenna({ kind, segs }) {
+  const segLen = ANTENNA_LEN / ANTENNA_SEGS;
+  const tip = kind === 'ball' ? (
+    <mesh position={[0, 0.03, 0]}>
+      <sphereGeometry args={[0.07, 10, 10]} />
+      <meshStandardMaterial color="#ffb347" emissive="#ff8c00" emissiveIntensity={0.35} roughness={0.3} />
+    </mesh>
+  ) : kind === 'flag' ? (
+    <mesh position={[0.005, -0.11, 0]} rotation-y={Math.PI / 2}>
+      <shapeGeometry args={[FLAG_SHAPE]} />
+      <meshStandardMaterial color="#e8332a" side={THREE.DoubleSide} roughness={0.8} />
+    </mesh>
+  ) : (
+    <mesh position={[0, 0.01, 0]}>
+      <sphereGeometry args={[0.035, 8, 8]} />
+      <meshStandardMaterial color="#ff3333" />
+    </mesh>
   );
+  // build inside-out: each segment holds the next at its top
+  let inner = tip;
+  for (let i = ANTENNA_SEGS - 1; i >= 0; i--) {
+    const child = inner;
+    const r0 = 0.012 - (0.004 * i) / ANTENNA_SEGS, r1 = 0.012 - (0.004 * (i + 1)) / ANTENNA_SEGS;
+    inner = (
+      <group key={i} ref={(el) => { segs.current[i] = el; }} position={[0, i === 0 ? 0 : segLen, 0]}>
+        <mesh position={[0, segLen / 2, 0]} material={ANTENNA_MAT}>
+          <cylinderGeometry args={[r1, r0, segLen, 6]} />
+        </mesh>
+        {i === ANTENNA_SEGS - 1 ? <group position={[0, segLen, 0]}>{child}</group> : child}
+      </group>
+    );
+  }
+  return inner;
 }
+const ANTENNA_MAT = new THREE.MeshStandardMaterial({ color: '#222' });
 
 function Hat({ kind, propellerRef }) {
   switch (kind) {
