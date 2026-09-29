@@ -27,8 +27,8 @@ export function KitMeshes({ geos, shadow = true }) {
 }
 
 // Static looks are not drawn per piece: every garage piece's kit is merged
-// per room and material (FurnitureBatch, in the dressing), so forty pieces
-// cost a few draws per room instead of a few each. A piece component draws
+// per zone and material (FurnitureBatch, in the dressing), so forty pieces
+// cost a few draws per zone instead of a few each. A piece component draws
 // only its colliders and whatever moves. STATIC maps a type to its builder.
 const STATIC = {};
 const stat = (type, build) => { STATIC[type] = build; };
@@ -42,7 +42,10 @@ export function FurnitureBatch({ map }) {
       if (!build) continue;
       const geos = build(f);
       m.makeRotationY(yawOf(f)).setPosition(f.x, 0, f.z);
-      const room = map.roomAt(f.x, f.z)?.id || 'out';
+      // four zones, not nine rooms: the yards, the garage, the front and
+      // back of the house (fewer, bigger batches; most views see several)
+      const r = map.roomAt(f.x, f.z);
+      const room = !r || r.outdoor ? 'out' : r.id === 'garage_bay' ? 'garage' : f.z < 5 * M ? 'front' : 'back';
       for (const [slot, g] of Object.entries(geos)) {
         ((buckets[room] ||= {})[slot] ||= []).push(g.clone().applyMatrix4(m));
       }
@@ -565,9 +568,15 @@ function buildServerRack(L, D, H) {
     k.add('matte', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 10, 0.005, 4), ['#2f7fe0', '#f0c419', '#e8332a', '#2f7fe0', '#f2f2f2', '#6fd06a', '#2f7fe0'][i]);
   }
   // the fan's housing (blades are separate): a 0.5 m box fan on the floor
-  const fx = L / 2 + 0.33, fz = 0.25;
-  k.box('satin', [0.5, 0.52, 0.12], [fx, 0.28, fz], '#e4e1d8', [0, -0.6, 0], 0.03);
-  k.box('matte', [0.44, 0.02, 0.1], [fx, 0.02, fz], '#555', [0, -0.6, 0]);
+  const fx = L / 2 + 0.33, fz = 0.25, fa = -0.6;
+  const fan = (dx, dy, dz) => [fx + dx * Math.cos(fa) + dz * Math.sin(fa), 0.3 + dy, fz - dx * Math.sin(fa) + dz * Math.cos(fa)];
+  // an open square frame, so the blades show from both sides, on two feet
+  k.box('satin', [0.5, 0.04, 0.12], fan(0, 0.25, 0), '#e4e1d8', [0, fa, 0], 0.015);
+  k.box('satin', [0.5, 0.04, 0.12], fan(0, -0.25, 0), '#e4e1d8', [0, fa, 0], 0.015);
+  k.box('satin', [0.04, 0.54, 0.12], fan(-0.25, 0, 0), '#e4e1d8', [0, fa, 0], 0.015);
+  k.box('satin', [0.04, 0.54, 0.12], fan(0.25, 0, 0), '#e4e1d8', [0, fa, 0], 0.015);
+  k.box('satin', [0.1, 0.03, 0.05], fan(0, 0.28, 0), '#d8d4ca', [0, fa, 0], 0.01); // the handle
+  for (const sx of [-1, 1]) k.box('matte', [0.06, 0.03, 0.16], fan(sx * 0.18, -0.285, 0), '#555', [0, fa, 0]);
   return k.build();
 }
 function buildFanBlades() {
@@ -580,8 +589,8 @@ function buildFanBlades() {
   // the front grille: a few rings
   const g = kit();
   for (const r of [0.08, 0.14, 0.2]) g.torus('metal', r, 0.003, [0, 0, 0.03], '#9aa0a6', null, 24);
-  g.box('metal', [0.44, 0.006, 0.006], [0, 0, 0.03], '#9aa0a6');
-  g.box('metal', [0.006, 0.44, 0.006], [0, 0, 0.03], '#9aa0a6');
+  g.box('metal', [0.46, 0.006, 0.006], [0, 0, 0.03], '#9aa0a6');
+  g.box('metal', [0.006, 0.46, 0.006], [0, 0, 0.03], '#9aa0a6');
   return { blades: k.build(), grille: g.build() };
 }
 
@@ -626,10 +635,9 @@ function ServerRack({ f }) {
       <Box h={[L / 2, H / 2, D / 2]} p={[0, H / 2, 0]} />
       <Box h={[0.27, 0.27, 0.1]} p={[fx, 0.27, fz]} r={[0, -0.6, 0]} />
       <group position={[fx * M, 0.3 * M, fz * M]} rotation-y={-0.6}>
-        <group position={[0, 0, 0.04 * M]}>
-          <group ref={blades}><KitMeshes geos={fan.blades} shadow={false} /></group>
-        </group>
-        <KitMeshes geos={fan.grille} shadow={false} />
+        <group ref={blades}><KitMeshes geos={fan.blades} shadow={false} /></group>
+        <group position={[0, 0, 0.03 * M]}><KitMeshes geos={fan.grille} shadow={false} /></group>
+        <group position={[0, 0, -0.09 * M]}><KitMeshes geos={fan.grille} shadow={false} /></group>
       </group>
       <instancedMesh ref={leds} args={[null, null, ledSpots.length]} material={ledMat} frustumCulled={false}>
         <boxGeometry args={[0.012 * M, 0.01 * M, 0.004 * M]} />
@@ -1382,6 +1390,27 @@ const simple = (type, build) => {
     );
   };
 };
+// a clothes rail: the founder's whole wardrobe is conference hoodies
+function buildRail(L, D, H) {
+  const k = kit();
+  for (const sx of [-1, 1]) {
+    k.bar('chrome', [sx * L / 2, 0.05, 0], [sx * L / 2, H, 0], 0.012, '#c9cdd2');
+    k.bar('chrome', [sx * L / 2, 0.05, -D / 2], [sx * L / 2, 0.05, D / 2], 0.012, '#c9cdd2');
+    for (const sz of [-1, 1]) k.sphere('matte', 0.025, [sx * L / 2, 0.025, sz * D / 2], '#1b1b1b', null, 8);
+  }
+  k.bar('chrome', [-L / 2, H, 0], [L / 2, H, 0], 0.012, '#c9cdd2');
+  const cols = ['#2b2d31', '#6a7a86', '#ff7a1a', '#2f7fe0', '#1b1b1b', '#8a2f4a', '#e8e4da'];
+  cols.forEach((c, i) => {
+    const x = -L / 2 + 0.12 + i * ((L - 0.24) / (cols.length - 1));
+    k.torus('metal', 0.04, 0.004, [x, H - 0.03, 0], '#8d949b', [0, Math.PI / 2, 0], 10, Math.PI);
+    k.box('fabric', [0.05, 0.62, 0.42], [x, H - 0.4, 0], c, [0, 0, (i % 2 ? 0.04 : -0.03)], 0.02);
+    if (i % 3 === 0) k.box('fabric', [0.052, 0.14, 0.2], [x, H - 0.18, 0.1], c, null, 0.03); // a hood
+  });
+  // shoes under it
+  for (let i = 0; i < 3; i++) k.box('satin', [0.11, 0.08, 0.28], [-0.4 + i * 0.3, 0.04, 0.05], ['#f2f2f2', '#1b1b1b', '#c8261e'][i], null, 0.03);
+  return k.build();
+}
+const Rail = simple('garage_rail', buildRail);
 const Basket = simple('garage_basket', buildBasket);
 const DogBed = simple('garage_dogbed', buildDogBed);
 const Guitar = simple('garage_guitar', buildGuitar);
@@ -1408,6 +1437,7 @@ stat('garage_classic', (f) => {
 export const PIECES = {
   garage_classic: ClassicCar,
   garage_airer: Airer,
+  garage_rail: Rail,
   garage_basket: Basket,
   garage_dogbed: DogBed,
   garage_guitar: Guitar,

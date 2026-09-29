@@ -178,6 +178,8 @@ const FURNITURE = [
   f('garage_mattress', 17.8, 10.4, 1.4, 2.0, 0.2),
   f('garage_doordesk', 12.6, 11.45, 2.0, 0.8, 0.74, Math.PI, UNDER),
   f('bookshelf', 19.65, 6.2, 0.5, 1.6, 1.8),
+  f('rug', 17.3, 9.8, 2.8, 3.2, 0.01),
+  f('garage_rail', 15.4, 11.62, 1.3, 0.45, 1.6, Math.PI),
   // ---- Backyard: the barbecue, a paddling pool, the tree inside the turn,
   // a raised veg bed
   f('garage_bbq', -18.9, 11.0, 0.9, 0.6, 1.05),
@@ -230,10 +232,10 @@ const PROPS = [
   p('garage_pizza', -7.3, -3.4, 0, 1.1), p('garage_pizza', -7.3, -3.4, 0.05, 0.6), // the stack by the wall
   // ---- dev pit floor: beanbags to bounce off, a bin, boxes of swag
   p('garage_beanbag', -6.4, 3.4), p('garage_beanbag', -5.2, 4.1, 0, 1), p('garage_beanbag', 4.8, 3.9, 0, 2),
-  p('trash', 5.4, -3.4), p('box', 3.3, 4.4), p('box', 3.8, 4.5, 0, 0.3), p('box', 3.55, 4.45, 0.34, 0.1),
+  p('trash', 5.4, -3.4), p('garage_box', 3.3, 4.4), p('garage_box', 3.8, 4.5, 0, 0.3), p('garage_box', 3.55, 4.45, 0.34, 0.1),
   // ---- server room: dead towers waiting to be "repurposed"
-  p('garage_tower', 9.7, 4.35, 0, 0.1), p('garage_tower', 10.25, 4.2, 0, -0.3), p('garage_tower', 7.1, 4.4, 0, 0.2),
-  p('box', 10.4, -3.4), p('bottle', 6.6, -3.5, 0.85), p('trash', 8.2, -3.5),
+  p('garage_tower', 9.7, 4.35, 0, Math.PI + 0.1), p('garage_tower', 10.25, 4.2, 0, Math.PI - 0.3), p('garage_tower', 10.5, 3.4, 0, Math.PI + 0.5),
+  p('garage_box', 10.4, -3.4), p('bottle', 6.6, -3.5, 0.85), p('trash', 8.2, -3.5),
   // ---- kitchen: pizza on the island, cans everywhere, stools
   p('garage_pizza', 14.6, 0.35, 0.92, 0.2), p('garage_pizza', 15.9, 0.45, 0.92, -0.4),
   p('garage_can', 15.3, 0.2, 0.92), p('garage_can', 14.1, 0.6, 0.92), p('garage_can', 16.3, 0.1, 0.92), p('garage_can', 17.6, -3.55, 0.92),
@@ -243,7 +245,7 @@ const PROPS = [
   // ---- founder's room: three screens, a lamp, boxes never unpacked
   p('garage_monitor', 12.0, 11.7, 0.74, Math.PI + 0.25), p('garage_monitor', 12.6, 11.75, 0.74, Math.PI), p('garage_monitor', 13.2, 11.7, 0.74, Math.PI - 0.25),
   p('garage_keyboard', 12.6, 11.25, 0.74, Math.PI), p('garage_chair', 12.6, 10.6), p('lamp', 13.4, 11.4, 0.74), p('garage_can', 11.8, 11.3, 0.74),
-  p('box', 19.3, 11.3), p('box', 19.3, 10.7), p('box', 19.3, 11.0, 0.34), p('book', 17.6, 9.8, 0.2, 0.4), p('book', 16.4, 8.3, 0, 1.2),
+  p('garage_box', 19.3, 11.3), p('garage_box', 19.3, 10.7), p('garage_box', 19.3, 11.0, 0.34), p('book', 17.6, 9.8, 0.2, 0.4), p('book', 16.4, 8.3, 0, 1.2),
   p('garage_can', 18.1, 11.0, 0.2),
   // ---- boardroom: mismatched chairs round the ping-pong table, beanbags
   // facing the TV
@@ -254,7 +256,7 @@ const PROPS = [
   // ---- garage: paint cans, cones, moving boxes, a skateboard
   p('garage_paintcan', -18.9, 3.9), p('garage_paintcan', -18.6, 4.0), p('garage_paintcan', -18.75, 3.95, 0.2),
   p('garage_cone', -10.4, 1.6), p('garage_cone', -10.6, -1.2),
-  p('box', -9.1, 1.4), p('box', -9.1, 2.0), p('box', -9.1, 1.7, 0.34, 0.2), p('box', -17.2, 3.3, 0, 0.3),
+  p('garage_box', -9.1, 1.4), p('garage_box', -9.1, 2.0), p('garage_box', -9.1, 1.7, 0.34, 0.2), p('garage_box', -17.2, 3.3, 0, 0.3),
   p('garage_skateboard', -11.0, 3.2, 0, 0.6), p('roll', -19.3, 2.2), p('garage_can', -19.5, -1.8, 0.9),
   // ---- driveway: a basketball, slalom cones, another skateboard
   p('basketball', -12.5, -9.8), p('garage_cone', 1.5, -10.2), p('garage_cone', 3, -10.4), p('garage_cone', 4.5, -10.2),
@@ -483,13 +485,13 @@ export const GARAGE = {
       label: 'Golden hour',
       clock: '19:05',
       // very low in the south-west: straight in under the roller door
-      sun: { pos: [-78, 50, -196], color: '#ff9a3c', intensity: 3.6 },
+      sun: { pos: [-70, 92, -190], color: '#ff9440', intensity: 4.4 },
       // warm key, cool fill (see daylight.js on why every light can't be orange)
-      amb: { intensity: 0.34, color: '#b9aec0' },
-      hemi: { intensity: 0.5, sky: '#aaa6c8', ground: '#5a3a24' },
-      ceiling: 7,
+      amb: { intensity: 0.2, color: '#b9aec0' },
+      hemi: { intensity: 0.36, sky: '#aaa6c8', ground: '#5a3a24' },
+      ceiling: 4,
       env: {
-        intensity: 0.85,
+        intensity: 0.62,
         bg: '#8a6a66',
         window: { color: '#ffb060', intensity: 6.5 },
         ceil: { color: '#d8cfe0', intensity: 1.4 },
@@ -567,6 +569,8 @@ export const GARAGE = {
     { kind: 'burndown', at: [19.88, 1.5, 9.6], rotY: -Math.PI / 2, w: 1.8, h: 1.1 },
     { kind: 'pegboard', at: [-19.88, 1.5, -1.4], rotY: Math.PI / 2, w: 3.6, h: 1.2 },
     { kind: 'hq', at: [-14, 2.48, -4.13], rotY: Math.PI, w: 1.5, h: 0.4 },
+    { kind: 'server', at: [6.12, 1.45, 1.55], rotY: Math.PI / 2, w: 0.3, h: 0.42 },
+    { kind: 'poster', at: [13.2, 1.5, 5.13], rotY: 0, w: 0.7, h: 1.0 },
   ],
   NEON: { text: 'SHIP IT', at: [-7.87, 2.42, 0], rotY: Math.PI / 2, color: '#ff3d8b', w: 1.4 }, // over the garage goal
   // chalk on the driveway: the grid, a wobbly FINISH, a hopscotch

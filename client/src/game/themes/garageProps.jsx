@@ -84,12 +84,12 @@ function Beanbag({ p }) {
 function Stool({ p }) {
   const geos = cached('stool', () => {
     const k = kit();
-    k.cyl('wood', 0.18, 0.18, 0.04, [0, 0.33, 0], '#b8875a', null, 18);
+    k.cyl('satin', 0.18, 0.18, 0.04, [0, 0.33, 0], '#b8875a', null, 18);
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      k.bar('metal', [Math.cos(a) * 0.1, 0.31, Math.sin(a) * 0.1], [Math.cos(a) * 0.19, -0.33, Math.sin(a) * 0.19], 0.022, '#1f2226');
+      k.bar('satin', [Math.cos(a) * 0.1, 0.31, Math.sin(a) * 0.1], [Math.cos(a) * 0.19, -0.33, Math.sin(a) * 0.19], 0.022, '#1f2226');
     }
-    k.torus('metal', 0.155, 0.01, [0, -0.08, 0], '#1f2226', [Math.PI / 2, 0, 0], 20);
+    k.torus('satin', 0.155, 0.01, [0, -0.08, 0], '#1f2226', [Math.PI / 2, 0, 0], 20);
     return k.build();
   });
   return (
@@ -322,7 +322,27 @@ function Chair({ p }) {
   );
 }
 
+// Moving boxes: taped cardboard, one mesh. (The office's box is two.)
+function MovingBox({ p }) {
+  const v = (p.i ?? 0) % 3;
+  const S = [0.34, 0.3, 0.38][v];
+  const geos = cached(`mbox${v}`, () => {
+    const k = kit();
+    k.box('matte', [S, S, S], [0, 0, 0], ['#c1935a', '#b98a54', '#caa06a'][v]);
+    k.box('matte', [S * 0.22, 0.003, S + 0.004], [0, S / 2 + 0.001, 0], '#d8c49a'); // tape
+    k.box('matte', [S * 0.4, S * 0.25, 0.003], [0, 0.02, S / 2 + 0.001], '#f4f1e8'); // label
+    return k.build();
+  });
+  return (
+    <Body p={{ ...p, y: p.y + u(S / 2) }} mass={1.4} friction={0.9}>
+      <CuboidCollider args={[u(S / 2), u(S / 2), u(S / 2)]} />
+      <KitMeshes geos={geos} />
+    </Body>
+  );
+}
+
 export const PROPS = {
+  garage_box: MovingBox,
   garage_monitor: Monitor,
   garage_keyboard: Keyboard,
   garage_chair: Chair,

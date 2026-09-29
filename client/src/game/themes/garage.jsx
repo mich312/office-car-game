@@ -33,7 +33,7 @@ import { glowTex } from '../textures.js';
 import { kit, cached, slotMat, FINISH_TEX, BOARD_TEX, neonTex, chalkTex, rng } from './garageKit.js';
 import { KitMeshes, PIECES, FurnitureBatch } from './garagePieces.jsx';
 import { PROPS, tickScreens } from './garageProps.jsx';
-import { World } from './garageWorld.jsx';
+import { World, addNeighbourhood, addRoofs, addTurf } from './garageWorld.jsx';
 
 // ------------------------------------------------------------ wall finishes
 // One material per finish; UVs are world metres, so the drywall joints and
@@ -91,7 +91,7 @@ function faces() {
 // A wall-shaped box in the collector: [a0,a1] along the wall, [y0,y1] up,
 // the wall's centre line c on the other axis, half-thickness ht. Its two big
 // faces take the wall's finishes, the rest (reveals, soffits) the trim.
-function wallBox(F, along, c, ht, a0, a1, y0, y1, neg, pos, H) {
+function wallBox(F, along, c, ht, a0, a1, y0, y1, neg, pos) {
   const P = along === 'x' ? (a, y, s) => [a, y, c + s * ht] : (a, y, s) => [c + s * ht, y, a];
   const N = along === 'x' ? (s) => [0, 0, s] : (s) => [s, 0, 0];
   const A = along === 'x' ? (s) => [s, 0, 0] : (s) => [0, 0, s];
@@ -119,7 +119,6 @@ function buildHouseWalls(walls, doors, H) {
     return { w, along, c: (along === 'x' ? w.z : w.x) / M, ht: (along === 'x' ? w.d : w.w) / M / 2, a0: a - len / 2, a1: a + len / 2 };
   });
   const P = (L, a, y, s) => (L.along === 'x' ? [a, y, L.c + s * L.ht] : [L.c + s * L.ht, y, a]);
-  const rot = (L) => (L.along === 'x' ? [0, 0, 0] : [0, Math.PI / 2, 0]);
   for (const L of lines) {
     const { w } = L;
     const wh = w.h / M;
@@ -127,13 +126,13 @@ function buildHouseWalls(walls, doors, H) {
     const wins = [...(w.win || [])].sort((p, q) => p[0] - q[0]);
     let cur = L.a0;
     for (const [w0, w1, sill, head] of wins) {
-      if (w0 > cur) wallBox(F, L.along, L.c, L.ht, cur, w0, 0, wh, w.neg, w.pos, wh);
-      if (sill > 0.001) wallBox(F, L.along, L.c, L.ht, w0, w1, 0, sill, w.neg, w.pos, wh);
-      wallBox(F, L.along, L.c, L.ht, w0, w1, head, wh, w.neg, w.pos, wh);
+      if (w0 > cur) wallBox(F, L.along, L.c, L.ht, cur, w0, 0, wh, w.neg, w.pos);
+      if (sill > 0.001) wallBox(F, L.along, L.c, L.ht, w0, w1, 0, sill, w.neg, w.pos);
+      wallBox(F, L.along, L.c, L.ht, w0, w1, head, wh, w.neg, w.pos);
       cur = w1;
-      windowParts(k, L, P, rot, w0, w1, sill, head, w.neg === 'siding' ? -1 : w.pos === 'siding' ? 1 : 0);
+      windowParts(k, L, P, w0, w1, sill, head, w.neg === 'siding' ? -1 : w.pos === 'siding' ? 1 : 0);
     }
-    if (L.a1 > cur) wallBox(F, L.along, L.c, L.ht, cur, L.a1, 0, wh, w.neg, w.pos, wh);
+    if (L.a1 > cur) wallBox(F, L.along, L.c, L.ht, cur, L.a1, 0, wh, w.neg, w.pos);
     // skirting along both faces (under the windows too, unless a pane goes to the floor)
     for (const [s, fin] of [[-1, w.neg], [1, w.pos]]) {
       const [slot, col, sh] = SKIRT[fin] || SKIRT_DEFAULT;
@@ -155,49 +154,40 @@ function buildHouseWalls(walls, doors, H) {
     const a = along === 'x' ? d.x : d.z, c = along === 'x' ? d.z : d.x;
     const a0 = a - d.w / 2, a1 = a + d.w / 2;
     const L = { along, c, ht: 0.1 };
-    wallBox(F, along, c, 0.1, a0, a1, d.head, H, d.neg, d.pos, H);
+    wallBox(F, along, c, 0.1, a0, a1, d.head, H, d.neg, d.pos);
     doorParts(k, L, P, lines, d, a0, a1);
   }
   return { faces: F.build(), parts: k.build() };
 }
 
-function windowParts(k, L, P, rot, w0, w1, sill, head, ext) {
-  const r = rot(L);
+const TRIM = '#f3f0e9';
+
+// A window in a wall: a frame through the wall's depth, a mullion and a
+// transom on the big ones, the pane; outside (on the siding face, `ext` is
+// its side) casing boards round it, inside a deep sill to put things on.
+function windowParts(k, L, P, w0, w1, sill, head, ext) {
   const fw = 0.05, depth = L.ht * 2 + 0.012;
-  const mid = (a, y) => P(L, a, y, 0);
-  const bx = (len, h, a, y, col = '#f3f0e9', slot = 'satin', dep = depth, s = 0) => {
-    const p = P(L, a, y, s);
+  // a box along the wall, centred at (a, y), `off` metres off the centre line
+  const bx = (len, h, dep, a, y, off = 0, col = TRIM, slot = 'satin') => {
+    const p = P(L, a, y, 0);
+    if (L.along === 'x') p[2] += off; else p[0] += off;
     k.box(slot, L.along === 'x' ? [len, h, dep] : [dep, h, len], p, col);
   };
-  // frame
-  bx(w1 - w0, fw, (w0 + w1) / 2, head - fw / 2);
-  if (sill > 0.02) bx(w1 - w0, fw, (w0 + w1) / 2, sill + fw / 2);
-  bx(fw, head - sill, w0 + fw / 2, (sill + head) / 2);
-  bx(fw, head - sill, w1 - fw / 2, (sill + head) / 2);
-  if (w1 - w0 > 1.3) bx(0.04, head - sill, (w0 + w1) / 2, (sill + head) / 2);
-  if (head - sill > 1.6) bx(w1 - w0, 0.04, (w0 + w1) / 2, sill + (head - sill) * 0.72);
-  // the pane
-  const pm = mid((w0 + w1) / 2, (sill + head) / 2);
-  k.box('glass', L.along === 'x' ? [w1 - w0 - 0.04, head - sill - 0.04, 0.01] : [0.01, head - sill - 0.04, w1 - w0 - 0.04], pm, '#b9d3e0');
-  void r;
-  if (ext) {
-    // outside: casing boards round the opening; inside: a deep sill board
-    const s = ext;
-    const off = L.ht + 0.008;
-    const cas = (len, h, a, y) => bx(len, h, a, y, '#f3f0e9', 'satin', 0.016, 0);
-    const shift = (fn) => { const save = L.c; L.c += s * off; fn(); L.c = save; };
-    shift(() => {
-      cas(w1 - w0 + 0.18, 0.09, (w0 + w1) / 2, head + 0.045);
-      if (sill > 0.02) cas(w1 - w0 + 0.24, 0.05, (w0 + w1) / 2, sill - 0.025);
-      cas(0.09, head - sill, w0 - 0.045, (sill + head) / 2);
-      cas(0.09, head - sill, w1 + 0.045, (sill + head) / 2);
-    });
-    if (sill > 0.3) {
-      const save = L.c; L.c -= s * (L.ht + 0.035);
-      bx(w1 - w0 + 0.1, 0.03, (w0 + w1) / 2, sill - 0.015, '#f3f0e9', 'satin', 0.07);
-      L.c = save;
-    }
-  }
+  const mid = (w0 + w1) / 2, ym = (sill + head) / 2, hh = head - sill;
+  bx(w1 - w0, fw, depth, mid, head - fw / 2);
+  if (sill > 0.02) bx(w1 - w0, fw, depth, mid, sill + fw / 2);
+  bx(fw, hh, depth, w0 + fw / 2, ym);
+  bx(fw, hh, depth, w1 - fw / 2, ym);
+  if (w1 - w0 > 1.3) bx(0.04, hh, depth, mid, ym);
+  if (hh > 1.6) bx(w1 - w0, 0.04, depth, mid, sill + hh * 0.72);
+  bx(w1 - w0 - 0.04, hh - 0.04, 0.01, mid, ym, 0, '#b9d3e0', 'glass');
+  if (!ext) return;
+  const out = ext * (L.ht + 0.008);
+  bx(w1 - w0 + 0.18, 0.09, 0.016, mid, head + 0.045, out);
+  if (sill > 0.02) bx(w1 - w0 + 0.24, 0.05, 0.016, mid, sill - 0.025, out);
+  bx(0.09, hh, 0.016, w0 - 0.045, ym, out);
+  bx(0.09, hh, 0.016, w1 + 0.045, ym, out);
+  if (sill > 0.3) bx(w1 - w0 + 0.1, 0.03, 0.07, mid, sill - 0.015, -ext * (L.ht + 0.035));
 }
 
 // is there wall on this line covering [p0, p1]? (for where an open door can lie)
@@ -206,7 +196,7 @@ function wallCovers(lines, along, c, p0, p1) {
 }
 
 function doorParts(k, L, P, lines, d, a0, a1) {
-  const col = d.kind === 'slider' ? '#3b352f' : '#f3f0e9';
+  const col = d.kind === 'slider' ? '#3b352f' : TRIM;
   const box = (len, h, dep, a, y, s, off, c = col, slot = 'satin') => {
     const p = P(L, a, y, s);
     const o = s * off;
@@ -438,17 +428,37 @@ function RobotVacuum() {
 
 // ---------------------------------------------------------------- dressing
 export function Dressing({ map }) {
+  // Everything static the dressing adds is merged into two kits — one that
+  // casts shadows, one flat on the ground that doesn't — so the neighbourhood,
+  // the roofs, the trusses' company, the ceilings and the chalk cost a draw
+  // per material, not per thing.
+  const statics = useMemo(() => {
+    const H = map.WALL_HEIGHT / M;
+    const lit = kit(), flat = kit();
+    addNeighbourhood(lit);
+    addRoofs(lit, H);
+    addGarageBits(lit, H);
+    addRollerDoor(lit, H);
+    addCeilings(lit, map, H);
+    addBoardFrames(lit, map.BOARDS_ON_WALLS || []);
+    addStringWires(flat, map.STRINGS || []);
+    addTurf(flat, map);
+    addGround(flat);
+    return { lit: lit.build(), flat: flat.build() };
+  }, [map]);
   return (
     <group>
+      <KitMeshes geos={statics.lit} />
+      <KitMeshes geos={statics.flat} shadow={false} />
       <World map={map} />
       <FurnitureBatch map={map} />
       <GarageInterior map={map} />
-      <Ceilings map={map} />
       <StringLights map={map} />
       <WallBoards map={map} />
       <Neon map={map} />
       <Chalk map={map} />
       <Practicals map={map} />
+      <FloorPools map={map} />
       <Soundscape map={map} />
     </group>
   );
@@ -473,31 +483,60 @@ function Practicals({ map }) {
   return null;
 }
 
+// ---- light on the floor: additive pools under the practicals, strongest
+// at night (the string lights, lamps, the TV, the monitors' spill)
+const POOLS = [
+  // [x, z, size m, colour]
+  [-1, 0.5, 9, '#ffb46b'], [-12, 8.6, 8, '#ffb46b'], [-14, -3.2, 7, '#ffb46b'],
+  [-5.2, 10.9, 3.2, '#ffc27a'], [9.0, 7.2, 3.6, '#7fa6ff'], [-2.5, -2.6, 7, '#8ec8ff'],
+  [17.5, 10.8, 2.4, '#ff7a3a'], [15.2, 0.4, 3.6, '#ffd9a0'], [12.6, 10.8, 2.6, '#8ec8ff'],
+];
+function FloorPools({ map }) {
+  const hour = useStore((s) => s.timeOfDay);
+  const event = useStore((s) => s.event);
+  const lightsOut = event?.id === 'lights_out';
+  const level = lightingFor(hour, lightsOut, map).practical;
+  const tex = useMemo(() => glowTex(), []);
+  const mats = useMemo(() => {
+    const by = {};
+    for (const [, , , c] of POOLS) {
+      by[c] ||= new THREE.MeshBasicMaterial({
+        map: tex, color: c, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2,
+      });
+    }
+    return by;
+  }, [tex]);
+  useFrame((_, dt) => {
+    const want = Math.max(0, level - 0.3) * 0.32;
+    for (const m of Object.values(mats)) m.opacity += (want - m.opacity) * Math.min(1, dt * 2);
+  });
+  return POOLS.map(([x, z, sz, c], i) => (
+    <mesh key={i} rotation-x={-Math.PI / 2} position={[x * M, 0.035, z * M]} material={mats[c]}>
+      <planeGeometry args={[sz * M, sz * M]} />
+    </mesh>
+  ));
+}
+
 // ---- house ceilings: flat drywall over every indoor room but the garage,
 // a flush light fitting at each ceiling light
-function Ceilings({ map }) {
-  const H = map.WALL_HEIGHT / M;
-  const geos = useMemo(() => {
-    const k = kit();
-    for (const r of map.ROOMS) {
-      if (r.outdoor || r.id === 'garage_bay') continue;
-      k.box('matte', [r.w / M + 0.2, 0.02, r.d / M + 0.2], [r.x / M, H + 0.01, r.z / M], '#f4f2ee');
-    }
-    for (const [x, z] of map.CEILING_LIGHTS) {
-      const room = map.roomAt(x * M, z * M);
-      if (!room || room.id === 'garage_bay') continue;
-      k.cyl('satin', 0.2, 0.2, 0.02, [x, H - 0.01, z], '#f4f2ee', null, 20);
-      k.sphere('warm', 0.17, [x, H - 0.02, z], '#fff1d8', [1, 0.35, 1], 16);
-    }
-    // three pendants over the kitchen island
-    for (const x of [14.4, 15.2, 16.0]) {
-      k.bar('matte', [x, H, 0.4], [x, 2.1, 0.4], 0.004, '#1a1a1a');
-      k.cyl('metal', 0.03, 0.14, 0.16, [x, 2.02, 0.4], '#2a2d31', null, 16, true);
-      k.sphere('warm', 0.045, [x, 1.95, 0.4], '#ffd9a0', null, 10);
-    }
-    return k.build();
-  }, [map, H]);
-  return <KitMeshes geos={geos} shadow={false} />;
+function addCeilings(k, map, H) {
+  for (const r of map.ROOMS) {
+    if (r.outdoor || r.id === 'garage_bay') continue;
+    k.box('matte', [r.w / M + 0.2, 0.02, r.d / M + 0.2], [r.x / M, H + 0.01, r.z / M], '#f4f2ee');
+  }
+  for (const [x, z] of map.CEILING_LIGHTS) {
+    const room = map.roomAt(x * M, z * M);
+    if (!room || room.id === 'garage_bay') continue;
+    k.cyl('satin', 0.2, 0.2, 0.02, [x, H - 0.01, z], '#f4f2ee', null, 20);
+    k.sphere('warm', 0.17, [x, H - 0.02, z], '#fff1d8', [1, 0.35, 1], 16);
+  }
+  // three pendants over the kitchen island
+  for (const x of [14.4, 15.2, 16.0]) {
+    k.bar('matte', [x, H, 0.4], [x, 2.1, 0.4], 0.004, '#1a1a1a');
+    k.cyl('metal', 0.03, 0.14, 0.16, [x, 2.02, 0.4], '#2a2d31', null, 16, true);
+    k.sphere('warm', 0.045, [x, 1.95, 0.4], '#ffd9a0', null, 10);
+  }
+  return k;
 }
 
 // ---- the garage's open roof space, its lights and its door
@@ -532,6 +571,52 @@ function buildTruss(H) {
   return k.build();
 }
 
+function addGarageBits(k, H) {
+  // plywood loft over the west end, the canoe and the boxes on it
+  k.box('wood', [3.6, 0.018, 8.4], [-18.1, H + 0.15, 0.5], '#d6bd8f');
+  k.box('wood', [0.04, 0.3, 8.4], [-16.3, H + 0.15, 0.5], '#caa874');
+  // the canoe, upside down: a stretched hull
+  const hull = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+  k.add('gloss', hull, '#c8261e', [-18.4, H + 0.2, 0.3], [Math.PI, 0, 0], [0.42, 0.28, 2.3]);
+  for (let i = 0; i < 5; i++) {
+    const x = -19.5 + (i % 3) * 0.6, z = 3.0 + Math.floor(i / 3) * 0.7;
+    k.box('matte', [0.55, 0.4, 0.45], [x, H + 0.36 + (i === 4 ? 0.4 : 0), z - (i === 4 ? 0.7 : 0)], '#b98a54');
+    k.box('matte', [0.3, 0.1, 0.004], [x, H + 0.4 + (i === 4 ? 0.4 : 0), z - 0.226 - (i === 4 ? 0.7 : 0)], '#d8261e'); // XMAS
+  }
+  k.box('matte', [0.8, 0.35, 0.5], [-17.2, H + 0.33, -2.6], '#8a8f96'); // a suitcase
+  // the opener: a motor box on the ceiling, its rail out to the door
+  k.box('satin', [0.36, 0.2, 0.5], [-14, 2.55, 2.4], '#e6e3da', null, 0.03);
+  k.box('glow', [0.2, 0.02, 0.2], [-14, 2.44, 2.4], '#fff6e0');
+  k.box('metal', [0.05, 0.04, 6.3], [-14, 2.58, -0.95], '#8d949b');
+  k.bar('metal', [-14, 2.62, 2.2], [-14, H + 0.14, 2.2], 0.03, '#8d949b');
+  k.bar('metal', [-14, 2.62, -1.2], [-14, H + 0.14, -1.2], 0.03, '#8d949b');
+  // the red release handle on its cord
+  k.bar('matte', [-14, 2.56, -3.2], [-14, 1.95, -3.2], 0.006, '#d8261e');
+  k.box('satin', [0.09, 0.05, 0.03], [-14, 1.92, -3.2], '#d8261e', null, 0.01);
+  // the tennis ball on a string, just touching the windscreen
+  k.bar('matte', [-14.2, H + 0.1, 0.6], [-14.2, 1.55, 0.6], 0.003, '#f2f2f2');
+  k.sphere('fabric', 0.034, [-14.2, 1.52, 0.6], '#d6f24a', null, 12);
+  // LED battens on chains
+  for (const [x, z] of [[-17, -1.5], [-17, 2.2], [-10.8, -1.5], [-10.8, 2.2]]) {
+    k.box('satin', [0.12, 0.05, 1.5], [x, 2.47, z], '#eef0f2', null, 0.015);
+    for (const dz of [-0.6, 0.6]) k.bar('metal', [x, 2.5, z + dz], [x, H + 0.02, z + dz], 0.008, '#7a8086');
+  }
+  // bikes on hooks on the east wall, over the mower
+  for (const [z, col] of [[3.4, '#2f7fe0'], [4.3, '#d8261e']]) {
+    const x = -8.45;
+    k.torus('matte', 0.3, 0.02, [x, 1.95, z], '#1a1a1a', [0, Math.PI / 2, 0], 24);
+    k.torus('matte', 0.3, 0.02, [x, 0.95, z], '#1a1a1a', [0, Math.PI / 2, 0], 24);
+    k.bar('satin', [x, 1.95, z], [x, 1.35, z + 0.05], 0.03, col);
+    k.bar('satin', [x, 1.35, z + 0.05], [x, 0.95, z], 0.03, col);
+    k.bar('satin', [x, 1.95, z], [x, 1.3, z - 0.22], 0.03, col);
+    k.bar('satin', [x, 1.3, z - 0.22], [x, 1.35, z + 0.05], 0.03, col);
+    k.bar('metal', [-8.1, 2.28, z], [x, 2.28, z], 0.012, '#555');
+  }
+  // a floor drain in the middle of the bay
+  k.cyl('metal', 0.14, 0.14, 0.006, [-11.3, 0.003, 0.4], '#3a3d42', null, 16);
+  return k;
+}
+
 function GarageInterior({ map }) {
   const H = map.WALL_HEIGHT / M;
   const truss = useMemo(() => buildTruss(H), [H]);
@@ -555,53 +640,6 @@ function GarageInterior({ map }) {
     }
   }, [xs, truss]);
 
-  const geos = useMemo(() => {
-    const k = kit();
-    // plywood loft over the west end, the canoe and the boxes on it
-    k.box('wood', [3.6, 0.018, 8.4], [-18.1, H + 0.15, 0.5], '#d6bd8f');
-    k.box('wood', [0.04, 0.3, 8.4], [-16.3, H + 0.15, 0.5], '#caa874');
-    // the canoe, upside down: a stretched hull
-    const hull = new THREE.SphereGeometry(1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
-    k.add('gloss', hull, '#c8261e', [-18.4, H + 0.2, 0.3], [Math.PI, 0, 0], [0.42, 0.28, 2.3]);
-    for (let i = 0; i < 5; i++) {
-      const x = -19.5 + (i % 3) * 0.6, z = 3.0 + Math.floor(i / 3) * 0.7;
-      k.box('matte', [0.55, 0.4, 0.45], [x, H + 0.36 + (i === 4 ? 0.4 : 0), z - (i === 4 ? 0.7 : 0)], '#b98a54');
-      k.box('matte', [0.3, 0.1, 0.004], [x, H + 0.4 + (i === 4 ? 0.4 : 0), z - 0.226 - (i === 4 ? 0.7 : 0)], '#d8261e'); // XMAS
-    }
-    k.box('matte', [0.8, 0.35, 0.5], [-17.2, H + 0.33, -2.6], '#8a8f96'); // a suitcase
-    // the opener: a motor box on the ceiling, its rail out to the door
-    k.box('satin', [0.36, 0.2, 0.5], [-14, 2.55, 2.4], '#e6e3da', null, 0.03);
-    k.box('glow', [0.2, 0.02, 0.2], [-14, 2.44, 2.4], '#fff6e0');
-    k.box('metal', [0.05, 0.04, 6.3], [-14, 2.58, -0.95], '#8d949b');
-    k.bar('metal', [-14, 2.62, 2.2], [-14, H + 0.14, 2.2], 0.03, '#8d949b');
-    k.bar('metal', [-14, 2.62, -1.2], [-14, H + 0.14, -1.2], 0.03, '#8d949b');
-    // the red release handle on its cord
-    k.bar('matte', [-14, 2.56, -3.2], [-14, 1.95, -3.2], 0.006, '#d8261e');
-    k.box('satin', [0.09, 0.05, 0.03], [-14, 1.92, -3.2], '#d8261e', null, 0.01);
-    // the tennis ball on a string, just touching the windscreen
-    k.bar('matte', [-14.2, H + 0.1, 0.6], [-14.2, 1.55, 0.6], 0.003, '#f2f2f2');
-    k.sphere('fabric', 0.034, [-14.2, 1.52, 0.6], '#d6f24a', null, 12);
-    // LED battens on chains
-    for (const [x, z] of [[-17, -1.5], [-17, 2.2], [-10.8, -1.5], [-10.8, 2.2]]) {
-      k.box('satin', [0.12, 0.05, 1.5], [x, 2.47, z], '#eef0f2', null, 0.015);
-      for (const dz of [-0.6, 0.6]) k.bar('metal', [x, 2.5, z + dz], [x, H + 0.02, z + dz], 0.008, '#7a8086');
-    }
-    // bikes on hooks on the east wall, over the mower
-    for (const [z, col] of [[3.4, '#2f7fe0'], [4.3, '#d8261e']]) {
-      const x = -8.45;
-      k.torus('matte', 0.3, 0.02, [x, 1.95, z], '#1a1a1a', [0, Math.PI / 2, 0], 24);
-      k.torus('matte', 0.3, 0.02, [x, 0.95, z], '#1a1a1a', [0, Math.PI / 2, 0], 24);
-      k.bar('satin', [x, 1.95, z], [x, 1.35, z + 0.05], 0.03, col);
-      k.bar('satin', [x, 1.35, z + 0.05], [x, 0.95, z], 0.03, col);
-      k.bar('satin', [x, 1.95, z], [x, 1.3, z - 0.22], 0.03, col);
-      k.bar('satin', [x, 1.3, z - 0.22], [x, 1.35, z + 0.05], 0.03, col);
-      k.bar('metal', [-8.1, 2.28, z], [x, 2.28, z], 0.012, '#555');
-    }
-    // a floor drain in the middle of the bay
-    k.cyl('metal', 0.14, 0.14, 0.006, [-11.3, 0.003, 0.4], '#3a3d42', null, 16);
-    return k.build();
-  }, [H]);
-
   // one batten is slow to come on: it stutters for the first few seconds
   const slow = useRef();
   const t0 = useRef(null);
@@ -618,7 +656,6 @@ function GarageInterior({ map }) {
       {Object.entries(truss).map(([slot, g]) => (
         <instancedMesh key={slot} ref={(m) => { refs.current[slot] = m; }} args={[g, slotMat(slot), xs.length]} castShadow frustumCulled={false} />
       ))}
-      <KitMeshes geos={geos} />
       {/* the batten tubes themselves */}
       {[[-17, 2.2], [-10.8, -1.5], [-10.8, 2.2]].map(([x, z], i) => (
         <mesh key={i} position={[x * M, 2.44 * M, z * M]} material={battenMat}>
@@ -628,45 +665,39 @@ function GarageInterior({ map }) {
       <mesh ref={slow} position={[-17 * M, 2.44 * M, -1.5 * M]} material={slowMat}>
         <boxGeometry args={[0.07 * M, 0.012 * M, 1.44 * M]} />
       </mesh>
-      <RollerDoor map={map} />
     </group>
   );
 }
 
 // the roller door, rolled up: its sections lie flat in the ceiling tracks
-function RollerDoor({ map }) {
-  const H = map.WALL_HEIGHT / M;
-  const geos = useMemo(() => {
-    const k = kit();
-    const x0 = -17, x1 = -11, w = x1 - x0;
-    const y = 2.36;
-    // tracks: vertical up the jambs, curving into horizontals under the roof
-    for (const x of [x0 - 0.04, x1 + 0.04]) {
-      k.box('metal', [0.04, 2.1, 0.07], [x, 1.05, -3.82], '#9aa0a6');
-      k.box('metal', [0.04, 0.07, 2.9], [x, y + 0.04, -2.45], '#9aa0a6');
-      k.torus('metal', 0.22, 0.02, [x, 2.14, -3.6], '#9aa0a6', [0, Math.PI / 2, 0], 8, Math.PI / 2);
-      k.bar('metal', [x, y + 0.05, -1.1], [x, H + 0.1, -1.1], 0.03, '#7a8086');
-    }
-    // four sections, ribbed every 0.5 m (seen from below: the inside face)
-    for (let i = 0; i < 4; i++) {
-      const z = -3.55 + i * 0.58;
-      k.box('satin', [w, 0.04, 0.56], [(x0 + x1) / 2, y, z], '#f1f0ec');
-      for (let r = 0; r < 12; r++) k.box('satin', [0.03, 0.015, 0.56], [x0 + 0.25 + r * 0.5, y - 0.027, z], '#e2e0da');
-      for (let r = 0; r < 2; r++) k.box('metal', [w, 0.02, 0.02], [(x0 + x1) / 2, y - 0.03, z - 0.27 + r * 0.54], '#b6bbc0');
-    }
-    // the bottom rail with its rubber seal, and the handle, facing down
-    k.box('metal', [w, 0.05, 0.05], [(x0 + x1) / 2, y - 0.01, -3.85], '#b6bbc0');
-    k.box('matte', [w, 0.03, 0.02], [(x0 + x1) / 2, y - 0.035, -3.88], '#1a1a1a');
-    k.box('metal', [0.15, 0.04, 0.03], [(x0 + x1) / 2, y - 0.04, -3.7], '#555');
-    // the torsion spring bar over the opening, inside
-    k.cyl('metal', 0.03, 0.03, w + 0.3, [(x0 + x1) / 2, 2.52, -3.75], '#6a7076', [0, 0, Math.PI / 2], 8);
-    k.cyl('metal', 0.05, 0.05, 1.4, [-14.8, 2.52, -3.75], '#2a2a2a', [0, 0, Math.PI / 2], 10);
-    // the motion-sensor floodlight over the door, outside
-    k.box('satin', [0.3, 0.14, 0.12], [-14, 2.55, -4.2], '#2a2d31', null, 0.02);
-    k.cyl('satin', 0.05, 0.05, 0.06, [-13.7, 2.5, -4.2], '#2a2d31', null, 10);
-    return k.build();
-  }, [H]);
-  return <KitMeshes geos={geos} />;
+function addRollerDoor(k, H) {
+  const x0 = -17, x1 = -11, w = x1 - x0;
+  const y = 2.36;
+  // tracks: vertical up the jambs, curving into horizontals under the roof
+  for (const x of [x0 - 0.04, x1 + 0.04]) {
+    k.box('metal', [0.04, 2.1, 0.07], [x, 1.05, -3.82], '#9aa0a6');
+    k.box('metal', [0.04, 0.07, 2.9], [x, y + 0.04, -2.45], '#9aa0a6');
+    k.torus('metal', 0.22, 0.02, [x, 2.14, -3.6], '#9aa0a6', [0, Math.PI / 2, 0], 8, Math.PI / 2);
+    k.bar('metal', [x, y + 0.05, -1.1], [x, H + 0.1, -1.1], 0.03, '#7a8086');
+  }
+  // four sections, ribbed every 0.5 m (seen from below: the inside face)
+  for (let i = 0; i < 4; i++) {
+    const z = -3.55 + i * 0.58;
+    k.box('satin', [w, 0.04, 0.56], [(x0 + x1) / 2, y, z], '#f1f0ec');
+    for (let r = 0; r < 12; r++) k.box('satin', [0.03, 0.015, 0.56], [x0 + 0.25 + r * 0.5, y - 0.027, z], '#e2e0da');
+    for (let r = 0; r < 2; r++) k.box('metal', [w, 0.02, 0.02], [(x0 + x1) / 2, y - 0.03, z - 0.27 + r * 0.54], '#b6bbc0');
+  }
+  // the bottom rail with its rubber seal, and the handle, facing down
+  k.box('metal', [w, 0.05, 0.05], [(x0 + x1) / 2, y - 0.01, -3.85], '#b6bbc0');
+  k.box('matte', [w, 0.03, 0.02], [(x0 + x1) / 2, y - 0.035, -3.88], '#1a1a1a');
+  k.box('metal', [0.15, 0.04, 0.03], [(x0 + x1) / 2, y - 0.04, -3.7], '#555');
+  // the torsion spring bar over the opening, inside
+  k.cyl('metal', 0.03, 0.03, w + 0.3, [(x0 + x1) / 2, 2.52, -3.75], '#6a7076', [0, 0, Math.PI / 2], 8);
+  k.cyl('metal', 0.05, 0.05, 1.4, [-14.8, 2.52, -3.75], '#2a2a2a', [0, 0, Math.PI / 2], 10);
+  // the motion-sensor floodlight over the door, outside
+  k.box('satin', [0.3, 0.14, 0.12], [-14, 2.55, -4.2], '#2a2d31', null, 0.02);
+  k.cyl('satin', 0.05, 0.05, 0.06, [-13.7, 2.5, -4.2], '#2a2d31', null, 10);
+  return k;
 }
 
 // ---- Edison string lights: a bulb every 30 cm on a sagging line
@@ -680,24 +711,28 @@ function catenary(a, b, sag, step) {
   }
   return pts;
 }
-function StringLights({ map }) {
-  const strings = map.STRINGS || [];
-  const { bulbs, geos } = useMemo(() => {
-    const k = kit();
-    const out = [];
-    for (const [a, b, sag] of strings) {
-      const line = catenary(a, b, sag, 0.1);
-      k.add('matte', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(line.map((p) => new THREE.Vector3(...p))), line.length * 2, 0.004, 4), '#1a1a1a');
-      const bl = catenary(a, b, sag, 0.3);
-      for (let i = 1; i < bl.length - 1; i++) out.push(bl[i]);
-      // a pole at a far end that isn't on a wall (the backyard's)
-      for (const e of [a, b]) {
-        if (Math.abs(e[0]) > 19.5 && e[2] > 5 && e[1] > 1.5) {
-          k.box('wood', [0.08, e[1] + 0.1, 0.08], [e[0] + 0.1, (e[1] + 0.1) / 2, e[2] - 0.1], '#8a6a4a');
-        }
+// the wires the bulbs hang on, and a pole where a run ends in the yard
+function addStringWires(k, strings) {
+  for (const [a, b, sag] of strings) {
+    const line = catenary(a, b, sag, 0.1);
+    k.add('matte', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(line.map((p) => new THREE.Vector3(...p))), line.length * 2, 0.004, 4), '#1a1a1a');
+    for (const e of [a, b]) {
+      if (Math.abs(e[0]) > 19.5 && e[2] > 5 && e[1] > 1.5) {
+        k.box('wood', [0.08, e[1] + 0.1, 0.08], [e[0] + 0.1, (e[1] + 0.1) / 2, e[2] - 0.1], '#8a6a4a');
       }
     }
-    return { bulbs: out, geos: k.build() };
+  }
+  return k;
+}
+function StringLights({ map }) {
+  const strings = map.STRINGS || [];
+  const bulbs = useMemo(() => {
+    const out = [];
+    for (const [a, b, sag] of strings) {
+      const bl = catenary(a, b, sag, 0.3);
+      for (let i = 1; i < bl.length - 1; i++) out.push(bl[i]);
+    }
+    return out;
   }, [strings]);
   const bulbRef = useRef(), capRef = useRef();
   useLayoutEffect(() => {
@@ -726,7 +761,6 @@ function StringLights({ map }) {
   }, []);
   return (
     <group>
-      <KitMeshes geos={geos} shadow={false} />
       <instancedMesh ref={bulbRef} args={[bulbGeo, slotMat('warm'), bulbs.length]} frustumCulled={false} />
       <instancedMesh ref={capRef} args={[null, null, bulbs.length]} frustumCulled={false}>
         <cylinderGeometry args={[0.012 * M, 0.012 * M, 0.03 * M, 6]} />
@@ -737,40 +771,12 @@ function StringLights({ map }) {
 }
 
 // ---- wall boards: whiteboards, the kanban, the burndown, the pegboard, HQ
-const BOARD_FRAME = { arch: '#b9bec4', demo: '#b9bec4', burndown: '#b9bec4', kanban: '#6d4a26', pegboard: '#8a6a4a', hq: '#8a6a4a' };
+const BOARD_FRAME = { arch: '#b9bec4', demo: '#b9bec4', burndown: '#b9bec4', kanban: '#6d4a26', pegboard: '#8a6a4a', hq: '#8a6a4a', poster: '#1b1b1b' };
 function WallBoards({ map }) {
   const boards = map.BOARDS_ON_WALLS || [];
   const mats = useMemo(() => boards.map((b) => new THREE.MeshStandardMaterial({
-    map: BOARD_TEX[b.kind](), roughness: b.kind === 'kanban' || b.kind === 'pegboard' || b.kind === 'hq' ? 0.9 : 0.35,
+    map: BOARD_TEX[b.kind](), roughness: ['kanban', 'pegboard', 'hq', 'server'].includes(b.kind) ? 0.9 : 0.35,
   })), [boards]);
-  const frames = useMemo(() => {
-    const k = kit();
-    for (const b of boards) {
-      const [x, y, z] = b.at;
-      const cs = Math.cos(b.rotY), sn = Math.sin(b.rotY);
-      const put = (dx, dy, dz) => [x + dx * cs + dz * sn, y + dy, z - dx * sn + dz * cs];
-      const fw = 0.03, col = BOARD_FRAME[b.kind];
-      const slot = col === '#b9bec4' ? 'metal' : 'wood';
-      k.box(slot, [b.w + fw * 2, fw, 0.03], put(0, b.h / 2 + fw / 2, 0.012), col, [0, b.rotY, 0]);
-      k.box(slot, [b.w + fw * 2, fw, 0.03], put(0, -b.h / 2 - fw / 2, 0.012), col, [0, b.rotY, 0]);
-      k.box(slot, [fw, b.h, 0.03], put(-b.w / 2 - fw / 2, 0, 0.012), col, [0, b.rotY, 0]);
-      k.box(slot, [fw, b.h, 0.03], put(b.w / 2 + fw / 2, 0, 0.012), col, [0, b.rotY, 0]);
-      if (slot === 'metal') {
-        // a marker tray and two markers
-        k.box('metal', [b.w * 0.4, 0.02, 0.06], put(0, -b.h / 2 - 0.04, 0.04), '#9aa0a6', [0, b.rotY, 0]);
-        k.box('satin', [0.13, 0.018, 0.018], put(-0.1, -b.h / 2 - 0.02, 0.04), '#1d4fa8', [0, b.rotY, 0]);
-        k.box('satin', [0.13, 0.018, 0.018], put(0.08, -b.h / 2 - 0.02, 0.05), '#b3261e', [0, b.rotY, 0]);
-      }
-      if (b.kind === 'pegboard') {
-        // a few real tools proud of the board: a hammer, a coil of lead
-        k.box('wood', [0.03, 0.3, 0.03], put(-1.45, 0.05, 0.05), '#6d4a2a', [0, b.rotY, 0]);
-        k.box('metal', [0.14, 0.04, 0.04], put(-1.45, 0.21, 0.05), '#555a60', [0, b.rotY, 0]);
-        k.torus('satin', 0.14, 0.02, put(1.4, 0.0, 0.05), '#f07a1a', [0, b.rotY, 0], 16);
-        k.box('metal', [0.02, 0.02, 0.08], put(-0.4, 0.45, 0.04), '#777', [0, b.rotY, 0]);
-      }
-    }
-    return k.build();
-  }, [boards]);
   return (
     <group>
       {boards.map((b, i) => {
@@ -782,9 +788,36 @@ function WallBoards({ map }) {
           </mesh>
         );
       })}
-      <KitMeshes geos={frames} />
     </group>
   );
+}
+function addBoardFrames(k, boards) {
+  for (const b of boards) {
+    const [x, y, z] = b.at;
+    const cs = Math.cos(b.rotY), sn = Math.sin(b.rotY);
+    const put = (dx, dy, dz) => [x + dx * cs + dz * sn, y + dy, z - dx * sn + dz * cs];
+    const fw = 0.03, col = BOARD_FRAME[b.kind];
+    if (!col) continue; // taped up, no frame
+    const slot = col === '#b9bec4' ? 'metal' : 'wood';
+    k.box(slot, [b.w + fw * 2, fw, 0.03], put(0, b.h / 2 + fw / 2, 0.012), col, [0, b.rotY, 0]);
+    k.box(slot, [b.w + fw * 2, fw, 0.03], put(0, -b.h / 2 - fw / 2, 0.012), col, [0, b.rotY, 0]);
+    k.box(slot, [fw, b.h, 0.03], put(-b.w / 2 - fw / 2, 0, 0.012), col, [0, b.rotY, 0]);
+    k.box(slot, [fw, b.h, 0.03], put(b.w / 2 + fw / 2, 0, 0.012), col, [0, b.rotY, 0]);
+    if (slot === 'metal') {
+      // a marker tray and two markers
+      k.box('metal', [b.w * 0.4, 0.02, 0.06], put(0, -b.h / 2 - 0.04, 0.04), '#9aa0a6', [0, b.rotY, 0]);
+      k.box('satin', [0.13, 0.018, 0.018], put(-0.1, -b.h / 2 - 0.02, 0.04), '#1d4fa8', [0, b.rotY, 0]);
+      k.box('satin', [0.13, 0.018, 0.018], put(0.08, -b.h / 2 - 0.02, 0.05), '#b3261e', [0, b.rotY, 0]);
+    }
+    if (b.kind === 'pegboard') {
+      // a few real tools proud of the board: a hammer, a coil of lead
+      k.box('wood', [0.03, 0.3, 0.03], put(-1.45, 0.05, 0.05), '#6d4a2a', [0, b.rotY, 0]);
+      k.box('metal', [0.14, 0.04, 0.04], put(-1.45, 0.21, 0.05), '#555a60', [0, b.rotY, 0]);
+      k.torus('satin', 0.14, 0.02, put(1.4, 0.0, 0.05), '#f07a1a', [0, b.rotY, 0], 16);
+      k.box('metal', [0.02, 0.02, 0.08], put(-0.4, 0.45, 0.04), '#777', [0, b.rotY, 0]);
+    }
+  }
+  return k;
 }
 
 // ---- the SHIP IT neon: a glow on a clear acrylic backing; now and then the
@@ -831,51 +864,51 @@ function Neon({ map }) {
 }
 
 // ---- chalk on the driveway, its expansion joints, the lawn's stepping stones
+function addGround(k) {
+  const r = rng(13);
+  // expansion joints: a saw-cut every 3 m across the drive and one down it
+  for (let x = -18; x <= 5; x += 3) k.box('matte', [0.012, 0.004, 8], [x, 0.0, -8], '#5f5a52');
+  k.box('matte', [26, 0.004, 0.012], [-7, 0.0, -8], '#5f5a52');
+  // stepping stones across the lawn to the front door
+  const stones = [];
+  for (let x = 6.4; x < 15.2; x += 0.62) stones.push([x, -8.2 + (r() - 0.5) * 0.12]);
+  for (let z = -7.6; z < -4.7; z += 0.62) stones.push([15.5 + (r() - 0.5) * 0.12, z]);
+  for (const [x, z] of stones) {
+    const g = new THREE.CylinderGeometry(0.25, 0.26, 0.022, 16);
+    const pos = g.attributes.position;
+    const ph = r() * 6;
+    for (let i = 0; i < pos.count; i++) {
+      const px = pos.getX(i), pz = pos.getZ(i), a = Math.atan2(pz, px);
+      const w = 1 + 0.12 * Math.sin(a * 3 + ph) + 0.06 * Math.sin(a * 5 + ph * 2);
+      pos.setXYZ(i, px * w * (0.9 + r() * 0.02), pos.getY(i), pz * w);
+    }
+    g.computeVertexNormals();
+    k.add('matte', g, ['#a8a39a', '#9c978d', '#b1aca2'][Math.floor(r() * 3)], [x, 0.011, z], [0, r() * 3, 0]);
+  }
+  // patio pavers outside the slider
+  for (let x = -9.5; x < -6.1; x += 0.6) {
+    for (let z = 6.9; z < 10.7; z += 0.6) {
+      k.box('matte', [0.57, 0.012, 0.57], [x + 0.3, 0.006, z + 0.3], ['#b9b0a2', '#c4bbad', '#aea597'][Math.floor(r() * 3)]);
+    }
+  }
+  // the front step: a concrete pad at the door
+  k.box('matte', [2.4, 0.02, 0.9], [15.5, 0.008, -4.55], '#b9b4aa');
+  return k;
+}
+
 function Chalk({ map }) {
   const c = map.CHALK || {};
   const mats = useMemo(() => {
     const m = (tex) => new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, opacity: 0.9 });
     return { grid: m(chalkTex('grid')), finish: m(chalkTex('finish')), hop: m(chalkTex('hopscotch')) };
   }, []);
-  const geos = useMemo(() => {
-    const k = kit();
-    // expansion joints: a saw-cut every 3 m across the drive and one down it
-    for (let x = -18; x <= 5; x += 3) k.box('matte', [0.012, 0.004, 8], [x, 0.0, -8], '#5f5a52');
-    k.box('matte', [26, 0.004, 0.012], [-7, 0.0, -8], '#5f5a52');
-    // stepping stones across the lawn to the front door
-    const r = rng(13);
-    const stones = [];
-    for (let x = 6.4; x < 15.2; x += 0.62) stones.push([x, -8.2 + (r() - 0.5) * 0.12]);
-    for (let z = -7.6; z < -4.7; z += 0.62) stones.push([15.5 + (r() - 0.5) * 0.12, z]);
-    for (const [x, z] of stones) {
-      const g = new THREE.CylinderGeometry(0.25, 0.26, 0.022, 16);
-      const pos = g.attributes.position;
-      const ph = r() * 6;
-      for (let i = 0; i < pos.count; i++) {
-        const px = pos.getX(i), pz = pos.getZ(i), a = Math.atan2(pz, px);
-        const w = 1 + 0.12 * Math.sin(a * 3 + ph) + 0.06 * Math.sin(a * 5 + ph * 2);
-        pos.setXYZ(i, px * w * (0.9 + r() * 0.02), pos.getY(i), pz * w);
-      }
-      g.computeVertexNormals();
-      k.add('matte', g, ['#a8a39a', '#9c978d', '#b1aca2'][Math.floor(r() * 3)], [x, 0.011, z], [0, r() * 3, 0]);
-    }
-    // patio pavers outside the slider
-    for (let x = -9.5; x < -6.1; x += 0.6) {
-      for (let z = 6.9; z < 10.7; z += 0.6) {
-        k.box('matte', [0.57, 0.012, 0.57], [x + 0.3, 0.006, z + 0.3], ['#b9b0a2', '#c4bbad', '#aea597'][Math.floor(r() * 3)]);
-      }
-    }
-    // the front step: a concrete pad at the door
-    k.box('matte', [2.4, 0.02, 0.9], [15.5, 0.008, -4.55], '#b9b4aa');
-    return k.build();
-  }, []);
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, Math.PI / 2]} position={[-17.4 * M, 0.02, -8.7 * M]} material={mats.grid}>
+      <mesh rotation-x={-Math.PI / 2} position={[-17.4 * M, 0.02, -8.7 * M]} material={mats.grid}>
         <planeGeometry args={[4.4 * M, 3.4 * M]} />
       </mesh>
       {c.finish && (
-        <mesh rotation={[-Math.PI / 2, 0, Math.PI / 2]} position={[c.finish[0] * M, 0.021, c.finish[1] * M]} material={mats.finish}>
+        <mesh rotation-x={-Math.PI / 2} position={[c.finish[0] * M, 0.021, c.finish[1] * M]} material={mats.finish}>
           <planeGeometry args={[c.finish[2] * 2 * M, c.finish[2] * 2 * M]} />
         </mesh>
       )}
@@ -884,7 +917,6 @@ function Chalk({ map }) {
           <planeGeometry args={[1.0 * M, 2.0 * M]} />
         </mesh>
       )}
-      <KitMeshes geos={geos} shadow={false} />
     </group>
   );
 }

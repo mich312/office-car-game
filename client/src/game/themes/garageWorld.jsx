@@ -194,8 +194,7 @@ function house(k, x0, z0, w, d, facing, opts) {
   return k;
 }
 
-function buildNeighbourhood() {
-  const k = kit();
+export function addNeighbourhood(k) {
   // ground: lawns everywhere the map isn't
   k.box('turf', [200, 0.02, 160], [0, -0.07, 0], '#5a7f38');
   // our side of the street: sidewalk, verge, kerb
@@ -256,7 +255,7 @@ function buildNeighbourhood() {
       k.add('matte', new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.012, 3), '#1a1a1a');
     }
   }
-  return k.build();
+  return k;
 }
 
 // Street and garden trees: one instanced mesh per material of a single tree.
@@ -357,8 +356,7 @@ function gable(k, x, z0, z1, H, ridge, inner, outer, sx) {
   k.extrude(outer, tri, 0.1, [x + sx * 0.05, H, zc], '#ffffff', [0, Math.PI / 2, 0]);
   k.extrude(inner, tri, 0.1, [x - sx * 0.05, H, zc], '#ffffff', [0, Math.PI / 2, 0]);
 }
-function buildRoofs(H) {
-  const k = kit();
+export function addRoofs(k, H) {
   // the garage: open underneath
   slope(k, -20.35, -8, -4, 0.5, 3.9, H, 0.45, 'open');
   slope(k, -20.35, -8, 5, 0.5, 3.9, H, 0.45, 'open');
@@ -392,7 +390,7 @@ function buildRoofs(H) {
   k.box('satin', [0.14, 0.22, 0.1], [17.0, 1.9, -4.15], '#2a2d31');
   k.box('warm', [0.1, 0.14, 0.02], [17.0, 1.9, -4.21], '#ffcf8a');
   k.box('satin', [0.4, 0.14, 0.02], [14.0, 1.9, -4.12], '#2a2d31');
-  return k.build();
+  return k;
 }
 
 // ---------------------------------------- night lights spilling outside
@@ -440,18 +438,17 @@ function OutsideGlows({ map }) {
 
 // The yards' turf. The floor under it is carpet2 (turf drives like pile);
 // this is what it looks like: mown grass in stripes, tufts along the fences.
-function Turf({ map }) {
-  const geos = useMemo(() => {
-    const k = kit();
-    for (const r of map.ROOMS) {
-      if (!r.outdoor || r.floor !== 'carpet2') continue;
-      const x = r.x / M, z = r.z / M, w = r.w / M, d = r.d / M;
-      k.box('turf', [w, 0.004, d], [x, 0.004, z], '#7fae4c');
-      // mowing stripes: every other 1 m band a shade lighter
-      for (let i = 0; i < Math.floor(w); i += 2) k.box('turf', [1, 0.004, d], [x - w / 2 + i + 0.5, 0.0045, z], '#8dbb57');
-    }
-    return k.build();
-  }, [map]);
+export function addTurf(k, map) {
+  for (const r of map.ROOMS) {
+    if (!r.outdoor || r.floor !== 'carpet2') continue;
+    const x = r.x / M, z = r.z / M, w = r.w / M, d = r.d / M;
+    k.box('turf', [w, 0.004, d], [x, 0.004, z], '#7fae4c');
+    // mowing stripes: every other 1 m band a shade lighter
+    for (let i = 0; i < Math.floor(w); i += 2) k.box('turf', [1, 0.004, d], [x - w / 2 + i + 0.5, 0.0045, z], '#8dbb57');
+  }
+  return k;
+}
+function Tufts() {
   const tufts = useMemo(() => {
     const out = [];
     const r = rng(33);
@@ -493,27 +490,17 @@ function Turf({ map }) {
     ref.current.instanceMatrix.needsUpdate = true;
   }, [tufts]);
   return (
-    <group>
-      <KitMeshes geos={geos} shadow={false} />
-      <instancedMesh ref={ref} args={[tuftGeo, tuftMat, tufts.length]} frustumCulled={false} />
-    </group>
+    <instancedMesh ref={ref} args={[tuftGeo, tuftMat, tufts.length]} frustumCulled={false} />
   );
 }
 
 export function World({ map }) {
-  const { scene } = useThree();
-  if (typeof window !== 'undefined') window.__garageScene = scene; // DEBUG
-  const H = map.WALL_HEIGHT / M;
-  const hood = useMemo(buildNeighbourhood, []);
-  const roofs = useMemo(() => buildRoofs(H), [H]);
   return (
     <group>
       <Sky map={map} />
       <FarRing />
-      <Turf map={map} />
-      <KitMeshes geos={hood} />
+      <Tufts />
       <Trees />
-      <KitMeshes geos={roofs} />
       <OutsideGlows map={map} />
     </group>
   );

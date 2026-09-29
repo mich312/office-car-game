@@ -393,6 +393,28 @@ export const BOARD_TEX = {
     g.strokeStyle = '#f07a1a'; g.lineWidth = 9;
     for (let k = 0; k < 4; k++) { g.beginPath(); g.ellipse(930, 250, 50 - k * 4, 60 - k * 3, 0.2, 0, Math.PI * 2); g.stroke(); }
   }),
+  server: () => canvasTex(300, 424, (g, W, H) => {
+    // an A4 sheet taped by the laundry door, printed and then corrected
+    g.fillStyle = '#fbfaf6'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#1b1b1b'; g.textAlign = 'center';
+    g.font = `bold 46px ${BLOCK}`; g.fillText('SERVER', W / 2, 80); g.fillText('ROOM', W / 2, 130);
+    g.font = `26px ${BLOCK}`; g.fillText('DO NOT UNPLUG', W / 2, 190); g.fillText('ANYTHING', W / 2, 222);
+    g.fillStyle = '#b3261e'; g.font = `bold 30px ${HAND}`;
+    g.save(); g.translate(W / 2, 300); g.rotate(-0.08); g.fillText('(also: laundry)', 0, 0); g.fillText('no hot washes', 0, 40); g.restore();
+    g.fillStyle = 'rgba(230,220,160,0.7)'; g.fillRect(W / 2 - 50, -6, 100, 26); g.fillRect(W / 2 - 50, H - 20, 100, 26);
+  }),
+  poster: () => canvasTex(350, 500, (g, W, H) => {
+    // the founder's motivational poster, lightly ironic
+    const grd = g.createLinearGradient(0, 0, 0, H);
+    grd.addColorStop(0, '#1d2f5a'); grd.addColorStop(1, '#e8743a');
+    g.fillStyle = grd; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#ffe9b0'; g.beginPath(); g.arc(W / 2, H * 0.58, 70, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#10182c'; g.beginPath(); g.moveTo(0, H * 0.72); g.lineTo(W * 0.3, H * 0.5); g.lineTo(W * 0.55, H * 0.66); g.lineTo(W * 0.8, H * 0.44); g.lineTo(W, H * 0.6); g.lineTo(W, H); g.lineTo(0, H); g.fill();
+    g.fillStyle = '#ffffff'; g.textAlign = 'center';
+    g.font = `bold 52px ${BLOCK}`; g.fillText('SHIP IT', W / 2, 90);
+    g.font = `20px ${BLOCK}`; g.fillText('THEN FIX IT', W / 2, 124);
+    g.font = `16px ${BLOCK}`; g.fillText('DAY 1 · 2024', W / 2, H - 24);
+  }),
   hq: () => canvasTex(512, 136, (g, W, H) => {
     // hand-painted plywood: "HQ" and the company name, a little wonky
     const grd = g.createLinearGradient(0, 0, W, 0);
@@ -438,20 +460,22 @@ export function neonTex(text, color) {
 // on transparent and laid flat.
 export function chalkTex(kind) {
   if (kind === 'finish') {
+    // laid with canvas-right = east (the way the race runs): a chequered
+    // band down the canvas (across the drive), FINISH written sideways so it
+    // reads from the driver's seat, chevrons pointing on
     return canvasTex(512, 512, (g, W, H) => {
       g.clearRect(0, 0, W, H);
       const r = rng(29);
-      // a chequered band across the drive and a wobbly FINISH
       const s = 32;
-      for (let x = 0; x < W; x += s) for (let y = 200; y < 264; y += s) {
+      for (let x = 224; x < 288; x += s) for (let y = 0; y < H; y += s) {
         if (((x / s) + (y / s)) % 2 < 1) continue;
         g.fillStyle = `rgba(250,250,245,${0.7 + r() * 0.2})`; g.fillRect(x + r() * 2, y + r() * 2, s - 2, s - 2);
       }
-      g.save(); g.translate(W / 2, 330); g.rotate(-0.05);
+      g.save(); g.translate(150, H / 2); g.rotate(Math.PI / 2 + 0.04);
       g.fillStyle = 'rgba(255,240,120,0.85)'; g.font = `bold 84px ${HAND}`; g.textAlign = 'center'; g.fillText('FINISH', 0, 30);
       g.restore();
       g.strokeStyle = 'rgba(255,255,255,0.75)'; g.lineWidth = 6;
-      for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(40 + k * 150, 120); g.lineTo(110 + k * 150, 140); g.lineTo(40 + k * 150, 160); g.stroke(); }
+      for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(340, 110 + k * 140); g.lineTo(380, 140 + k * 140); g.lineTo(340, 170 + k * 140); g.stroke(); }
     }, { aniso: 8 });
   }
   if (kind === 'hopscotch') {
@@ -468,14 +492,18 @@ export function chalkTex(kind) {
       g.beginPath(); g.arc(128, 64, 50, Math.PI, 0); g.stroke();
     }, { aniso: 8 });
   }
-  // the grid: boxes behind the line, three abreast
+  // the grid: boxes open toward the finish (canvas right = east), numbered
+  // front row first and written to read from the driver's seat
   return canvasTex(512, 256, (g, W, H) => {
     g.clearRect(0, 0, W, H);
     g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 6;
     for (let row = 0; row < 4; row++) for (let col = 0; col < 3; col++) {
-      const x = 20 + row * 124, y = 16 + col * 78;
+      const x = 20 + (3 - row) * 124, y = 16 + col * 78;
       g.beginPath(); g.moveTo(x + 104, y); g.lineTo(x, y); g.lineTo(x, y + 66); g.lineTo(x + 104, y + 66); g.stroke();
-      g.fillStyle = 'rgba(255,255,255,0.8)'; g.font = `bold 34px ${HAND}`; g.fillText(String(row * 3 + col + 1), x + 16, y + 46);
+      g.save(); g.translate(x + 30, y + 33); g.rotate(Math.PI / 2);
+      g.fillStyle = 'rgba(255,255,255,0.8)'; g.font = `bold 34px ${HAND}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(String(row * 3 + (2 - col) + 1), 0, 0);
+      g.restore();
     }
   }, { aniso: 8 });
 }
