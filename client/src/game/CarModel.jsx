@@ -28,13 +28,16 @@ const WHEEL_POS = [
 // damper) from the body down to the wishbone. Every frame they're stretched
 // between where the wheel really is (the suspension rays) and where the body
 // really is (its lean and landing squash), so you see the springs work. The
-// hatch bodies cover their wheels, so they don't draw any.
+// hatch bodies get the same kit tucked inside the arches: you see the coil
+// working in the gap above the tyre.
 // top: shock-tower height; out: how far out the tower sits, as a share of
 // the wheel's own x (near 1 = right beside the wheel, where RC shocks live)
 const SUSPENSION = {
   buggy: { top: 0.24, out: 0.9, spring: '#e8b830' },
   monster: { top: 0.28, out: 0.82, spring: '#e0362f' },
   formula: { top: 0.13, out: 0.72, spring: '#3d8bff' },
+  drift: { top: 0.11, out: 0.76, spring: '#b04dff' },
+  balanced: { top: 0.12, out: 0.76, spring: '#34c46a' },
 };
 const _unitY = new THREE.Vector3(0, 1, 0);
 const _unitX = new THREE.Vector3(1, 0, 0);
