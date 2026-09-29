@@ -24,5 +24,32 @@ const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + na
   check(`race: the races had finishers (${races}/12)`, races >= 10);
 }
 
+// ------------------------------------------- bots line up for every round
+{
+  const angle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const lined = (room) => [...room.players.values()].filter((p) => p.bot).every((p) => {
+    const s = room.startSpot(p);
+    const yaw = 2 * Math.atan2(p.q[1], p.q[3]);
+    return Math.hypot(p.p[0] - s.x, p.p[2] - s.z) < 0.01 && Math.abs(angle(p.heading - s.rotY)) < 1e-6
+      && Math.abs(angle(yaw - s.rotY)) < 1e-6 && p.wp === 0 && p.speed === 0;
+  });
+  for (const map of ['office', 'cellar']) {
+    const sim = await createSim({ seed: 3, mode: 'desk_dash', map });
+    const room = sim.room;
+    sim.run(30);
+    room.startCountdown('soccer');
+    check(`${map}: soccer bots start on their own team's kickoff spots`, lined(room)
+      && [...room.players.values()].every((p) => room.map.SOCCER.kickoff.some((k) => k.x === p.p[0] && k.z === p.p[2])));
+    sim.run(30);
+    // an Office Cup rolls the next round straight in, bots and all
+    room.startCountdown('desk_dash', 'reverse');
+    check(`${map}: the next cup round puts every bot back on the (reverse) grid, facing it`, lined(room));
+    const grid = MAPS[map].REVERSE_SPAWN_ROTY;
+    check(`${map}: …the reverse grid's heading, not north or west`, [...room.players.values()].every((p) => p.heading === grid));
+    room.startCountdown('desk_dash', 'classic');
+    check(`${map}: …and the classic grid the round after`, lined(room));
+  }
+}
+
 console.log(fails ? `\n${fails} race check(s) failed` : '\nall race checks passed');
 process.exit(fails ? 1 : 0);

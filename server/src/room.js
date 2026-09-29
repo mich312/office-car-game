@@ -15,7 +15,7 @@ import {
   ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
   MUTATORS, MUTATOR_CHANCE, CUP_POOL,
   encodeSnapshot,
-  rollVariant, variantOf, MODE_VARIANTS,
+  rollVariant, variantOf, MODE_VARIANTS, raceSpawn, BOOST_MAX, newDriftState,
 } from '@rc/shared';
 import { createMode } from './modes.js';
 import { Bots } from './bots.js';
@@ -402,6 +402,21 @@ export class Room {
       });
     }
     this.mode = createMode(this.modeId, this);
+    // Bots line up where the humans' clients put themselves. After the mode
+    // exists, because soccer assigns the teams that pick the kickoff half.
+    // Office Cup rounds keep their bots, so this also clears everything a
+    // bot carried out of the last round: where it stood, which way it faced,
+    // its waypoint and speed.
+    for (const p of this.players.values()) {
+      if (!p.bot) continue;
+      const s = this.startSpot(p);
+      Object.assign(p, {
+        p: [s.x, 0.24, s.z], q: [0, Math.sin(s.rotY / 2), 0, Math.cos(s.rotY / 2)], v: [0, 0, 0],
+        heading: s.rotY, wp: 0, speed: 0, kick: { x: 0, z: 0 }, stuckT: 0,
+        boost: BOOST_MAX, boosting: false, drift: newDriftState(),
+        boostUntil: 0, itemAt: 0, oilUntil: 0, hopAt: 0,
+      });
+    }
     // per-mode length (Open Office runs long); env override wins for testing
     const len = Number(process.env.RC_MATCH_SECONDS) || MODES[this.modeId]?.seconds || MATCH_SECONDS;
     this.endsAt = now() + (COUNTDOWN_SECONDS + len) * 1000;
@@ -761,6 +776,21 @@ export class Room {
   }
 
   // ------------------------------------------------------------- respawning
+  // A player's place at the start of a round, exactly where LocalCar's
+  // match_start teleport puts a human: soccer on its team's kickoff spots
+  // (by ordinal within the team, in the order START lists the teams), every
+  // other mode on the grid, turned for a reverse race.
+  startSpot(player) {
+    if (this.modeId === 'soccer') {
+      const kick = this.map.SOCCER.kickoff;
+      const team = player.team || 0;
+      const spots = kick.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
+      const ord = [...this.players.values()].filter((p) => (p.team || 0) === team).indexOf(player);
+      return spots[Math.max(0, ord) % spots.length] || kick[0];
+    }
+    return raceSpawn(player.spawnIndex ?? 0, this.modeId === 'desk_dash' ? this.variant : 'classic', this.map);
+  }
+
   respawnPlayer(player, safe) {
     const t = now();
     // consequences of leaving the field fire first (spill beans, drop battery,
