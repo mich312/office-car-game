@@ -18,9 +18,9 @@ export default function Emotes() {
     if (fx.type !== 'emote' && fx.type !== 'ability') return;
     const text = fx.type === 'ability' ? (fx.icon || '✨') : fx.horn ? '📣' : EMOTES[fx.e] ?? '❓';
     if (fx.horn && fx.id !== net.myId) {
+      // from where the car is: the panner handles distance and side
       const r = sampleRemote(fx.id);
-      const d = r ? Math.hypot(r.p[0] - telemetry.x, r.p[2] - telemetry.z) : 20;
-      audio.horn(Math.max(0.15, 1 - d / 45));
+      audio.horn(1, r ? r.p : null);
     }
     const until = performance.now() + LIFE_MS;
     // one bubble per car — a new emote replaces the old one

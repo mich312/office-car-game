@@ -211,6 +211,27 @@ periodically blasts blinding paper at passers-by, ramming the kitchen
 vending machine drops cans (sometimes a golden one: free powerup), and the
 sprinkler-test event soaks every floor.
 
+## Sound
+
+The soundtrack is **synthesized live and follows the match**, late-night
+office electro-funk in D dorian: lo-fi warm in the garage, a groove in the
+lobby, a heartbeat and a riser through the countdown that drop on GO, all
+hands in the race, and a whole-step key lift with the lead hook for the final
+lap, the last 30 seconds, or the last two standing. Lights-out and ghost cam
+muffle it; big crashes, goals and eliminations duck it so they cut through.
+The arrangement is pure data (`client/src/music/score.js`) and tested as
+music: every note fits the chord under it.
+
+**Have real music?** Drop files in `client/public/music/` with a
+`manifest.json` mapping cues to files (`garage`, `lobby`, `countdown`,
+`race`, `intense`, `podium`) and they replace the synthesized cues; any cue
+left out keeps its synthesized version.
+
+You can hear your rivals: the nearest four get positional engine voices
+(pitch follows their speed, boost is audible), and their crashes and horns
+come from where they happened. The garage **SOUND** tab has Master / Music /
+Effects faders, mute, and a jukebox to audition every cue.
+
 ## The office
 
 One handcrafted 42×24 m floor, thirteen rooms, no loading screens:

@@ -7,6 +7,16 @@ const saved = (() => {
   try { return JSON.parse(localStorage.getItem('rc-mayhem') || '{}'); } catch { return {}; }
 })();
 
+// Mixer faders from localStorage: numbers 0…1 or the default.
+function sanitizeVolumes(v) {
+  const out = { master: 1, music: 0.7, effects: 1 };
+  for (const k of Object.keys(out)) {
+    const n = Number(v?.[k]);
+    if (Number.isFinite(n)) out[k] = Math.min(1, Math.max(0, n));
+  }
+  return out;
+}
+
 let focusTimer = null;
 
 export const useStore = create((set, get) => ({
@@ -44,6 +54,8 @@ export const useStore = create((set, get) => ({
   night: false, // derived from timeOfDay; kept so consumers can ask the cheap question
   photoMode: false,
   muted: !!saved.muted,
+  // mixer faders, 0…1: Master, Music, Effects (engine + ambience + one-shots)
+  volumes: sanitizeVolumes(saved.volumes),
   // assist: throttle defaults to full when idle — defaults ON for touch
   autoGas: saved.autoGas !== undefined
     ? !!saved.autoGas
@@ -87,12 +99,12 @@ export const useStore = create((set, get) => ({
     get().save();
   },
   save() {
-    const { name, car, paint, cos, style, tune, xp, muted, autoGas } = get();
+    const { name, car, paint, cos, style, tune, xp, muted, autoGas, volumes } = get();
     // guarded like the read at the top: where storage is blocked (quota,
     // restricted embed) a throw here would abort whatever gameplay handler
     // called us — e.g. addXp inside MATCH_END would kill the podium events
     try {
-      localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas }));
+      localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas, volumes }));
     } catch { /* profile just doesn't persist */ }
   },
   setFocus(region) {

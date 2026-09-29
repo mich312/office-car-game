@@ -1,6 +1,6 @@
 // Other players & bots: kinematic bodies driven by interpolated snapshots,
 // so the local car physically bounces off them.
-import { useRef, memo } from 'react';
+import { useRef, memo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { Detailed } from '@react-three/drei';
@@ -32,6 +32,10 @@ const _rcorner = new THREE.Vector3();
 const REAR = [[-0.28, -0.15, -0.34], [0.28, -0.15, -0.34]];
 const FX_RANGE = 40; // drift smoke & skid marks only near the camera
 
+// Where every remote car is and how it sounds, for the engine voices
+// (audio.updateRivals picks the nearest few). Written per frame below.
+export const rivalAudio = new Map();
+
 const RemoteCar = memo(function RemoteCar({ player }) {
   const rb = useRef();
   const group = useRef();
@@ -44,6 +48,7 @@ const RemoteCar = memo(function RemoteCar({ player }) {
   const lastVel = useRef(null);
 
   const skidKeys = [`${player.id}:0`, `${player.id}:1`];
+  useEffect(() => () => rivalAudio.delete(player.id), [player.id]);
 
   useFrame((state, dt) => {
     const s = sampleRemote(player.id);
@@ -79,6 +84,9 @@ const RemoteCar = memo(function RemoteCar({ player }) {
     // drawn, so nobody ever saw anyone else drift.
     const f = s.f || 0;
     boostingRef.current = !!(f & 256);
+    // knocked-out ghosts in Last Car Standing make no sound
+    if ((f & 128) && useStore.getState().modeId === 'last_standing') rivalAudio.delete(player.id);
+    else rivalAudio.set(player.id, { id: player.id, x: s.p[0], y: s.p[1], z: s.p[2], speed: speedRef.current, car: player.car, boosting: !!(f & 256) });
     const cam = state.camera.position;
     const near = Math.hypot(s.p[0] - cam.x, s.p[2] - cam.z) < FX_RANGE;
     if (near && (f & 1) && (f & 2) && speedRef.current > 4) {

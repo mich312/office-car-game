@@ -9,7 +9,7 @@ import Lighting from './Lighting.jsx';
 import Office from './Office.jsx';
 import Props from './Props.jsx';
 import LocalCar from './LocalCar.jsx';
-import RemoteCars from './RemoteCars.jsx';
+import RemoteCars, { rivalAudio } from './RemoteCars.jsx';
 import ModeObjects from './ModeObjects.jsx';
 import OfficeEvents from './OfficeEvents.jsx';
 import Emotes from './Emotes.jsx';
@@ -39,6 +39,18 @@ function Stats() {
     window.__glStats = { calls: gl.info.render.calls, triangles: gl.info.render.triangles };
     gl.info.reset();
   }, LOWFX ? 0 : 100);
+  return null;
+}
+
+// The ears ride with the camera (chase, spectator drone or photo orbit alike),
+// and the nearest rivals get engine voices. Default priority: a positive one
+// would take over rendering (see Stats above).
+function RivalAudio() {
+  useFrame(({ camera }) => {
+    audio.setListener(camera);
+    audio.updateRivals([...rivalAudio.values()]);
+  });
+  useEffect(() => () => audio.silenceRivals(), []);
   return null;
 }
 
@@ -80,6 +92,7 @@ export default function Game() {
         <OfficeBoard />
         <Emotes />
         <SpectatorCam />
+        <RivalAudio />
         <PhotoOrbitCam />
         {FINE_POINTER && <ControllerHUD />}
         {!LOWFX && <Effects />}
