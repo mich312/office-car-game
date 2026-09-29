@@ -128,7 +128,10 @@ class LastStandingMode {
   }
   // only a real fall eliminates — a courtesy R-key respawn shouldn't
   onFall(p) { if (p.p[1] < -6) this.eliminate(p, 'went over the edge'); }
-  onJoin(p) { p.eliminated = false; p.zapT = 0; } // drop-ins join the fray
+  // Drop-ins join the fray until the first car is out or the first room
+  // shuts. After that they spectate: a reconnect is a new id, so an
+  // eliminated player could otherwise reload the page and rejoin alive.
+  onJoin(p) { p.eliminated = this.outCount > 0 || this.locked.length > 0; p.zapT = 0; }
   // a disconnect can leave one car standing just like an elimination can —
   // without this the survivor idles out the whole remaining match timer
   onLeave() { this.checkLastStanding(); }
@@ -262,6 +265,9 @@ class CoffeeMode {
   onHit(attacker, victim) { this.spill(victim, attacker ? attacker.name : null); }
   // only a real fall spills — a courtesy R-key flip recovery shouldn't
   onFall(p) { if (p.p[1] < -6) this.spill(p, 'gravity', true); }
+  // …but beans don't ride a respawn: they stay where the car was, or R is a
+  // free teleport to the machine (the cellar grid is next to it)
+  onRespawn(p) { this.spill(p, 'respawned', true); }
   rocketTarget(player) {
     const order = [...this.room.players.values()].filter((p) => p !== player)
       .sort((a, b) => (b.score + b.beans * 5) - (a.score + a.beans * 5));
@@ -319,6 +325,9 @@ class BatteryMode {
   }
   // only a real fall drops the battery — an R-key flip recovery shouldn't
   onFall(p) { if (p.p[1] < -6) this.drop(p); }
+  // …but it doesn't ride the respawn either: it stays where the carrier was
+  // (R every second kept it, spawn-protected, out of everyone's reach)
+  onRespawn(p) { this.drop(p); }
   onLeave(p) { this.drop(p); }
   rocketTarget(player) {
     if (this.battery.carrier && this.battery.carrier !== player.id) return this.room.players.get(this.battery.carrier);

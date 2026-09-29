@@ -92,23 +92,34 @@ await playMode('tag', async (a, b) => {
   const rub = a.all('fx').find((m) => m.type === 'bump' && m.kind === 'rub');
   check('tag: low-rel-speed bump classified as rub', !!rub);
 
-  // Respawn flow: request → RESPAWN_AT with freeze/protect, protection flag set
-  a.send({ t: 'respawn' });
+  // Respawn flow: request → RESPAWN_AT with freeze/protect, protection flag set.
+  // Whoever is It gets no protection (a respawn is not an escape), so the
+  // flow is checked on a car that isn't.
+  const itNow = a.snaps[a.snaps.length - 1].it;
+  const [r, o] = itNow === a.id ? [b, a] : [a, b];
+  r.send({ t: 'respawn' });
   await sleep(300);
-  const rs = a.last('rsat');
+  const rs = r.last('rsat');
   check('respawn: server answers RESPAWN_AT', !!rs && Number.isFinite(rs.x) && Number.isFinite(rs.z));
   check('respawn: freeze+protect windows included', rs?.freeze > 0 && rs?.protect > 0);
-  const snap2 = a.snaps[a.snaps.length - 1];
-  check('respawn: protection flag (64) visible in snapshot', !!(snap2.players[a.id].f & 64));
+  const snap2 = r.snaps[r.snaps.length - 1];
+  check('respawn: protection flag (64) visible in snapshot', !!(snap2.players[r.id].f & 64));
 
   // Protected player can't be hit
-  a.msgs.length = 0;
-  state(b, [rs.x + 1, 1, rs.z], [20, 0, 0]);
-  state(a, [rs.x, 1, rs.z], [-20, 0, 0]);
+  r.msgs.length = 0;
+  state(o, [rs.x + 1, 1, rs.z], [20, 0, 0]);
+  state(r, [rs.x, 1, rs.z], [-20, 0, 0]);
   await sleep(150);
-  b.send({ t: 'bump', target: a.id });
+  o.send({ t: 'bump', target: r.id });
   await sleep(300);
-  check('respawn: protected car ignores bumps', !a.all('fx').some((m) => m.type === 'bump' && m.kind === 'hit'));
+  check('respawn: protected car ignores bumps', !r.all('fx').some((m) => m.type === 'bump' && m.kind === 'hit'));
+
+  // …once: pressing R again inside the cooldown renews nothing
+  await sleep(1300); // respawn requests are rate limited
+  r.send({ t: 'respawn' });
+  await sleep(300);
+  const rs2 = r.last('rsat');
+  check('respawn: a second respawn inside the cooldown adds no protection', !!rs2 && rs2 !== rs && rs2.protect < rs.protect);
 
   // Prop momentum relay: A whacked prop 0 → B receives the fx, A does not
   b.msgs.length = 0;

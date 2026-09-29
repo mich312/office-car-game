@@ -111,6 +111,10 @@ export const DOWNFORCE = 0.5; // accel per unit of forward speed
 // plus a spawn-protection window that ends early if the spawner attacks.
 export const SPAWN_PROTECT_MS = 2000;
 export const RESPAWN_FREEZE_MS = 900;
+// Protection is a courtesy for a car that just spawned, not a shield to
+// renew with R: one protected respawn per this window, and none for the car
+// the others are hunting (You're It).
+export const RESPAWN_PROTECT_COOLDOWN_MS = 8000;
 export const SAFE_POSE_INTERVAL_MS = 200; // sampling rate of the pose ring
 export const SAFE_POSE_BUFFER = 12; // ≈2.4 s of history; respawn at oldest
 export const SAFE_POSE_MIN_GROUNDED_S = 0.5; // pose counts only after this
