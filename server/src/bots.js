@@ -227,6 +227,7 @@ export class Bots {
     const mode = this.room.mode;
     const modeId = this.room.modeId;
     let goal = null;
+    let routed = false; // goal is already the next step of a route
     if (modeId === 'coffee_run' && mode) {
       if (p.beans >= 4) {
         goal = { x: this.room.map.COFFEE_MACHINE.deliverX, z: this.room.map.COFFEE_MACHINE.deliverZ };
@@ -245,6 +246,10 @@ export class Bots {
       else goal = c ? this.intercept(p, c) : { x: b.x, z: b.z };
     } else if (modeId === 'last_standing' && mode) {
       goal = this.lcsGoal(p, mode);
+      // lcsGoal routes round the closed rooms itself; the plain door graph
+      // below re-routed its step the short way — through them. The finale's
+      // ring is the one goal it leaves to the door graph.
+      routed = !mode.finale;
     } else if (modeId === 'soccer' && mode) {
       goal = this.soccerTarget(p, mode);
     } else if (modeId === 'koth' && mode) {
@@ -282,6 +287,7 @@ export class Bots {
     const pad = this.padTarget(p, goal);
     if (pad) return pad;
     if (!goal) return this.followRaceLine(p);
+    if (routed) return goal;
     // the zone modes route through doors: a zone behind a wall is reached
     // round it, not by jamming against it at the nearest racing-line point
     if (NAV_MODES.has(modeId)) return navTo(this.room.map, { x: p.p[0], z: p.p[2] }, goal);
@@ -503,9 +509,11 @@ export class Bots {
       // locked one.
       const locked = mode.locked.includes(here);
       const safe = (n) => n.room && (locked ? !mode.locked.includes(n.room) : !bad(n.room));
-      const w = locked ? null : (id) => (mode.locked.includes(id) ? LCS_CLOSED_COST : 1);
+      // …but not through another locked room: the zap clock keeps running
+      // across it (tower bots fled the locked core through the locked pantry)
+      const w = (id) => (id !== here && mode.locked.includes(id) ? LCS_CLOSED_COST : 1);
       const good = navOf(map).nodes.filter(safe);
-      return navStep(map, me, navField(map, good, w, `${key}:flee${locked ? 'L' : 'W'}`), w) || good[0] || null;
+      return navStep(map, me, navField(map, good, w, `${key}:flee${locked ? `L${here}` : 'W'}`), w) || good[0] || null;
     }
     // cruise: the next racing-line waypoint in an open room we can reach
     // without crossing a closed one — an open room on the far side of a
