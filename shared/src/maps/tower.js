@@ -227,7 +227,8 @@ const RAMPS = [
   // coffee-table books piled up to the bar
   ramp(-12.4, -2.4, 2.0, 0.7, 1.05, Math.PI / 2, 'tower_books'),
   // a teak step onto the terrace bench, straight out of the war room slider
-  ramp(10.25, 3.72, 1.3, 0.8, 0.45, Math.PI / 2, 'tower_deck'),
+  // (its top edge meets the bench's end at x 11.0 — no slot to drop a wheel in)
+  ramp(10.35, 3.72, 1.3, 0.8, 0.45, Math.PI / 2, 'tower_deck'),
   // crates of sparkling water up onto the pantry island
   ramp(10.2, 0.6, 2.0, 0.7, 0.92, Math.PI / 2, 'tower_crates'),
 ];
@@ -579,11 +580,14 @@ export const TOWER = {
     { text: '48', sub: 'EXECUTIVE FLOOR', kind: 'brass', at: [-6.88, 1.5, -5.4], rotY: Math.PI / 2, w: 0.9 },
     { text: 'WAR ROOM', sub: 'IN SESSION', kind: 'session', at: [-2.35, 2.25, 2.9], rotY: Math.PI, w: 1.3 },
     { text: 'ONE TEAM. ONE DREAM.', kind: 'vinyl', at: [7.12, 2.1, -5.6], rotY: Math.PI / 2, w: 3 },
-    { text: 'EXECUTIVE LOUNGE', kind: 'brass', at: [-13.2, 2.4, -3.88], rotY: 0, w: 1.6 },
+    // (on the wall east of the lounge door, not half over the opening)
+    { text: 'EXECUTIVE LOUNGE', kind: 'brass', at: [-12.3, 2.4, -3.88], rotY: 0, w: 1.6 },
     { text: 'STAIRS', sub: 'WASHROOMS', kind: 'plain', at: [-5, 1.9, 0.18], rotY: Math.PI, w: 0.9 },
-    { text: 'COMMS', sub: 'AUTHORISED ONLY', kind: 'plain', at: [2.88, 1.9, 1.8], rotY: -Math.PI / 2, w: 0.7 },
+    // beside the cupboard door (z 1.3..2.3), on the wall — not hanging in it
+    { text: 'COMMS', sub: 'AUTHORISED ONLY', kind: 'plain', at: [2.88, 1.6, 0.75], rotY: -Math.PI / 2, w: 0.7 },
     { text: 'EXIT', kind: 'exit', at: [-5, 2.7, 0.18], rotY: Math.PI, w: 0.6 },
-    { text: 'EXIT', kind: 'exit', at: [6.88, 2.8, -0.5], rotY: -Math.PI / 2, w: 0.6 },
+    // hung in the corridor's open east mouth: tight under the ceiling
+    { text: 'EXIT', kind: 'exit', at: [6.88, 3.15, -0.5], rotY: -Math.PI / 2, w: 0.6 },
   ],
   // the scrolling LED ticker over the bullpen door: [x, y, z], rotY, width
   TICKER: { text: 'Q4  97.3 % TO TARGET   ▲ EBITDA +4.1   ▲ NPS 71   ▼ CHURN 2.2 %   SYNERGY: ON TRACK   ', at: [13.5, 2.55, -2.12], rotY: Math.PI, w: 4.5 },

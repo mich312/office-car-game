@@ -356,7 +356,7 @@ export const BUILD = {
     p.add(G.shape(tri, 0.045, 'spk'), 'matte', C.graphite, SPK[0], h, SPK[1]);
     for (const [x, z] of tri) p.add(G.cyl(0.03, 0.035, 0.05, 10), 'matte', '#44484f', SPK[0] + x * 0.9, h + 0.025, SPK[1] + z * 0.9);
     p.add(G.box(0.02, 0.006, 0.02), 'glow', '#5ad08a', SPK[0], h + 0.047, SPK[1]);
-    p.add(G.box(KICK.l, 0.014, KICK.w), 'leather', null, KICK.x, h + KICK.rise / 2, KICK.z, 0, 0, KICK.ang, 1, 1, 1);
+    p.add(G.box(KICK.l, 0.014, KICK.w), 'leather', null, KICK.x, h + KICK.y, KICK.z, 0, 0, KICK.ang, 1, 1, 1);
     p.add(G.box(KICK.l, KICK.rise * 0.5, KICK.w - 0.04), 'leather', null, KICK.x + 0.05, h + KICK.rise * 0.25, KICK.z, 0, 0, 0, 0.8, 1, 1);
     for (const s of [-1, 1]) p.box('brass', null, 0.04, 0.016, 0.04, KICK.x + KICK.l / 2 - 0.03, h + KICK.rise - 0.004, KICK.z + s * (KICK.w / 2 - 0.02), 0.003);
   },
@@ -445,6 +445,10 @@ export const BUILD = {
 // colliders so what you see is what you hit)
 const SPK = [-0.8, 0.3];
 const KICK = { x: 3.55, z: 0.4, l: 0.5, w: 0.62, rise: 0.055, ang: Math.atan2(0.055, 0.5) };
+// the folio's centre height over the table: sunk by its half-thickness so its
+// leading edge is flush with the lacquer (a 1 cm lip there stopped cars dead,
+// and jammed any placard they were pushing)
+KICK.y = KICK.rise / 2 - 0.01;
 
 function pianoOutline(w, d) {
   const hw = w / 2, hd = d / 2;
@@ -476,7 +480,11 @@ export const COLLIDE = {
     return out;
   },
   tower_plinth: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0], [0.18, 0.3, 0.18, 0, h + 0.3, 0]],
-  tower_bench: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
+  // the seat on its two chrome X-frames: open underneath, like it looks
+  tower_bench: (w, d, h) => [
+    [w / 2, 0.045, d / 2, 0, h - 0.045, 0],
+    [0.02, (h - 0.09) / 2, 0.14, -(w / 2 - 0.12), (h - 0.09) / 2, 0], [0.02, (h - 0.09) / 2, 0.14, w / 2 - 0.12, (h - 0.09) / 2, 0],
+  ],
   tower_credenza: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
   tower_fireplace: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
   tower_sofa: (w, d, h) => [[w / 2, 0.21, d / 2, 0, 0.21, 0], [w / 2, h / 2, 0.12, 0, h / 2, -d / 2 + 0.12]],
@@ -500,11 +508,20 @@ export const COLLIDE = {
     [w / 2, 0.025, d / 2, 0, h - 0.025, 0],
     [0.25, (h - 0.05) / 2, 0.35, -2.4, (h - 0.05) / 2, 0], [0.25, (h - 0.05) / 2, 0.35, 2.4, (h - 0.05) / 2, 0],
     [0.12, 0.022, 0.12, SPK[0], h + 0.022, SPK[1]],
-    [KICK.l / 2, 0.01, KICK.w / 2, KICK.x, h + KICK.rise / 2, KICK.z, KICK.ang],
+    [KICK.l / 2, 0.01, KICK.w / 2, KICK.x, h + KICK.y, KICK.z, KICK.ang],
   ],
-  tower_terracebench: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
+  // the teak top on three concrete plinths (there's 40 cm of air between them)
+  tower_terracebench: (w, d, h) => [
+    [w / 2, 0.0225, d / 2, 0, h - 0.0225, 0],
+    ...[-w / 2 + 0.4, 0, w / 2 - 0.4].map((x) => [0.25, (h - 0.05) / 2, (d - 0.1) / 2, x, (h - 0.05) / 2, 0]),
+  ],
   tower_olive: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0], [0.08, 0.5, 0.08, 0, h + 0.5, 0]],
-  tower_lounger: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
+  // the slatted bed, its raised back and four legs — a car fits underneath
+  tower_lounger: (w, d, h) => [
+    [w / 2, 0.075, d / 2, 0, h - 0.055, 0],
+    [w / 2, 0.12, d * 0.16, 0, h + 0.08, d / 2 - d * 0.16],
+    ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([s, k]) => [0.025, (h - 0.13) / 2, 0.025, s * (w / 2 - 0.05), (h - 0.13) / 2, k * (d / 2 - 0.1)]),
+  ],
   tower_mast: (w, d, h) => [[w / 2, 0.125, d / 2, 0, 0.125, 0], [0.06, h / 2, 0.06, 0, h / 2, 0]],
   tower_island: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
   tower_mediawall: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0], [w / 2 - 0.15, 0.02, 0.15, 0, 0.42, d / 2 + 0.15]],
@@ -515,11 +532,18 @@ export const COLLIDE = {
   ],
   tower_espresso: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0], [0.24, 0.2, 0.32, 0.02, h + 0.2, -d / 2 + 0.45]],
   tower_fridgewall: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
-  tower_deskrow: (w, d, h) => [
-    [w / 2 - 0.02, 0.0125, d / 2, 0, h - 0.0125, 0],
-    [0.05, 0.6, d / 2, 0, 0.6, 0],
-    [w / 2 - 0.06, 0.35, 0.04, 0, 0.35, -d / 2 + 0.08], [w / 2 - 0.06, 0.35, 0.04, 0, 0.35, d / 2 - 0.08],
-  ],
+  // top, privacy screen, and every trestle as drawn (two legs and the low
+  // bar between them) — not a solid panel at each end and nothing between
+  tower_deskrow: (w, d, h) => {
+    const out = [[w / 2 - 0.02, 0.0125, d / 2, 0, h - 0.0125, 0], [0.05, 0.6, d / 2, 0, 0.6, 0]];
+    const bays = Math.max(2, Math.round(d / 1.5));
+    for (let i = 0; i <= bays; i++) {
+      const z = -d / 2 + 0.08 + ((d - 0.16) / bays) * i;
+      for (const s of [-1, 1]) out.push([0.02, (h - 0.025) / 2, 0.03, s * (w / 2 - 0.08), (h - 0.025) / 2, z]);
+      out.push([w / 2 - 0.08, 0.015, 0.025, 0, 0.08, z]);
+    }
+    return out;
+  },
   tower_booth: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
 };
 export const FRICTION = { tower_boardtable: 0.5, tower_ceodesk: 0.9, tower_terracebench: 1.1, tower_bar: 0.8, tower_island: 0.7 };

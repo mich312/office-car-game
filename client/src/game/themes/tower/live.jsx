@@ -38,6 +38,7 @@ export function Lifts({ map }) {
   const st = useMemo(() => xs.map((_, i) => ({ open: 0, until: 0, busy: false, next: 3 + i * 2.7 + hash(i) * 6 })), [xs]);
   const leafMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#c09045', metalness: 1, roughness: 0.28 }), []);
   const lampMat = useMemo(() => new THREE.MeshBasicMaterial({ map: indicatorTex(), toneMapped: false }), []);
+  useEffect(() => () => { leafMat.dispose(); lampMat.dispose(); }, [leafMat, lampMat]);
   const Z = -4.0; // the core's lobby face
   const arrive = (i, t) => {
     const s = st[i];
@@ -66,8 +67,8 @@ export function Lifts({ map }) {
     const t = clock.elapsedTime;
     const L = leaves.current;
     if (!L) return;
-    xs.forEach((x, i) => {
-      const s = st[i];
+    for (let i = 0; i < xs.length; i++) {
+      const x = xs[i], s = st[i];
       if (!s.busy && t > s.next) arrive(i, t);
       let o = 0;
       if (s.busy) {
@@ -90,7 +91,7 @@ export function Lifts({ map }) {
         _o.updateMatrix();
         L.setMatrixAt(i * 4 + k, _o.matrix);
       }
-    });
+    }
     L.instanceMatrix.needsUpdate = true;
     lamps.current.instanceColor.needsUpdate = true;
   });
@@ -231,6 +232,8 @@ export function VideoWall({ map }) {
   const dotMat = useMemo(() => new THREE.MeshBasicMaterial({
     map: glowTex(), color: '#7fe3ff', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
   }), []);
+  // a 1536 × 864 canvas texture per visit: give it back on the way out
+  useEffect(() => () => { tex.dispose(); material.dispose(); dotMat.dispose(); }, [tex, material, dotMat]);
   const acc = useRef(1);
   const W = V.w, Hh = V.h;
   // map u,v (0..1 over the left 2×2 panels) → wall-local metres
@@ -248,15 +251,15 @@ export function VideoWall({ map }) {
     dotMat.color.set(crash ? '#ff5a4a' : '#7fe3ff');
     const D = dots.current;
     if (!D) return;
-    cityPos.forEach(([x, y], i) => {
+    for (let i = 0; i < cityPos.length; i++) {
       const k = (t * 0.7 + hash(i) * 3) % 1.6;
       const sc = k < 1 ? 0.4 + k * 2.2 : 0.001;
-      _o.position.set(u(x), u(y), u(0.01));
+      _o.position.set(u(cityPos[i][0]), u(cityPos[i][1]), u(0.01));
       _o.rotation.set(0, 0, 0);
       _o.scale.set(sc, sc, 1);
       _o.updateMatrix();
       D.setMatrixAt(i, _o.matrix);
-    });
+    }
     D.instanceMatrix.needsUpdate = true;
   });
   return (
@@ -340,6 +343,7 @@ export function Signs({ map }) {
     return new THREE.MeshStandardMaterial({ map: map_, roughness: 0.5 });
   }), [signs]);
   const lampMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#330606', toneMapped: false }), []);
+  useEffect(() => () => { mats.forEach((m) => m.dispose()); lampMat.dispose(); }, [mats, lampMat]);
   const session = signs.find((s) => s.kind === 'session');
   useFrame(({ clock }) => {
     // the red lamp is lit while a meeting (a match) is on
@@ -387,6 +391,7 @@ export function Ticker({ map }) {
     return t;
   }, [T]);
   const m = useMemo(() => new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }), [tex]);
+  useEffect(() => () => m.dispose(), [m]);
   useFrame((_, dt) => { tex.offset.x = (tex.offset.x + dt * 0.035) % 1; });
   return (
     <mesh position={T.at.map(u)} rotation-y={T.rotY} material={m}>
@@ -413,17 +418,18 @@ const flameTex = () => canvas('tflame', 256, 128, (g, w, h) => {
   }
 }, { repeat: [1, 1] });
 
-export function Fire({ at, len = 1.4 }) {
+export function Fire({ at, len = 1.4, map }) {
   const a = useRef(), b = useRef(), pool = useRef();
   const m = useMemo(() => new THREE.MeshBasicMaterial({ map: flameTex(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }), []);
   const pm = useMemo(() => new THREE.MeshBasicMaterial({ map: glowTex(), color: '#ff8a3c', transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false }), []);
+  useEffect(() => () => { m.dispose(); pm.dispose(); }, [m, pm]);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
     const f = 0.85 + Math.sin(t * 9.1) * 0.06 + Math.sin(t * 15.7) * 0.05 + Math.sin(t * 3.3) * 0.05;
     if (a.current) { a.current.scale.y = f; a.current.position.y = u(0.47) + u(0.13) * f; }
     if (b.current) { b.current.scale.y = 1.9 - f; b.current.position.y = u(0.47) + u(0.13) * (1.9 - f); }
     m.map.offset.x = (t * 0.07) % 1;
-    const level = lightingFor(useStore.getState().timeOfDay, false).practical;
+    const level = lightingFor(useStore.getState().timeOfDay, false, map).practical;
     pm.opacity = (0.12 + level * 0.25) * f;
   });
   return (
@@ -458,6 +464,7 @@ export function Terrace({ map }) {
   const leafMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }), []);
   const beacon = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff2010', toneMapped: false }), []);
   const halo = useMemo(() => new THREE.MeshBasicMaterial({ map: glowTex(), color: '#ff3020', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), []);
+  useEffect(() => () => { geo.dispose(); leafMat.dispose(); beacon.dispose(); halo.dispose(); }, [geo, leafMat, beacon, halo]);
   const haloRef = useRef();
   useFrame(({ clock }, dt) => {
     const t = clock.elapsedTime;
@@ -467,14 +474,15 @@ export function Terrace({ map }) {
     lean.current += (target - lean.current) * Math.min(1, dt * (blowing ? 5 : 1.5));
     const I = ref.current;
     if (I) {
-      olives.forEach((f, i) => {
+      for (let i = 0; i < olives.length; i++) {
+        const f = olives[i];
         const wob = blowing ? Math.sin(t * 11 + i) * 0.04 : 0;
         _o.position.set(f.x, f.h + u(1.0), f.z);
         _o.rotation.set(lean.current + wob, i * 1.3, 0, 'YXZ');
         _o.scale.setScalar(0.95 + hash(i) * 0.2);
         _o.updateMatrix();
         I.setMatrixAt(i, _o.matrix);
-      });
+      }
       I.instanceMatrix.needsUpdate = true;
     }
     // the aircraft-warning light: 1 Hz
@@ -525,6 +533,7 @@ const gondolaGeo = () => {
 function Gondola() {
   const ref = useRef();
   const geos = useMemo(gondolaGeo, []);
+  useEffect(() => () => geos.forEach((g) => g.geometry.dispose()), [geos]);
   const st = useRef({ x: -16, dir: 1 });
   useFrame((_, dt) => {
     const s = st.current;
@@ -545,12 +554,13 @@ function Gondola() {
 
 // ======================================================= light pools
 // Additive glow on the floor under each downlight: brighter at night.
-export function Pools({ spots }) {
+export function Pools({ spots, map }) {
   const ref = useRef();
   const m = useMemo(() => new THREE.MeshBasicMaterial({
     map: glowTex(), color: '#ffd9a8', transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending,
     depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
   }), []);
+  useEffect(() => () => m.dispose(), [m]);
   useLayoutEffect(() => {
     spots.forEach(([x, z], i) => {
       _o.position.set(u(x), 0.03, u(z));
@@ -563,7 +573,7 @@ export function Pools({ spots }) {
   }, [spots]);
   useFrame((_, dt) => {
     const st = useStore.getState();
-    const target = lightingFor(st.timeOfDay, st.event?.id === 'lights_out').pool;
+    const target = lightingFor(st.timeOfDay, st.event?.id === 'lights_out', map).pool;
     m.opacity += (target * 0.8 - m.opacity) * Math.min(1, dt * 2);
   });
   return (
@@ -579,6 +589,13 @@ export function Pools({ spots }) {
 export function FloorSounds({ map }) {
   const next = useRef({ phone: 8, hiss: 20 });
   const desks = useMemo(() => map.FURNITURE.filter((f) => f.type === 'tower_desk'), [map]);
+  // the trill is six timed dings: none may ring on after the floor is gone
+  const timers = useRef(new Set());
+  useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
+  const later = (fn, ms) => {
+    const id = setTimeout(() => { timers.current.delete(id); fn(); }, ms);
+    timers.current.add(id);
+  };
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
     const n = next.current;
@@ -586,9 +603,9 @@ export function FloorSounds({ map }) {
       const d = desks[Math.floor(hash(Math.floor(t)) * desks.length)];
       const at = [d.x, d.h + u(0.1), d.z];
       for (let k = 0; k < 2; k++) {
-        setTimeout(() => { audio.ding(at, 0.22, 1568); }, k * 900);
-        setTimeout(() => { audio.ding(at, 0.2, 1318); }, k * 900 + 90);
-        setTimeout(() => { audio.ding(at, 0.22, 1568); }, k * 900 + 180);
+        later(() => audio.ding(at, 0.22, 1568), k * 900);
+        later(() => audio.ding(at, 0.2, 1318), k * 900 + 90);
+        later(() => audio.ding(at, 0.22, 1568), k * 900 + 180);
       }
       n.phone = t + 18 + hash(Math.floor(t) + 7) * 25;
     }
@@ -639,9 +656,10 @@ export function RainGlass({ map }) {
     const t = rainTex();
     return new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   }, []);
+  useEffect(() => () => { geo?.dispose(); m.dispose(); }, [geo, m]);
   useFrame((_, dt) => {
     const st = useStore.getState();
-    const wet = lightingFor(st.timeOfDay, st.event?.id === 'lights_out').wet;
+    const wet = lightingFor(st.timeOfDay, st.event?.id === 'lights_out', map).wet;
     m.opacity += ((wet ? 0.16 : 0) - m.opacity) * Math.min(1, dt);
     m.map.offset.y = (m.map.offset.y + dt * 0.18) % 1;
   });

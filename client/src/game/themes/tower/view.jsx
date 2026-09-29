@@ -20,6 +20,7 @@ import { M } from '@rc/shared';
 import { useStore } from '../../../store.js';
 import { hash, canvas } from './kit.js';
 import { audio } from '../../../audio.js';
+import { lightingFor } from '../../daylight.js';
 
 // world units per real metre out there: the city at 1/14 scale
 export const CITY = M / 14;
@@ -258,8 +259,9 @@ const cloudTex = () => canvas('tcloud', 256, 128, (g, w, h) => {
 
 const _o = new THREE.Object3D();
 const _col = new THREE.Color();
+const _sun = new THREE.Vector3();
 
-export function CityView() {
+export function CityView({ map }) {
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
@@ -285,6 +287,7 @@ export function CityView() {
   }), [uniforms]);
 
   const boxGeo = useMemo(() => new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), []);
+  useEffect(() => () => { Object.values(mats).forEach((m) => m.dispose()); boxGeo.dispose(); }, [mats, boxGeo]);
 
   useLayoutEffect(() => {
     layout.forEach((t, i) => {
@@ -321,22 +324,26 @@ export function CityView() {
     U.uCity.value += (target.city - U.uCity.value) * k;
     U.uTime.value = clock.elapsedTime;
     mats.ground.uniforms.uCam.value.copy(camera.position);
-    // the sun direction comes from the light itself (Lighting.jsx moves it)
-    const sun = camera.parent?.children?.find?.((o) => o.isDirectionalLight);
-    if (sun) U.uSunDir.value.copy(sun.position).sub(sun.target.position).normalize();
+    // the sun's direction: the same hour table Lighting.jsx aims the light
+    // from, swung round the same way (the camera has no parent to find the
+    // light through, which left the sun disc parked in the west all day)
+    const L = lightingFor(useStore.getState().timeOfDay, lightsOut, map);
+    _sun.set(L.sun.pos[0], L.sun.pos[1], L.sun.pos[2]).normalize();
+    U.uSunDir.value.lerp(_sun, k).normalize();
     // beacons: one second on, one off, like every other tower top at night
     const on = Math.floor(clock.elapsedTime * 1.1) % 2 === 0;
     mats.beacon.color.setRGB(on ? 2.4 : 0.15, on ? 0.2 : 0.02, on ? 0.12 : 0.01);
     // clouds drift round slowly, lit by the hour
     mats.cloud.color.copy(U.uHaze.value).lerp(U.uSun.value, 0.35 * U.uCity.value).multiplyScalar(0.6 + 0.6 * U.uCity.value + U.uLit.value * 0.1);
-    cloudData.forEach((c, i) => {
+    for (let i = 0; i < cloudData.length; i++) {
+      const c = cloudData[i];
       c.a += c.v * dt * 0.1;
       _o.position.set(Math.sin(c.a) * c.d, c.y, Math.cos(c.a) * c.d);
       _o.lookAt(0, c.y, 0);
       _o.scale.set(c.s, c.s * 0.42, 1);
       _o.updateMatrix();
       clouds.current.setMatrixAt(i, _o.matrix);
-    });
+    }
     clouds.current.instanceMatrix.needsUpdate = true;
   });
 
@@ -377,7 +384,7 @@ function chopper() {
   const out = ctx.createGain(); out.gain.value = 0;
   src.connect(lp); lp.connect(am); am.connect(out); out.connect(bus.amb);
   src.start(); lfo.start();
-  return { ctx, out };
+  return { ctx, out, stop: () => { src.stop(); lfo.stop(); out.disconnect(); } };
 }
 
 function Helicopter() {
@@ -387,7 +394,13 @@ function Helicopter() {
   const body = useMemo(() => new THREE.MeshBasicMaterial({ color: '#15171c', fog: false }), []);
   const light = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff3020', toneMapped: false, fog: false }), []);
   const rotor = useMemo(() => new THREE.MeshBasicMaterial({ color: '#15171c', transparent: true, opacity: 0.25, depthWrite: false, fog: false }), []);
-  useEffect(() => () => { if (snd.current) snd.current.out.gain.value = 0; }, []);
+  // a looping noise source and an LFO per visit: stop and unhook them on the
+  // way out, or every trip to the tower leaves another pair running
+  useEffect(() => () => {
+    body.dispose(); light.dispose(); rotor.dispose();
+    if (snd.current) snd.current.stop();
+    snd.current = undefined;
+  }, [body, light, rotor]);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime + 30;
     const k = (t % HELI_PERIOD) / HELI_PASS; // 0..1 while crossing
