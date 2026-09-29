@@ -50,16 +50,21 @@ const C = {
 
 // -------------------------------------------------------- shared clock
 // The server's time in seconds: the same on every client, so the line runs
-// in lockstep everywhere. A Line Stop freezes the line (it keeps a tally of
-// stopped time, so it restarts where it stopped — also in lockstep).
+// in lockstep everywhere. A Line Stop freezes the line; when it restarts it
+// runs at double speed until it has made up the lost time and is back on the
+// server's clock. So the line never carries a history of its own: a player
+// who joined after the stop (or a tab that slept through it) sees the arms,
+// and meets the big arms' grippers, exactly where everyone else does.
 const shopTime = () => (performance.now() + net.clockOffset) / 1000;
-const LINE = { t: 0, frozen: 0, last: null, stopped: false };
+const LINE = { t: 0, lag: 0, last: null, stopped: false };
 function tickLine(stopped) {
   const now = shopTime();
-  if (LINE.last !== null && LINE.stopped) LINE.frozen += now - LINE.last;
+  // a long gap is a slept tab or a clock resync, not line time
+  const dt = LINE.last === null ? 0 : Math.min(0.1, Math.max(0, now - LINE.last));
+  LINE.lag = stopped ? LINE.lag + dt : Math.max(0, LINE.lag - dt);
   LINE.last = now;
   LINE.stopped = stopped;
-  LINE.t = now - LINE.frozen;
+  LINE.t = now - LINE.lag;
   return LINE.t;
 }
 
@@ -156,6 +161,18 @@ const MAT = {
   })),
 };
 const matFor = (key) => MAT[key]();
+
+// What a mount builds for itself (merged batches, per-map atlases, its own
+// materials) is freed when it unmounts: quick play changes map every round,
+// and R3F only disposes what it created from JSX. Cached kinds (`once`,
+// `cached`) live for the session and never come through here.
+function free(x) {
+  if (!x) return;
+  if (x.isBufferGeometry || x.isMaterial || x.isTexture) x.dispose();
+  else if (Array.isArray(x)) x.forEach(free);
+  else if (Object.getPrototypeOf(x) === Object.prototype) Object.values(x).forEach(free);
+}
+const useFree = (...xs) => useEffect(() => () => free(xs), xs);
 
 // ------------------------------------------------------------- textures
 function canvas(w, h, draw) {
@@ -496,6 +513,7 @@ function gripTarget(out, side, bx, bz, tau) {
 }
 
 const _t3 = [0, 0, 0];
+const _kv = { x: 0, y: 0, z: 0 };
 function Arm({ f }) {
   const { x, z } = f;
   const side = f.side || 'N';
@@ -566,7 +584,10 @@ function Arm({ f }) {
     if (upper.current) upper.current.rotation.x = -a1;
     if (fore.current) fore.current.rotation.x = a1 - a2;
     if (wrist.current) wrist.current.rotation.x = a2 + Math.PI / 2;
-    if (kin.current) kin.current.setNextKinematicTranslation({ x: _t3[0], y: _t3[1] - m(0.02), z: _t3[2] });
+    if (kin.current) {
+      _kv.x = _t3[0]; _kv.y = _t3[1] - m(0.02); _kv.z = _t3[2];
+      kin.current.setNextKinematicTranslation(_kv);
+    }
   });
 
   const meshes = (g) => <mesh geometry={g} material={matFor('paint')} castShadow />;
@@ -763,10 +784,12 @@ function QaPages({ map }) {
     return k.parts.size ? k.build().paper : null;
   }, [map]);
   const paperMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1 }), []);
+  useFree(drift, paperMat);
   useFrame(() => {
     if (!ref.current) return;
     const t = LINE.t;
-    slots.forEach((sl, i) => {
+    for (let i = 0; i < slots.length; i++) {
+      const sl = slots[i];
       const c = ((t + sl.seed) % QA_PERIOD) / QA_PERIOD; // 0…1 through one page
       const out = Math.min(1, c / 0.35); // feeding out of the printer
       const fall = Math.max(0, (c - 0.35) / 0.3); // tipping off the shelf
@@ -778,7 +801,7 @@ function QaPages({ map }) {
       _pg.scale.setScalar(c > 0.94 ? 0.0001 : 1);
       _pg.updateMatrix();
       ref.current.setMatrixAt(i, _pg.matrix);
-    });
+    }
     ref.current.instanceMatrix.needsUpdate = true;
   });
   return (
@@ -1074,6 +1097,8 @@ export const PIECES = {
 export function Dressing({ map }) {
   const event = useStore((s) => s.event);
   const stopped = event?.id === 'server_overload';
+  // a new floor starts on the server's clock, whatever the last one owed
+  useEffect(() => { LINE.lag = 0; LINE.last = null; }, []);
   useFrame(() => {
     tickLine(stopped);
     // the belts: one texture offset moves every conveyor of a kind. The
@@ -1173,10 +1198,14 @@ function StaticStock({ map }) {
     }
     // ---- pallets on the floor with their loads
     for (const p of F.filter((e) => e.type === 'factory_pallet')) {
-      palletInto(k, p.x, 0, p.z, p.rotY + (p.w < p.d ? Math.PI / 2 : 0));
+      // a pallet and its load are 1.2 × 1.0 along their own x; one authored
+      // 1.0 × 1.2 lies the other way round, and so must what is on it, or
+      // the load hangs out of its collider
+      const rotY = p.rotY + (p.w < p.d ? Math.PI / 2 : 0);
+      palletInto(k, p.x, 0, p.z, rotY);
       const top = p.h - m(0.15);
       if (top <= 0) continue;
-      const c = Math.cos(p.rotY), s = Math.sin(p.rotY);
+      const c = Math.cos(rotY), s = Math.sin(rotY);
       const at = (lx, y, lz) => [p.x + lx * c + lz * s, y, p.z - lx * s + lz * c];
       if (p.load === 'wrapped' || p.load === 'cartons') {
         const tiers = Math.max(1, Math.round(top / m(0.44)));
@@ -1184,30 +1213,30 @@ function StaticStock({ map }) {
         for (let t = 0; t < tiers; t++) {
           for (const ox of [-0.3, 0.3]) {
             for (const oz of [-0.25, 0.25]) {
-              k.box('carton', '#ffffff', m(0.58), th - m(0.01), m(0.48), at(m(ox), m(0.15) + th / 2 + t * th, m(oz)), [0, p.rotY, 0]);
+              k.box('carton', '#ffffff', m(0.58), th - m(0.01), m(0.48), at(m(ox), m(0.15) + th / 2 + t * th, m(oz)), [0, rotY, 0]);
             }
           }
         }
-        if (p.load === 'wrapped') k.box('film', '#dfe8ee', m(1.22), top + m(0.02), m(1.02), [p.x, m(0.15) + top / 2, p.z], [0, p.rotY, 0]);
+        if (p.load === 'wrapped') k.box('film', '#dfe8ee', m(1.22), top + m(0.02), m(1.02), [p.x, m(0.15) + top / 2, p.z], [0, rotY, 0]);
       } else if (p.load === 'parts') {
         // a gitterbox of parts: galvanised frame, mesh sides, parts heaped in
-        for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.box('metal', C.galv, m(0.04), top, m(0.04), at(sx * m(0.58), m(0.15) + top / 2, sz * m(0.48)), [0, p.rotY, 0]);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) k.box('metal', C.galv, m(0.04), top, m(0.04), at(sx * m(0.58), m(0.15) + top / 2, sz * m(0.48)), [0, rotY, 0]);
         for (const [lx, lz, len, r] of [[0, 0.5, 1.2, 0], [0, -0.5, 1.2, 0], [0.6, 0, 1.0, Math.PI / 2], [-0.6, 0, 1.0, Math.PI / 2]]) {
-          k.box('metal', C.galv, m(len), m(0.03), m(0.03), at(m(lx), m(0.15) + top, m(lz)), [0, p.rotY + r, 0]);
+          k.box('metal', C.galv, m(len), m(0.03), m(0.03), at(m(lx), m(0.15) + top, m(lz)), [0, rotY + r, 0]);
           const g = worldPlane(m(len), top - m(0.03), m(0.05));
-          _eul.set(0, p.rotY + r, 0); _quat.setFromEuler(_eul);
+          _eul.set(0, rotY + r, 0); _quat.setFromEuler(_eul);
           g.applyMatrix4(_mat4.compose(_pos.set(...at(m(lx), m(0.15) + top / 2, m(lz))), _quat, _scl.set(1, 1, 1)));
           meshPanels.push(g);
         }
         for (let i = 0; i < 9; i++) {
-          k.box('paint', ['#3a3d42', '#1f6fd6', '#b9bec3'][i % 3], m(0.22), m(0.1), m(0.16), at(m(-0.4 + (i % 3) * 0.4), m(0.15) + top - m(0.08) - (i > 5 ? m(0.08) : 0), m(-0.3 + Math.floor(i / 3) * 0.3)), [0, p.rotY + i, 0]);
+          k.box('paint', ['#3a3d42', '#1f6fd6', '#b9bec3'][i % 3], m(0.22), m(0.1), m(0.16), at(m(-0.4 + (i % 3) * 0.4), m(0.15) + top - m(0.08) - (i > 5 ? m(0.08) : 0), m(-0.3 + Math.floor(i / 3) * 0.3)), [0, rotY + i, 0]);
         }
       } else if (p.load === 'flat') {
         // flat-packed cartons, strapped
-        k.box('carton', '#ffffff', m(1.18), top, m(0.98), at(0, m(0.15) + top / 2, 0), [0, p.rotY, 0]);
-        for (const ox of [-0.3, 0.3]) k.box('matte', '#2a5fb0', m(0.02), top + m(0.01), m(1.0), at(m(ox), m(0.15) + top / 2, 0), [0, p.rotY, 0]);
+        k.box('carton', '#ffffff', m(1.18), top, m(0.98), at(0, m(0.15) + top / 2, 0), [0, rotY, 0]);
+        for (const ox of [-0.3, 0.3]) k.box('matte', '#2a5fb0', m(0.02), top + m(0.01), m(1.0), at(m(ox), m(0.15) + top / 2, 0), [0, rotY, 0]);
       } else if (p.load === 'empties') {
-        for (let t = 1; t * m(0.15) < p.h; t++) palletInto(k, p.x, t * m(0.15), p.z, p.rotY + t * 0.03);
+        for (let t = 1; t * m(0.15) < p.h; t++) palletInto(k, p.x, t * m(0.15), p.z, rotY + t * 0.03);
       }
     }
     // ---- flow racks: tilted shelves of coloured bins
@@ -1255,6 +1284,7 @@ function StaticStock({ map }) {
     }
     return { geo: k.build(), mesh: meshPanels.length ? mergeGeometries(meshPanels) : null };
   }, [map]);
+  useFree(geo, mesh);
   return (
     <group>
       <KitMeshes geo={geo} />
@@ -1267,6 +1297,7 @@ function StaticStock({ map }) {
 // bodies, one for the parts each station adds), plus a kinematic collider
 // each so a car that hops onto the assembly line meets them.
 const _o = new THREE.Object3D();
+const _v = { x: 0, y: 0, z: 0 };
 const LAMPS = ['#ff3b30', '#ffb020', '#2ee06a'].map((c) => new THREE.Color(c));
 function AssemblyPrinters() {
   const bodies = useRef([]);
@@ -1299,7 +1330,15 @@ function AssemblyPrinters() {
       _o.scale.setScalar(built ? 1 : 0.0001);
       _o.updateMatrix();
       parts.current?.setMatrixAt(i, _o.matrix);
-      bodies.current[i]?.setNextKinematicTranslation({ x, y: ASM.top + m(0.1), z: ASM.z });
+      const body = bodies.current[i];
+      if (body) {
+        _v.x = x; _v.y = ASM.top + m(0.1); _v.z = ASM.z;
+        // back to the start inside the CHASSIS hood: a teleport, not a 16 m
+        // kinematic move in one step (that is a 1,000 m/s shove for whatever
+        // is sitting at the hood's mouth)
+        if (Math.abs(body.translation().x - x) > m(1)) body.setTranslation(_v, true);
+        body.setNextKinematicTranslation(_v);
+      }
     }
     if (shell.current) shell.current.instanceMatrix.needsUpdate = true;
     if (parts.current) parts.current.instanceMatrix.needsUpdate = true;
@@ -1446,6 +1485,7 @@ function Building({ map }) {
     return mergeGeometries(list);
   }, [B, W, H, TOOTH, RISE]);
   const glassMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#dfe8f4', side: THREE.DoubleSide, toneMapped: false, fog: false }), []);
+  useFree(roof, geo, hazard, glazing, glassMat);
   useEffect(() => {
     glassMat.color.set(map.SKY?.[hour] || '#dfe8f4');
   }, [hour, map, glassMat]);
@@ -1476,6 +1516,7 @@ function HighBays({ map }) {
   }, [B]);
   const housing = useRef(), lens = useRef(), rod = useRef();
   const lensMat = useMemo(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.3, 2.5), toneMapped: false }), []);
+  useFree(lensMat);
   useLayoutEffect(() => {
     spots.forEach(([x, z], i) => {
       _o.position.set(x, H - m(0.45), z); _o.rotation.set(0, 0, 0); _o.scale.set(1, 1, 1); _o.updateMatrix();
@@ -1642,6 +1683,7 @@ function FloorPaint({ map }) {
     stripes: new THREE.MeshStandardMaterial({ map: hazardTex(), roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
     words: new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, transparent: true, depthWrite: false, roughness: 0.5, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }),
   }), [atlas]);
+  useFree(flat, stripes, words, mats);
   return (
     <group>
       {flat && <mesh geometry={flat} material={mats.flat} receiveShadow />}
@@ -1744,6 +1786,7 @@ function Signs({ map }) {
     painted: painted && new THREE.MeshStandardMaterial({ map: painted.tex, roughness: 0.7, alphaTest: 0.4 }),
     lit: lit && new THREE.MeshBasicMaterial({ map: lit.tex, toneMapped: false }),
   }), [painted, lit]);
+  useFree(lit, painted, chains, mats);
   return (
     <group>
       {painted && <mesh geometry={painted.geo} material={mats.painted} />}
@@ -1789,6 +1832,7 @@ function ChainConveyor() {
     }
     return k.build();
   }, [total]);
+  useFree(track);
   const carrier = useMemo(() => cached('chainCarrier', () => {
     const k = new Kit();
     k.box('metal', C.steel, m(0.02), m(0.35), m(0.02), [0, -m(0.2), 0]);
@@ -1892,6 +1936,7 @@ function Andon({ map }) {
   const state = useRef({ act: 1184, oee: 87, clock: '', stop: false, last: '' });
   const lights = useRef([]);
   const beacon = useRef();
+  const beaconStop = useRef(false);
   const sirenAt = useRef(0);
   const board = useMemo(() => {
     const c = document.createElement('canvas');
@@ -1908,20 +1953,25 @@ function Andon({ map }) {
   }), [A]);
   const lampMats = useMemo(() => ['#ff3b30', '#ffb020', '#2ee06a'].map((c) => new THREE.MeshBasicMaterial({ color: c, toneMapped: false })), []);
   const LAMP = useMemo(() => ['#ff3b30', '#ffb020', '#2ee06a'].map((c) => new THREE.Color(c)), []);
+  useFree(board.tex, board.mat, lampMats);
   const acc = useRef(0);
   useFrame((_, dt) => {
     const now = Date.now();
     // stack light: race countdown, then steady green; red and flashing in a stop
-    let on3 = [0.08, 0.08, 1];
+    let lit = 2, level = 1; // which lamp (red, amber, green) and how bright
     if (phase === 'countdown' && countdownEnd > now) {
       const left = (countdownEnd - now) / 1000;
-      on3 = left > 2 ? [1, 0.08, 0.08] : left > 1 ? [0.08, 1, 0.08] : [0.08, 0.08, 1];
+      lit = left > 2 ? 0 : left > 1 ? 1 : 2;
     }
-    if (stop) on3 = [(now % 600) < 300 ? 1 : 0.15, 0.08, 0.08];
-    lampMats.forEach((mm, i) => mm.color.copy(LAMP[i]).multiplyScalar(on3[i] * 1.6));
+    if (stop) { lit = 0; level = (now % 600) < 300 ? 1 : 0.15; }
+    for (let i = 0; i < 3; i++) lampMats[i].color.copy(LAMP[i]).multiplyScalar((i === lit ? level : 0.08) * 1.6);
     if (beacon.current) {
       beacon.current.rotation.y += dt * (stop ? 9 : 4);
-      beacon.current.children.forEach((c) => c.material?.color?.set(stop ? '#ff3b30' : '#ffae3d'));
+      // recolour only when the line's state changes, not every frame
+      if (beaconStop.current !== stop) {
+        beaconStop.current = stop;
+        for (const c of beacon.current.children) c.material?.color?.set(stop ? '#ff3b30' : '#ffae3d');
+      }
     }
     // the siren: a two-tone wail from the board while the line is stopped
     if (stop && A && now - sirenAt.current > 700) {
@@ -1994,6 +2044,7 @@ function SafetyBoard({ map }) {
     tex.colorSpace = THREE.SRGBColorSpace;
     return { c, tex, mat: new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 }) };
   }, []);
+  useFree(board.tex, board.mat);
   const draw = () => {
     const g = board.c.getContext('2d');
     g.fillStyle = '#1d6b3a'; g.fillRect(0, 0, 512, 256);
@@ -2040,6 +2091,7 @@ function Curtains({ map }) {
     }
     return k.parts.size ? k.build() : {};
   }, [map]);
+  useFree(geo);
   return (
     <group>
       {Object.entries(geo).map(([k, g]) => <mesh key={k} geometry={g} material={matFor(k)} />)}
@@ -2092,13 +2144,14 @@ function Shopfloor() {
     if (lamps.current) {
       const tau = cyclePhase(LINE.t);
       const swinging = (tau > 1.1 && tau < 2.2) || tau > 2.8 || tau < -1.1;
-      cells.forEach((c, i) => {
+      for (let i = 0; i < cells.length; i++) {
+        const c = cells[i];
         const state = LINE.stopped ? 0 : c.side === 'S' && swinging ? 1 : 2; // red, amber, green
         const blink = LINE.stopped ? ((t * 2) % 1 < 0.5 ? 1 : 0.15) : 1;
         for (let j = 0; j < 3; j++) {
           lamps.current.setColorAt(i * 3 + j, _col.copy(LAMPS[2 - j]).multiplyScalar(j === 2 - state ? 1.8 * blink : 0.1));
         }
-      });
+      }
       lamps.current.instanceColor.needsUpdate = true;
     }
     // PA chime, every 45 s of shop time, heard across the hall
@@ -2151,6 +2204,7 @@ function MeshFence({ walls }) {
     }
     return { steel: k.build(), panels: mergeGeometries(pl) };
   }, [walls]);
+  useFree(steel, panels);
   return (
     <group>
       <KitMeshes geo={steel} />
@@ -2172,6 +2226,7 @@ function GuardRail({ walls }) {
     }
     return k.build();
   }, [walls]);
+  useFree(geo);
   return <group><KitMeshes geo={geo} receive={false} /></group>;
 }
 
@@ -2201,6 +2256,7 @@ function Columns({ walls }) {
     }
     return { steel: k.build(), wrap: mergeGeometries(wl) };
   }, [walls]);
+  useFree(steel, wrap);
   return (
     <group>
       <KitMeshes geo={steel} />
@@ -2264,6 +2320,7 @@ function DockDoors({ walls }) {
     }
     return { geo: k.build(), outside: mergeGeometries(ol) };
   }, [walls]);
+  useFree(geo, outside, outsideMat);
   return (
     <group>
       <KitMeshes geo={geo} />
@@ -2298,6 +2355,7 @@ function GlassWalls({ walls }) {
     }
     return { frame: k.build(), glass: mergeGeometries(gl) };
   }, [walls]);
+  useFree(frame, glass);
   return (
     <group>
       <KitMeshes geo={frame} />
@@ -2365,6 +2423,7 @@ function PlateRamp({ r, len, angle }) {
     return k.build();
   }, [r, len, angle]);
   const deck = useMemo(() => worldPlane(r.w * 0.92, len, m(0.2)), [r.w, len]);
+  useFree(geo, deck);
   const mat = useMemo(() => once('plateMat', () => new THREE.MeshStandardMaterial({ map: checkerTex(), roughness: 0.4, metalness: 0.7 })), []);
   return (
     <group>
@@ -2397,6 +2456,7 @@ function FeedRamp({ r, len, angle }) {
     g.rotateY(-Math.PI / 2); // run the belt's length along z
     return g;
   }, [len, r.w]);
+  useFree(geo, belt);
   return (
     <group>
       <KitMeshes geo={geo} />
@@ -2418,6 +2478,7 @@ function RollerChute({ r, len, angle }) {
     }
     return k.build();
   }, [r, len, angle]);
+  useFree(geo);
   return <group><WedgeCollider r={r} /><KitMeshes geo={geo} /></group>;
 }
 
@@ -2438,6 +2499,7 @@ function PalletRamp({ r, len, angle }) {
     k.box('paint', C.yellow, r.w, m(0.02), m(0.05), [0, m(0.01), -r.l / 2 + m(0.03)]);
     return k.build();
   }, [r]);
+  useFree(geo);
   return (
     <group>
       <WedgeCollider r={r} />
@@ -2498,6 +2560,7 @@ export function Robot() {
   const spot = useMemo(() => new THREE.MeshBasicMaterial({
     map: glowTex(), color: '#3d7bff', transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false,
   }), []);
+  useFree(spot);
   return (
     <group ref={inner}>
       <KitMeshes geo={geo} receive={false} />
