@@ -337,10 +337,12 @@ class SoccerMode {
     let i = 0;
     for (const p of room.players.values()) p.team = i++ % 2;
     // decor (rugs, art, TVs) has no client collider — the ball skips it too
-    this.boxes = [...room.map.WALLS, ...room.map.FURNITURE.filter((f) => !isDecor(f))].map((w) => ({
-      minX: w.x - w.w / 2, maxX: w.x + w.w / 2,
-      minZ: w.z - w.d / 2, maxZ: w.z + w.d / 2, h: w.h,
-    }));
+    // a piece's w/d are its own; turned a quarter it spans them the other way
+    this.boxes = [...room.map.WALLS, ...room.map.FURNITURE.filter((f) => !isDecor(f))].map((w) => {
+      const q = Math.abs(Math.sin(w.rotY || 0)) > 0.5;
+      const bw = q ? w.d : w.w, bd = q ? w.w : w.d;
+      return { minX: w.x - bw / 2, maxX: w.x + bw / 2, minZ: w.z - bd / 2, maxZ: w.z + bd / 2, h: w.h };
+    });
   }
   resetBall() {
     const s = this.room.map.SOCCER.ballSpawn;

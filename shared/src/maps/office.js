@@ -145,25 +145,29 @@ export const WALLS = [
 // Big static furniture: type drives the client visuals; box is the collider.
 // Decor types (map.js DECOR_TYPES) have no collider, and the server-side
 // soccer sim skips them too.
+// The rotY contract: w and d are the piece's OWN width and depth, its front
+// is local +z, and rotY turns it (π/2 faces east, −π/2 west, π south). The
+// renderer, the physics and the server's ball boxes all read it that way.
 const f = (type, x, z, w, d, h, rotY = 0) => ({ type, x: u(x), z: u(z), w: u(w), d: u(d), h: u(h), rotY });
 
 export const FURNITURE = [
   // Reception — big desk, waiting corner
   f('recdesk', -17.5, -10.7, 3.2, 1, 1.05),
-  f('sofa', -20.3, -4.5, 0.95, 2.4, 0.75, Math.PI / 2),
-  f('table', -19.2, -6.8, 1, 0.6, 0.4),
+  // the sofa backs onto the west wall, north of the grid's last row
+  f('sofa', -20.3, -3.6, 2.4, 0.95, 0.75, Math.PI / 2),
+  f('table', -19, -3.6, 1, 0.6, 0.4, Math.PI / 2),
   f('rug', -19, -5, 3.2, 3.6, 0.01),
-  f('art', -16.2, -1.35, 1.5, 0.1, 1.2, Math.PI),
+  f('art', -14.12, -5.2, 1.5, 0.1, 1.2, -Math.PI / 2), // on the storage wall, not floating off the glass
   // Storage — shelf racks, a box fort grows from props
   f('shelfrack', -13.55, -6, 0.5, 1.8, 1.8),
   f('shelfrack', -13.55, -10.3, 0.5, 1.8, 1.8),
   f('shelfrack', -8.45, -10.8, 0.5, 1.8, 1.8),
   // Bathroom — the comedy suite
-  f('sink', -11, 0.5, 2.6, 0.85, 0.85),
+  f('sink', -11, 0.46, 2.6, 0.85, 0.85),
   f('toilet', -12.9, -3.45, 0.7, 0.9, 0.8),
   f('toilet', -11.4, -3.45, 0.7, 0.9, 0.8),
-  f('stall', -12.15, -3.3, 0.08, 1.4, 1.5),
-  f('stall', -10.65, -3.3, 0.08, 1.4, 1.5),
+  f('stall', -12.15, -3.2, 0.08, 1.4, 1.5),
+  f('stall', -10.65, -3.2, 0.08, 1.4, 1.5),
   // Focus booths — four pods, drive the slalom
   f('booth', -12.8, 2.3, 1.6, 1.6, 1.5),
   f('booth', -9.2, 2.3, 1.6, 1.6, 1.5, Math.PI),
@@ -178,22 +182,23 @@ export const FURNITURE = [
   f('desk', 2.5, -1.45, 1.6, 0.8, 0.74), f('desk', 2.5, -0.55, 1.6, 0.8, 0.74),
   f('desk', -4.5, 3.55, 1.6, 0.8, 0.74), f('desk', -4.5, 4.45, 1.6, 0.8, 0.74),
   f('desk', 2.5, 3.55, 1.6, 0.8, 0.74), f('desk', 2.5, 4.45, 1.6, 0.8, 0.74),
-  f('art', -7.85, -2, 0.1, 1.4, 1.2, Math.PI / 2),
+  f('art', -7.85, -2, 1.4, 0.1, 1.2, Math.PI / 2),
   // Server room — offset rack rows make a slalom
   f('rack', 7.5, 3.3, 0.8, 0.8, 2.2), f('rack', 8.7, 3.3, 0.8, 0.8, 2.2),
   f('rack', 9.9, 3.3, 0.8, 0.8, 2.2), f('rack', 11.1, 3.3, 0.8, 0.8, 2.2),
   f('rack', 8.1, 5.7, 0.8, 0.8, 2.2), f('rack', 9.3, 5.7, 0.8, 0.8, 2.2),
   f('rack', 10.5, 5.7, 0.8, 0.8, 2.2), f('rack', 11.7, 5.7, 0.8, 0.8, 2.2),
   // Printer nook
-  f('copier', 7, 0.9, 1, 1.2, 1.25),
-  f('copier', 12, 0.9, 1, 1.2, 1.25),
-  f('shelfrack', 6.5, -3.45, 1.8, 0.5, 1.8),
+  // copiers back onto the server-room wall, facing into the nook
+  f('copier', 7, 1.28, 1, 1.2, 1.25, Math.PI),
+  f('copier', 12, 1.28, 1, 1.2, 1.25, Math.PI),
+  f('shelfrack', 7, -3.45, 1.8, 0.5, 1.8), // clear of the glass at x = 6
   // Cafeteria — kitchen along the south wall, island, tables, vending
-  f('counter', -1, -11.4, 10, 1.1, 0.92),
+  f('counter', -1, -11.39, 10, 1, 0.92),
   f('island', -1, -9.2, 3, 1.1, 0.92),
   f('fridge', 5.3, -11.4, 1, 0.8, 1.9),
   f('vending', 12.4, -11.5, 1, 0.8, 1.9),
-  f('bartop', -6.8, -5, 0.6, 2.6, 1.1),
+  f('bartop', -6.8, -5.42, 0.6, 2.6, 1.1),
   f('table', 6.5, -6.5, 1.2, 1.2, 0.74),
   f('table', 9.5, -9.2, 1.2, 1.2, 0.74),
   f('table', 5, -10, 1.2, 1.2, 0.74),
@@ -201,21 +206,21 @@ export const FURNITURE = [
   // Games corner — foosball, hoop, hangout
   f('foosball', 15.5, -4.5, 1.4, 0.8, 0.85),
   f('hoop', 20.4, -7, 0.6, 0.6, 2.6, -Math.PI / 2),
-  f('sofa', 14.2, -10.9, 2.4, 0.95, 0.75, Math.PI),
+  f('sofa', 14.32, -11.35, 2.4, 0.95, 0.75), // back to the south wall
   f('table', 17.5, -10.5, 1, 0.6, 0.4),
   f('rug', 17, -9.5, 4.4, 3.6, 0.01),
   // Meeting room — the long table is a stage
   f('table', 17, 1.5, 3.6, 1.4, 0.74),
-  f('whiteboard', 13.4, 3.6, 0.1, 1.8, 1.9),
-  f('tv', 20.8, 1.5, 0.15, 2, 1.3, -Math.PI / 2),
+  f('whiteboard', 13.42, 3.6, 1.8, 0.6, 1.95, Math.PI / 2), // a mobile board on feet
+  f('tv', 20.8, 1.5, 2, 0.15, 1.3, -Math.PI / 2),
   f('art', 15.5, -1.85, 1.5, 0.1, 1.2),
   // CEO suite
   f('ceodesk', 18.5, 10.3, 2.4, 1.1, 0.78),
-  f('bookshelf', 20.55, 7, 0.7, 2.6, 2.2),
-  f('bookshelf', 13.45, 6.6, 0.7, 2.4, 2.2),
-  f('sofa', 14.6, 9.5, 0.95, 2.2, 0.75, -Math.PI / 2),
+  f('bookshelf', 20.7, 7, 2.6, 0.4, 2.2, -Math.PI / 2),
+  f('bookshelf', 13.3, 6.6, 2.4, 0.4, 2.2, Math.PI / 2),
+  f('sofa', 14.6, 9.5, 2.2, 0.95, 0.75), // faces the desk; the lap passes behind
   f('rug', 17.5, 8.8, 4, 3.2, 0.01),
-  f('art', 13.15, 6, 0.1, 1.3, 1.2, Math.PI / 2),
+  f('art', 20.88, 10.4, 1.3, 0.1, 1.2, -Math.PI / 2), // over the desk (the bookshelf has the west wall)
   // Lounge — sofas under the windows, bar table
   f('sofa', -4, 11.35, 2.4, 0.95, 0.75, Math.PI),
   f('sofa', 3, 11.35, 2.4, 0.95, 0.75, Math.PI),
@@ -428,8 +433,8 @@ export const POWERUP_PADS = [
 // Interactive machines. The vending machine drops a can when rammed at speed
 // (sometimes golden = free powerup); the copier periodically "prints" a blast
 // of paper that blinds anyone driving past.
-export const VENDING = { x: u(12.4), z: u(-11.5), radius: u(1.5), minSpeed: 12, cooldownS: 8, goldenChance: 0.3 };
-export const PRINTER = { x: u(7), z: u(0.9), radius: u(5), minIntervalS: 22, maxIntervalS: 42, blindS: 1.4 };
+export const VENDING = { x: u(12.4), z: u(-11.5), rotY: 0, radius: u(1.5), minSpeed: 12, cooldownS: 8, goldenChance: 0.3 };
+export const PRINTER = { x: u(7), z: u(1.28), rotY: Math.PI, radius: u(5), minIntervalS: 22, maxIntervalS: 42, blindS: 1.4 };
 
 // The cleaning robot's patrol route (Last Car Standing hazard + ambient menace)
 export const ROBOT_PATH = [

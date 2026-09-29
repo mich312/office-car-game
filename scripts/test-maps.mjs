@@ -18,7 +18,7 @@ check('maps: there is more than one to choose from', MAP_IDS.length >= 2);
 const inBox = (x, z, b, pad = 0) => Math.abs(x - b.x) < b.w / 2 + pad && Math.abs(z - b.z) < b.d / 2 + pad;
 const rotBox = (b) => {
   // rotated by a quarter turn → swap the footprint
-  const q = Math.abs(Math.sin(b.rotY || 0)) > 0.7;
+  const q = Math.abs(Math.sin(b.rotY || 0)) > 0.5;
   return q ? { ...b, w: b.d, d: b.w } : b;
 };
 
@@ -48,8 +48,28 @@ for (const id of MAP_IDS) {
     }
     check(`${tag} rooms tile the floor plan (gaps ${gaps}, overlaps ${overlaps})`, gaps === 0 && overlaps === 0);
   }
+  // the rotY contract: w/d are the piece's own, so its footprint is the
+  // rotated box — which must stay in the building and out of the walls
+  // (a hair of contact is fine: things stand against walls)
+  {
+    const bad = [];
+    for (const f of map.FURNITURE.filter((g) => !isDecor(g))) {
+      const r = rotBox(f);
+      const x0 = r.x - r.w / 2, x1 = r.x + r.w / 2, z0 = r.z - r.d / 2, z1 = r.z + r.d / 2;
+      const tol = 0.02 * M;
+      let why = '';
+      if (x0 < B.minX - tol || x1 > B.maxX + tol || z0 < B.minZ - tol || z1 > B.maxZ + tol) why = 'outside';
+      for (const w of solidWalls) {
+        const ox = Math.min(x1, w.x + w.w / 2) - Math.max(x0, w.x - w.w / 2);
+        const oz = Math.min(z1, w.z + w.d / 2) - Math.max(z0, w.z - w.d / 2);
+        if (ox > tol && oz > tol) { why = `in the wall at (${(w.x / M).toFixed(1)},${(w.z / M).toFixed(1)})`; break; }
+      }
+      if (why) bad.push(`${f.type}(${(f.x / M).toFixed(2)},${(f.z / M).toFixed(2)}) ${why}`);
+    }
+    check(`${tag} every piece's rotated footprint is inside the bounds and out of the walls${bad.length ? ` — bad: ${bad.join('; ')}` : ''}`, bad.length === 0);
+  }
   check(`${tag} every wall and piece of furniture sits inside the bounds`,
-    [...map.WALLS, ...map.FURNITURE].every((w) => w.x - w.w / 2 >= B.minX - 1.5 && w.x + w.w / 2 <= B.maxX + 1.5
+    [...map.WALLS, ...map.FURNITURE.map(rotBox)].every((w) => w.x - w.w / 2 >= B.minX - 1.5 && w.x + w.w / 2 <= B.maxX + 1.5
       && w.z - w.d / 2 >= B.minZ - 1.5 && w.z + w.d / 2 <= B.maxZ + 1.5));
 
   // nothing that a car or pickup occupies may start inside a wall or a desk

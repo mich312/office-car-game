@@ -480,7 +480,7 @@ function Furniture({ f, mats }) {
       );
     case 'rack':
       return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} friction={0.4}>
+        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.4}>
           <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
           <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={mats.dark}
             geometry={roundedBox(w, h, d, 0.06)} />
@@ -489,7 +489,7 @@ function Furniture({ f, mats }) {
       );
     case 'fridge':
       return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} mat={mats.grey}>
+        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.grey}>
           <mesh position={[0, h * 0.55, d / 2 + 0.02]} material={mats.metal}>
             <boxGeometry args={[0.08, h * 0.5, 0.06]} />
           </mesh>
@@ -497,7 +497,7 @@ function Furniture({ f, mats }) {
       );
     case 'copier':
       return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} mat={mats.white}>
+        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.white}>
           <mesh position={[0, h + 0.05, 0]} castShadow material={mats.dark}>
             <boxGeometry args={[w * 0.8, 0.1, d * 0.6]} />
           </mesh>
@@ -509,18 +509,18 @@ function Furniture({ f, mats }) {
     case 'whiteboard':
       return (
         <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY}>
-          <CuboidCollider args={[w / 2 + 0.02, h / 2, d / 2]} position={[0, h / 2 + 0.4, 0]} />
+          <CuboidCollider args={[w / 2 + 0.02, h / 2, 0.1]} position={[0, h / 2 + 0.4, 0]} />
           <mesh position={[0, h / 2 + 0.4, 0]} castShadow material={mats.white}
-            geometry={roundedBox(w, h, d, 0.05)} />
-          <mesh position={[w / 2 + 0.01, h / 2 + 0.5, 0]} rotation-y={Math.PI / 2}>
-            <planeGeometry args={[d * 0.9, h * 0.85]} />
+            geometry={roundedBox(w, h, 0.2, 0.05)} />
+          <mesh position={[0, h / 2 + 0.5, 0.11]}>
+            <planeGeometry args={[w * 0.9, h * 0.85]} />
             <meshStandardMaterial color="#f6f8f9" roughness={0.3} />
           </mesh>
         </RigidBody>
       );
     case 'bookshelf':
       return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} mat={mats.wood}>
+        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.wood}>
           <ShelfBooks w={w} d={d} />
         </SimpleBox>
       );
@@ -528,7 +528,7 @@ function Furniture({ f, mats }) {
     case 'rug': {
       const c = ['#7a4f3f', '#3f5a7a', '#54707a', '#6b5a7a'][Math.abs(Math.round(x * 0.7 + z * 1.3)) % 4];
       return (
-        <mesh rotation-x={-Math.PI / 2} position={[x, 0.018, z]} receiveShadow>
+        <mesh rotation-x={-Math.PI / 2} rotation-z={rotY} position={[x, 0.018, z]} receiveShadow>
           <planeGeometry args={[w, d]} />
           <meshStandardMaterial color={c} roughness={1} />
         </mesh>
@@ -759,7 +759,7 @@ function Furniture({ f, mats }) {
     case 'vending':
       // Ram it at speed: a can drops, sometimes golden (the server pays out).
       return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} mat={mats.dark}>
+        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.dark}>
           {/* glowing front panel facing into the kitchen (+z) */}
           <mesh position={[0, h * 0.58, d / 2 + 0.01]}>
             <planeGeometry args={[w * 0.72, h * 0.62]} />
@@ -809,7 +809,8 @@ function ShelfBooks({ w, d }) {
     let n = 0;
     [0.35, 0.85, 1.35, 1.85].forEach((sy, i) => {
       for (let j = 0; j < 7; j++) {
-        dummy.position.set(-w / 2 - 0.09, sy * M * 0.36 + 0.5, -d / 2 + 0.25 + j * (d - 0.5) / 6);
+        // on the open front (+z), never on a side that may be against a wall
+        dummy.position.set(-w / 2 + 0.25 + j * (w - 0.5) / 6, sy * M * 0.36 + 0.5, d / 2 + 0.07);
         dummy.scale.set(1, 1 + (j % 3) * 0.14, 1);
         dummy.updateMatrix();
         ref.current.setMatrixAt(n, dummy.matrix);

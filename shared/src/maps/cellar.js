@@ -115,7 +115,7 @@ const FURNITURE = [
   f('copier', 17.3, 9.6, 1, 1.2, 1.25, -Math.PI / 2),
   f('tv', 12, 10.85, 1.8, 0.12, 1.1, Math.PI),
   // Loading dock — the platform along the west wall, pallets, a rack
-  f('dock', -16.75, -6.5, 2.5, 8, 0.9),
+  f('dock', -16.7, -6.5, 2.4, 8, 0.9), // its back stands off the west wall
   f('pallet', -11.5, -9.5, 1.2, 1.0, 0.15),
   f('pallet', -10.6, -3.4, 1.2, 1.0, 0.15),
   f('shelfrack', -12.5, -10.6, 3, 0.6, 1.8),
