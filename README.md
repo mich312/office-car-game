@@ -58,7 +58,8 @@ post-processing on weak GPUs.
 | `M` | mute |
 
 Gamepads work out of the box (standard mapping): left stick / d-pad steers,
-triggers are gas and brake, `A`/`B` boost, `X`/bumpers drift, `Y` item.
+triggers are gas and brake, `A`/`B` boost, `X`/`LB` drift, `Y` item, `RB` car special,
+`Start` respawn.
 On phones and tablets, on-screen touch controls appear automatically and
 auto-gas defaults on. An **auto-gas assist** toggle in the garage keeps the car
 accelerating on its own for one-handed play. Tuck in behind a rival for ~2 seconds to charge a
@@ -70,6 +71,14 @@ thump, spark and camera kick (and rumble, on a gamepad or phone); each drift
 tier chimes as you reach it; and in a slide the camera swings toward where
 you're actually going. Camera motion is toned down if your OS asks for
 reduced motion. Climbing assist keeps ramps drivable at full grade.
+
+**First time?** The lobby gives you a short **driving test** while everyone
+readies up: hit the gas, take a corner, brake, drift into a mini-turbo, burn
+the boost meter. Each step passes when your car actually does it, and the
+prompts name the button on whatever you're holding: keyboard, gamepad or the
+touch pad. Skip it if you like; *take the driving test* in the lobby brings it
+back. Your first matches add a few one-time tips (how to fire your first
+item, how to get unstuck, your car's special), each shown once.
 
 ## The garage
 
