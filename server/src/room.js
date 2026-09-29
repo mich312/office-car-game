@@ -178,6 +178,7 @@ export class Room {
         const v = finiteVec(msg.v, 3);
         if (v) player.v = clampSpeed(v, NUDGE_MAX_SPEED);
         player.drifting = !!msg.d;
+        player.boostingNow = !!msg.b;
         player.grounded = !!msg.g;
         // Our own record of where this car has been, so a respawn proposal can
         // be checked against somewhere it actually drove (see respawnPlayer).
@@ -901,7 +902,7 @@ export class Room {
         f: (p.drifting ? 1 : 0) | (p.grounded ? 2 : 0) | (p.stunUntil > t ? 4 : 0) |
            (p.shieldUntil > t ? 8 : 0) | (p.shrinkUntil > t ? 16 : 0) |
            (p.hasBattery ? 32 : 0) | (p.spawnProtectUntil > t ? 64 : 0) |
-           (p.sumoDead || p.eliminated ? 128 : 0),
+           (p.sumoDead || p.eliminated ? 128 : 0) | (p.boostingNow ? 256 : 0),
         c: p.beans,
       };
     }

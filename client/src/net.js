@@ -42,8 +42,8 @@ export function send(obj) {
   if (net.ws && net.ws.readyState === 1) net.ws.send(JSON.stringify(obj));
 }
 
-export function sendState(p, q, v, drifting, grounded) {
-  send({ t: MSG.STATE, p, q, v, d: drifting, g: grounded });
+export function sendState(p, q, v, drifting, grounded, boosting) {
+  send({ t: MSG.STATE, p, q, v, d: drifting, g: grounded, b: boosting });
 }
 
 let reconnectTimer = null;
