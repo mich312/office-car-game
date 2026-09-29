@@ -122,7 +122,7 @@ export function Boiler({ map }) {
       rot: fr.rot,
     };
   }, [f]);
-  const flame = useRef(), lamp = useRef(), pool = useRef();
+  const flame = useRef();
   const mats = useMemo(() => ({
     flame: new THREE.MeshBasicMaterial({ color: '#ff9d4a', toneMapped: false }),
     lamp: new THREE.MeshBasicMaterial({ color: '#ff2a1a', toneMapped: false }),
@@ -142,7 +142,6 @@ export function Boiler({ map }) {
     const on = Math.floor(t) % 2 === 0; // 0.5 Hz
     mats.lamp.color.setRGB(on ? 3 : 0.15, on ? 0.2 : 0.02, on ? 0.12 : 0.01);
     mats.pool.opacity = 0.18 * flick + burn * 0.5;
-    if (lamp.current) lamp.current.visible = true;
   });
   if (!spots) return null;
   return (
@@ -150,10 +149,10 @@ export function Boiler({ map }) {
       <mesh ref={flame} position={spots.flame} rotation-y={spots.rot} material={mats.flame}>
         <circleGeometry args={[0.03 * M, 14]} />
       </mesh>
-      <mesh ref={lamp} position={spots.lamp} material={mats.lamp}>
+      <mesh position={spots.lamp} material={mats.lamp}>
         <sphereGeometry args={[0.022 * M, 10, 8]} />
       </mesh>
-      <mesh ref={pool} position={spots.floor} rotation-x={-Math.PI / 2} material={mats.pool}>
+      <mesh position={spots.floor} rotation-x={-Math.PI / 2} material={mats.pool}>
         <planeGeometry args={[1.6 * M, 1.4 * M]} />
       </mesh>
     </group>
@@ -600,6 +599,7 @@ export function CellarSound({ map }) {
       o.connect(bp); bp.connect(g); g.connect(p); o.start();
       out.buzz = { o, g, p };
     }
+    out.G = G;
     nodes.current = out;
     return () => {
       try { out.crac?.src.stop(); out.buzz?.o.stop(); } catch { /* already stopped */ }
@@ -614,7 +614,7 @@ export function CellarSound({ map }) {
     const N = nodes.current;
     if (!N) return;
     const t = clock.elapsedTime;
-    const G = audio.graph();
+    const G = N.G;
     const now = G.ctx.currentTime;
     // the buzz follows the nearest bad tube, as loud as it is lit
     if (N.buzz && tubes.length) {
