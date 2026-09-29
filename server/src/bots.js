@@ -298,7 +298,7 @@ export class Bots {
     const pv = p.v || [0, 0, 0];
     const rivals = [];
     for (const o of this.room.players.values()) {
-      if (o === p || o.eliminated) continue;
+      if (o === p || o.eliminated || o.finished) continue; // a finished racer is no target
       if (this.room.modeId === 'soccer' && o.team === p.team) continue;
       const dx = o.p[0] - p.p[0], dz = o.p[2] - p.p[2];
       const dist = Math.hypot(dx, dz) || 1e-3;

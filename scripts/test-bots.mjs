@@ -50,8 +50,21 @@ for (const seed of SEEDS) {
   const sim = await createSim({ seed, mode: 'desk_dash' });
   const t0 = sim.now();
   const lapAt = new Map();
+  // Aimed EMPs only: one fired by the use-it-anyway fallback has nobody to
+  // aim at by definition (and finished racers are no longer fair game).
+  const empSince = new Map();
+  const use = sim.room.usePowerup.bind(sim.room);
+  sim.room.usePowerup = (p) => {
+    if (p.powerup !== 'emp' || sim.now() - (empSince.get(p.id) ?? sim.now()) > ITEM_FALLBACK_S * 1.5 * 1000 - 100) return use(p);
+    const n0 = sim.events.length;
+    use(p);
+    const ev = sim.events.slice(n0).find((x) => x.type === 'emp');
+    if (ev) { emps++; if (ev.targets.length) empsHit++; }
+  };
   sim.run(200, (s) => {
     for (const b of s.bots) {
+      if (b.powerup !== 'emp') empSince.delete(b.id);
+      else if (!empSince.has(b.id)) empSince.set(b.id, s.now());
       ticks++;
       if (b.drifting) driftT++;
       if (b.boostingNow) boostT++;
@@ -63,9 +76,6 @@ for (const seed of SEEDS) {
   firstLaps.push(...lapAt.values());
   pickups += sim.events.filter((e) => e.type === 'pad_taken').length;
   items += sim.events.filter((e) => ['emp', 'rocket', 'puddle', 'shield', 'turbo', 'spring', 'shrink', 'swap', 'fake'].includes(e.type)).length;
-  const e = sim.events.filter((ev) => ev.type === 'emp');
-  emps += e.length;
-  empsHit += e.filter((ev) => ev.targets.length > 0).length;
 }
 const meanLap = firstLaps.reduce((a, b) => a + b, 0) / Math.max(1, firstLaps.length);
 check(`race: bots complete laps (${lapped}/${bots} finished lap one)`, lapped >= bots * 0.9);
@@ -75,7 +85,7 @@ check(`race: bots complete laps (${lapped}/${bots} finished lap one)`, lapped >=
 check(`race: bot pace is competitive but beatable (mean first lap ${meanLap.toFixed(1)} s)`, meanLap > 34 && meanLap < 48);
 check(`race: bots collect items (${(pickups / SEEDS.length).toFixed(1)} per race)`, pickups / SEEDS.length >= 10);
 check(`race: bots use what they collect (${items}/${pickups})`, items >= pickups * 0.8);
-check(`race: EMPs catch somebody (${empsHit}/${emps})`, emps === 0 || empsHit / emps >= 0.6);
+check(`race: aimed EMPs catch somebody (${empsHit}/${emps})`, emps === 0 || empsHit / emps >= 0.6);
 check(`race: bots drift through corners (${(driftT / ticks * 100).toFixed(1)}% of the time)`, driftT / ticks > 0.03 && driftT / ticks < 0.2);
 check(`race: bots boost on straights (${(boostT / ticks * 100).toFixed(1)}% of the time)`, boostT / ticks > 0.1 && boostT / ticks < 0.45);
 
