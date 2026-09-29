@@ -300,16 +300,27 @@ function Ceiling({ map }) {
   const slabs = useMemo(() => [ceilingGeometry(3.5, 0, 35.4, 24.4), ceilingGeometry(-17.7, -6.5, 7, 11.4)], []);
   useEffect(() => () => slabs.forEach((g) => g.dispose()), [slabs]);
   const panels = useMemo(() => {
+    // does a troffer centred at (x, z) metres cut through a wall's top?
+    const hitsWall = (x, z) => map.WALLS.some((w) => !w.low
+      && Math.abs(x * M - w.x) < w.w / 2 + 0.62 * M && Math.abs(z * M - w.z) < w.d / 2 + 0.32 * M);
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {
       for (let z = -10.4; z <= 10.4; z += 3.2) {
         if (map.roomAt(x * M, z * M)?.outdoor) continue; // balcony is open sky
         // snapped to the grid: a 1.2 × 0.6 m troffer fills two tiles exactly
-        out.push([Math.round(x / 0.6) * 0.6 * M, (Math.round(z / 0.6 - 0.5) + 0.5) * 0.6 * M]);
+        let sx = Math.round(x / 0.6) * 0.6, sz = (Math.round(z / 0.6 - 0.5) + 0.5) * 0.6;
+        // the z −4 row fell on the long wall between the cafeteria and the
+        // rooms north of it, half a light each side: step one tile clear
+        if (hitsWall(sx, sz)) {
+          const clear = [[0, 0.6], [0, -0.6], [0.6, 0], [-0.6, 0], [0, 1.2], [0, -1.2]].find(([dx, dz]) => !hitsWall(sx + dx, sz + dz));
+          if (!clear) continue;
+          sx += clear[0]; sz += clear[1];
+        }
+        out.push([sx * M, sz * M]);
       }
     }
     return out;
-  }, []);
+  }, [map]);
   const inst = useRef();
   const bezel = useRef();
   useLayoutEffect(() => {
@@ -406,11 +417,17 @@ function StaticBatch({ map, built }) {
     // the building's parts are already in world metres
     const office = !THEMES[map.theme];
     push(buildArchitecture(map, { office, styled: new Set(Object.keys(WALL_STYLES)) }), new THREE.Matrix4().makeScale(M, M, M));
-    const groups = [...bake(all)].map(([key, geo]) => ({ key, geo }));
+    return [...bake(all)].map(([key, geo]) => ({ key, geo }));
+  }, [map, built]);
+  // the old floor's bake is freed once the new one is committed, not while
+  // rendering it: a render can be interrupted or suspended with the old
+  // meshes still drawing, which re-uploads what was just disposed (and then
+  // nothing ever frees it)
+  useEffect(() => {
+    if (lastBake?.groups === groups) return;
     lastBake?.groups.forEach((g) => g.geo.dispose());
     lastBake = { map, groups };
-    return groups;
-  }, [map, built]);
+  }, [map, groups]);
   return groups.map((g) => (
     <mesh key={g.key} geometry={g.geo} material={mat(g.key)} castShadow={castsShadow(g.key)} receiveShadow={receivesShadow(g.key)} />
   ));

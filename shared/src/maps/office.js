@@ -163,7 +163,9 @@ export const FURNITURE = [
   f('shelfrack', -13.55, -10.3, 0.5, 1.8, 1.8),
   f('shelfrack', -8.45, -10.8, 0.5, 1.8, 1.8),
   // Bathroom — the comedy suite
-  f('sink', -11, 0.46, 2.6, 0.85, 0.85, Math.PI), // basins face into the room
+  // basins face into the room, on the wall west of the focus-booth door
+  // (at x −11 its east end hung 0.7 m across the doorway, mirror and all)
+  f('sink', -12.3, 0.46, 2.6, 0.85, 0.85, Math.PI),
   f('toilet', -12.9, -3.45, 0.7, 0.9, 0.8),
   f('toilet', -11.4, -3.45, 0.7, 0.9, 0.8),
   f('stall', -12.15, -3.2, 0.08, 1.4, 1.5),
@@ -275,8 +277,10 @@ export const PROPS = [
   ...deskSet(-4.5, 4.45, 1),
   ...deskSet(2.5, 3.55, -1),
   ...deskSet(2.5, 4.45, 1, [['lamp', -0.6, 0.1]]),
-  p('chair', -4.5, -2.3), p('chair', -4.5, 0.3, 0, Math.PI), p('chair', 2.5, -2.3), p('chair', 2.5, 0.3, 0, Math.PI),
-  p('chair', -4.5, 2.7), p('chair', -4.5, 5.3, 0, Math.PI), p('chair', 2.5, 2.7), p('chair', 2.5, 5.3, 0, Math.PI),
+  // the two pods with a plank ramp have that seat's chair rolled aside: tucked
+  // in, it stood on the ramp's top and blocked the climb onto the desk
+  p('chair', -3.7, -2.35, 0, 0.4), p('chair', -4.5, 0.3, 0, Math.PI), p('chair', 2.5, -2.3), p('chair', 2.5, 0.3, 0, Math.PI),
+  p('chair', -4.5, 2.7), p('chair', -4.5, 5.3, 0, Math.PI), p('chair', 2.5, 2.7), p('chair', 1.7, 5.35, 0, Math.PI + 0.4),
   p('plant', -7.5, 6.5), p('plant', 5.3, -3.4), p('trash', -6.8, -3.5), p('trash', 4.5, 6.3),
   p('stack', -2, 1.5), p('pen', -1, -2.5, 0, 0.7), p('pen', 0.5, 5, 0, 2.1), p('book', -6.5, 2, 0, 0.4),
   // ---- reception
@@ -288,7 +292,7 @@ export const PROPS = [
   p('stack', -12.8, -9), p('stack', -9, -7.5), p('pen', -11, -6, 0, 0.3), p('trash', -13.5, -4.6),
   // ---- bathroom: toilet rolls roam free
   p('roll', -13.5, -0.5), p('roll', -12.8, -1.4), p('roll', -9.2, -2.8), p('roll', -10, -0.2), p('roll', -9, 0.4),
-  p('plant', -8.6, 0.5), p('mug', -12.3, 0.9, 0.85), // someone's coffee lives here now
+  p('plant', -8.6, 0.5), p('mug', -12.3, 0.62, 0.85), // someone's coffee lives here now
   // ---- focus booths
   p('plant', -11, 1.4), p('book', -11.6, 4.2, 0, 1.1), p('book', -10.4, 3.8, 0, 2.4), p('pen', -11, 6.2, 0, 0.5),
   // ---- server room
