@@ -146,18 +146,24 @@ await playMode('koth', async (a) => {
 
 // --------------------------------------------------------------- sumo mode
 await playMode('sumo', async (a, b) => {
-  await sleep(1000);
+  // both start the round inside the ring: the server still has them where
+  // the grid of the LAST map put them (the client's move to the new grid
+  // is what a real client reports), and the grace is short. A jump that far
+  // is a teleport: repeated, consistent reports get through.
   let snap = a.snaps[a.snaps.length - 1];
+  for (let i = 0; i < 12; i++) { state(a, [snap.zone.x + 2, 1, snap.zone.z]); state(b, [snap.zone.x, 1, snap.zone.z]); }
+  await sleep(1000);
+  snap = a.snaps[a.snaps.length - 1];
   check('sumo: zone present with start radius', !!snap.zone && snap.zone.r > 40);
   check('sumo: round number in snapshot', snap.sumo?.round >= 1);
-  // A leaves the zone far away (map corner, outside even the starting ring)
-  // → out-timer appears, then elimination
-  state(a, [90, 1, -50], [0, 0, 0]);
-  state(b, [snap.zone.x, 1, snap.zone.z], [0, 0, 0]);
-  await sleep(1500);
+  // A leaves the zone far away (past the map's corner — the server clamps it
+  // just outside the floor plan, outside even the starting ring, which
+  // covers every room) → out-timer appears, then elimination
+  for (let i = 0; i < 12; i++) state(a, [1000, 1, 1000]);
+  await sleep(1000);
   snap = a.snaps[a.snaps.length - 1];
   check('sumo: out-of-zone timer ticking for A', (snap.sumo?.out || []).some(([id]) => id === a.id));
-  await sleep(5500);
+  await sleep(3000);
   snap = a.snaps[a.snaps.length - 1];
   check('sumo: A eliminated (KO flag 128)', !!(snap.players[a.id].f & 128));
   check('sumo: KO effect broadcast', a.all('fx').some((m) => m.type === 'sumo_out' && m.id === a.id));

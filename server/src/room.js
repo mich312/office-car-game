@@ -24,6 +24,9 @@ const now = () => Date.now();
 const dist2d = (a, b) => Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]);
 const r2 = (n) => Math.round(n * 100) / 100;
 const clamp = (n, lo, hi) => (n < lo ? lo : n > hi ? hi : n);
+// Out of play: a Last Car Standing ghost, or a car knocked out of the
+// current sumo round (a mobile chicane — it drives, but it doesn't play)
+const isOut = (p) => p.eliminated || p.sumoDead;
 
 // A BUMP report is only believed this close (centre to centre; cars are
 // 1.0 long). The slack covers a 20 Hz report lag at ramming speed — any more
@@ -160,6 +163,8 @@ export class Room {
             spawn = { x: r2(s.x), y: r2(s.y ?? SPAWN_Y), z: r2(s.z), rotY: r2(s.rotY || 0) };
           }
         }
+        // Tiny Cars shrinks everyone for the round — drop-ins included
+        if (this.mutator?.id === 'tiny_cars' && (this.phase === PHASE.PLAYING || this.phase === PHASE.COUNTDOWN)) p.shrinkUntil = this.endsAt;
         ws.send(JSON.stringify({
           t: MSG.WELCOME, id, phase: this.phase,
           room: this.code, private: this.isPrivate,
@@ -481,10 +486,18 @@ export class Room {
   }
 
   endMatch() {
+    // the mode settles a round the clock cut short (sumo's last round, Last
+    // Car Standing's survivors) before anyone reads the standings
+    this.mode?.onMatchEnd?.();
     this.phase = PHASE.PODIUM;
     // the final whistle takes the loads off: a carrier kept the roof battery
     // (and its speed penalty) through the podium and into the lobby
     for (const p of this.players.values()) { p.hasBattery = false; p.beans = 0; }
+    // the podium is a ceremony, not a round: no robot parked on it, no
+    // event still ticking in the snapshot
+    this.event = null;
+    this.pendingEvent = null;
+    this.robot = null;
     // Cup intermissions are brisk; the grand ceremony gets the full podium
     const cupFinal = this.cup ? this.cup.round >= MODES.office_cup.rounds - 1 : false;
     this.phaseUntil = now() + (this.cup && !cupFinal ? 7 : PODIUM_SECONDS) * 1000;
@@ -608,7 +621,7 @@ export class Room {
     for (const pad of this.pads) {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
-        if (p.eliminated || p.finished || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
+        if (isOut(p) || p.finished || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < PICKUP_RADIUS) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
@@ -619,6 +632,14 @@ export class Room {
         }
       }
     }
+  }
+
+  // A car leaving play (knocked out of a sumo round, eliminated) drops the
+  // item it was holding, and its HUD tray empties with it.
+  dropItem(p) {
+    if (!p.powerup) return;
+    p.powerup = null;
+    this.sendTo(p, { t: MSG.PICKUP, powerup: null });
   }
 
   // ------------------------------------------------------------- powerups
@@ -633,6 +654,7 @@ export class Room {
     let total = 0;
     const weights = POWERUP_IDS.map((id) => {
       if (id === 'rocket' && this.rockets.length > 0) return 0;
+      if (id === 'shrink' && this.mutator?.id === 'tiny_cars') return 0; // everyone's already tiny
       const f = FRONT[id] ?? 1, b = BACK[id] ?? 1;
       const v = f + (b - f) * frac;
       total += v;
@@ -648,9 +670,9 @@ export class Room {
 
   usePowerup(player) {
     const pw = player.powerup;
-    // ghosts don't meddle (yet), and a car that has finished its race is
-    // out of the running
-    if (!pw || player.eliminated || player.finished) return;
+    // ghosts and knocked-out cars don't meddle, and a car that has finished
+    // its race is out of the running
+    if (!pw || isOut(player) || player.finished) return;
     player.powerup = null;
     // tell the user's HUD the slot is empty — without this the item tray
     // shows the spent item for the rest of the match
@@ -658,9 +680,9 @@ export class Room {
     const t = now();
     // attacking forfeits spawn protection
     player.spawnProtectUntil = 0;
-    // finished racers are off the table for every item: EMP, shrink, the
-    // nearest-rocket fallback and swap
-    const others = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated && !p.finished);
+    // finished racers and knocked-out cars are off the table for every item:
+    // EMP, shrink, the nearest-rocket fallback and swap
+    const others = [...this.players.values()].filter((p) => p.id !== player.id && !isOut(p) && !p.finished);
     switch (pw) {
       case 'turbo':
         this.broadcast({ t: MSG.EFFECT, type: 'turbo', id: player.id });
@@ -699,7 +721,8 @@ export class Room {
       case 'shrink': {
         const leader = [...others].sort((a, b) => b.score - a.score)[0];
         if (!leader) break;
-        leader.shrinkUntil = t + FX.SHRINK_S * 1000;
+        // never shorter than a shrink already running (Tiny Cars lasts the round)
+        leader.shrinkUntil = Math.max(leader.shrinkUntil || 0, t + FX.SHRINK_S * 1000);
         this.broadcast({ t: MSG.EFFECT, type: 'shrink', target: leader.id, until: leader.shrinkUntil, scale: FX.SHRINK_SCALE });
         this.feed(`🔬 ${player.name} shrunk ${leader.name}!`);
         break;
@@ -1043,7 +1066,7 @@ export class Room {
     // (a free powerup for the rammer).
     if (t >= this.vendReadyAt) {
       for (const p of this.players.values()) {
-        if (p.eliminated) continue;
+        if (isOut(p)) continue;
         const speed = Math.hypot(p.v[0], p.v[2]);
         if (speed < this.map.VENDING.minSpeed) continue;
         if (Math.hypot(p.p[0] - this.map.VENDING.x, p.p[2] - this.map.VENDING.z) > this.map.VENDING.radius) continue;
@@ -1077,12 +1100,13 @@ export class Room {
   updateEvents(t, dt) {
     if (this.event && t > this.event.until) {
       this.event = null;
-      this.robot = null;
+      if (!this.robot?.mode) this.robot = null; // Last Car Standing's robot is the mode's
     }
     // Events are telegraphed: a warning fires 3 s ahead so chaos is something
     // you play around, not something that just happens to you.
     if (!this.event && !this.pendingEvent && t >= this.nextEventAt - 3000) {
-      const pool = OFFICE_EVENTS.filter((e) => e.id !== this.lastEventId);
+      // Last Car Standing brings its own robot (modes.js) — no event robot
+      const pool = OFFICE_EVENTS.filter((e) => e.id !== this.lastEventId && !(e.id === 'cleaning_robot' && this.modeId === 'last_standing'));
       // a map can rename an event for its floor (map.EVENTS): the factory's
       // server overload is a line stop, its cleaning robot an AGV
       const base = pool[Math.floor(Math.random() * pool.length)];
@@ -1101,7 +1125,7 @@ export class Room {
       if (ev.id === 'cleaning_robot') this.robot = { x: this.map.ROBOT_PATH[0].x, z: this.map.ROBOT_PATH[0].z, wp: 1 };
       this.broadcast({ t: MSG.OFFICE_EVENT, id: ev.id, duration: ev.duration, name: ev.name, icon: ev.icon, desc: ev.desc });
     }
-    if (this.robot) {
+    if (this.robot && !this.robot.mode) {
       const wp = this.map.ROBOT_PATH[this.robot.wp % this.map.ROBOT_PATH.length];
       const dx = wp.x - this.robot.x, dz = wp.z - this.robot.z;
       const len = Math.hypot(dx, dz);

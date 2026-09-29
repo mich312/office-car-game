@@ -386,8 +386,8 @@ const KOTH_SPOTS = [
   cp(-1, 5.2), // war room, beside the table
   cp(0, -0.5), // the service corridor
   cp(13.5, 7.8), // the terrace
-  cp(15.5, 1.4), // the pantry
-  cp(14.4, -3.4), // the bullpen
+  cp(15.5, 0.5), // the pantry
+  cp(14.4, -4.6), // the bullpen
   cp(4.8, 10), // under the video wall
   cp(-13.2, -6.4), // between the assistants' desks
 ];
@@ -396,7 +396,14 @@ const KOTH_SPOTS = [
 // the lobby grid and most of the floor — not the far bullpen corner, which
 // stays outside the ring (scripts/smoke.mjs parks a car there to check the
 // out-timer on every floor).
-const SUMO_ZONE = { x: u(14), z: u(7.5), r0: u(19.5), r1: u(1.5) };
+const SUMO_ZONE = { x: u(14), z: u(7.5), r0: u(19.5), r1: u(0.6) };
+// Moving Meeting slides the ring off the terrace only where the field can
+// follow it on the floor: in off the terrace to the pantry, or on round to
+// the bullpen — never across the lift core, into the war room through two
+// doors, or out to the far corners, which the cars would have to lap half
+// the floor to reach while the ring closes (bot-sim: a third of the field
+// knocked out metres from the ring).
+const SUMO_TARGETS = [KOTH_SPOTS[7], KOTH_SPOTS[8]];
 
 const POWERUP_PADS = [
   cp(-3.5, -7.2), cp(4, -5.2), // lobby
@@ -435,7 +442,7 @@ export const TOWER = {
   MAP_BOUNDS, WALL_HEIGHT, ROOMS, WALLS, FURNITURE, RAMPS, PROPS, ZONES,
   SPAWNS, REVERSE_SPAWN_ROTY: Math.PI / 2, // the reverse lap leaves east, through the bullpen
   CHECKPOINTS, BOT_PATH, BEAN_SPAWNS, COFFEE_MACHINE, BATTERY_SPAWN, SOCCER,
-  KOTH_SPOTS, SUMO_ZONE, POWERUP_PADS, VENDING, PRINTER, ROBOT_PATH,
+  KOTH_SPOTS, SUMO_ZONE, SUMO_TARGETS, POWERUP_PADS, VENDING, PRINTER, ROBOT_PATH,
   // the live standings: on the war room wall by the slider, and in the bullpen
   BOARDS: {
     boards: [{ at: [5.0, 1.55, 3.13], rotY: 0 }, { at: [11.4, 1.5, -2.13], rotY: Math.PI }],

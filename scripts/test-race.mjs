@@ -171,7 +171,8 @@ for (const map of ['office', 'cellar']) {
     h.respawn(null);
     const dropped = sim.room.mode.beans.slice(before);
     check(`${map}: a coffee runner's respawn spills the beans where they were`, h.me.beans === 0 && dropped.length === 5
-      && dropped.every((d) => Math.hypot(d.x - far.x, d.z - far.z) < 3));
+      // (in the spill ring round that spot: knocked clear of the car, not carried)
+      && dropped.every((d) => Math.hypot(d.x - far.x, d.z - far.z) < 3.7));
   }
   // You're It: a respawn is a recovery on the spot, unprotected
   {

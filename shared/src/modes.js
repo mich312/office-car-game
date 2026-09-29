@@ -41,7 +41,7 @@ export const MODES = {
     id: 'koth',
     name: 'Standup Standoff',
     icon: '📍',
-    desc: 'The meeting zone moves between rooms. Hold it to score — don’t be late.',
+    desc: 'The meeting zone moves between rooms. Hold it alone to score — share it and you split it. Don’t be late.',
     scorePerSecond: 3,
     hopSeconds: 20, // zone relocates this often
     seconds: 180,
@@ -61,7 +61,9 @@ export const MODES = {
     icon: '🥋',
     desc: 'The safe zone shrinks. Shove rivals out of it. Last car rolling wins the round.',
     roundSeconds: 45,
-    outSeconds: 6, // grace timer outside the zone before you're out
+    closeFrac: 0.75, // the ring reaches its final size this far into the round, then holds
+    outSeconds: 2.5, // grace outside the zone before you're out
+    refillRate: 0.5, // grace comes back at half the rate it drains (s per s inside)
     restSeconds: 4, // breather between rounds
     placeScore: 15, // per player you outlasted
     winBonus: 40,
@@ -80,7 +82,10 @@ export const MODES = {
     desc: 'Open world, no rules. Ten minutes of playground — style points for drifting, air time and mayhem.',
     seconds: 600, // long sessions; the lobby votes again afterwards
     driftPerS: 2,
+    driftMinSpeed: 6, // units/s — a drift parked on the spot is not style
     airPerS: 1.5,
+    airMinY: 0.6, // units above the floor to count as air
+    airCapS: 3, // air points per jump stop after this long
     bumpScore: 5,
   },
   office_cup: {
@@ -97,7 +102,20 @@ export const MODES = {
 // escapable. One refuge room always survives for the final showdown.
 export const LCS = {
   FIRST_LOCK_S: 15, // breathing room after GO before the first closure
-  LOCK_INTERVAL_S: 16,
+  // Closures are paced to the map: every room but the refuge is closed by
+  // FINALE_S before the whistle (a 13-room office every ~14 s, an 8-room
+  // cellar every ~26 s), clamped to this range.
+  LOCK_INTERVAL_MIN_S: 8,
+  LOCK_INTERVAL_MAX_S: 30,
+  // Finale: once only the refuge is open, a zap ring closes inside it
+  FINALE_S: 40,
+  FINALE_R1_M: 0.8, // final ring radius, metres
+  // The cleaning robot joins once a third of the rooms are closed, patrols
+  // the open ones and zaps what it touches
+  ROBOT_AFTER: 1 / 3,
+  ROBOT_SPEED_MS: 1.4, // metres per second — a car outruns it, a parked one doesn't
+  ROBOT_REACH_M: 0.5,
+  ROBOT_DIGEST_S: 3, // it stops this long after each zap
   WARN_S: 5, // "closing in 5…" telegraph, mirrors office-event warnings
   ZAP_GRACE_S: 2.5, // seconds inside a locked room before elimination
   SURVIVAL_SCORE_PER_S: 1.5,

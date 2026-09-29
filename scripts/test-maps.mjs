@@ -1,7 +1,7 @@
 // Every map, checked as geometry: the lap is drivable, nothing spawns inside
 // a wall or a desk, the rooms tile the floor, and each map carries everything
 // every mode needs. A map that fails here would fail as a bug report later.
-import { MAPS, MAP_IDS, ALL_ROOM_IDS, isDecor, SURFACES, M, CHECKPOINT_RADIUS, MODE_IDS } from '../shared/src/index.js';
+import { MAPS, MAP_IDS, ALL_ROOM_IDS, isDecor, SURFACES, M, CHECKPOINT_RADIUS, MODE_IDS, KOTH_RADIUS } from '../shared/src/index.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -137,6 +137,41 @@ for (const id of MAP_IDS) {
   const finishRoom = (c) => map.roomAt(c.x, c.z)?.id;
   check(`${tag} the lap finishes in the grid's room (forward ${finishRoom(map.CHECKPOINTS.at(-1))}, reverse ${finishRoom(map.CHECKPOINTS[0])})`,
     gridRooms.has(finishRoom(map.CHECKPOINTS.at(-1))) && gridRooms.has(finishRoom(map.CHECKPOINTS[0])));
+  // a standup disc is one room's floor: no part of it lies behind a wall
+  // from its centre (the cellar's Archive and Server Hall discs used to spill
+  // into the corridor, and cars there scored through the wall)
+  {
+    const walls = map.WALLS.filter((w) => !w.low);
+    const sight = (a, x, z) => {
+      const steps = Math.ceil(Math.hypot(x - a.x, z - a.z) / 0.25) + 1;
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        if (walls.some((w) => inBox(a.x + (x - a.x) * t, a.z + (z - a.z) * t, w))) return false;
+      }
+      return true;
+    };
+    const behind = [];
+    map.KOTH_SPOTS.forEach((s, i) => {
+      let n = 0;
+      for (let dx = -KOTH_RADIUS; dx <= KOTH_RADIUS; dx += 0.5) {
+        for (let dz = -KOTH_RADIUS; dz <= KOTH_RADIUS; dz += 0.5) {
+          if (Math.hypot(dx, dz) > KOTH_RADIUS || walls.some((w) => inBox(s.x + dx, s.z + dz, w))) continue;
+          if (!sight(s, s.x + dx, s.z + dz)) n++;
+        }
+      }
+      if (n) behind.push(`#${i} (${(s.x / M).toFixed(1)},${(s.z / M).toFixed(1)}) ${n} pts`);
+    });
+    check(`${tag} no standup disc reaches behind a wall${behind.length ? ` — ${behind.join(', ')}` : ''}`, !behind.length);
+  }
+  // the sumo ring starts over the whole floor: a car in a far corner must not
+  // begin a round already outside it
+  {
+    const Z = map.SUMO_ZONE;
+    const far = Math.max(...map.ROOMS.flatMap((r) => [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+      .map(([sx, sz]) => Math.hypot(r.x + sx * r.w / 2 - Z.x, r.z + sz * r.d / 2 - Z.z))));
+    check(`${tag} the sumo ring starts over every room (r0 ${(Z.r0 / M).toFixed(1)} m, farthest corner ${(far / M).toFixed(1)} m)`, Z.r0 > far);
+  }
+
 }
 check('modes: a mode list exists to run on these maps', MODE_IDS.length > 0);
 

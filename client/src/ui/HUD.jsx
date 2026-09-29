@@ -283,6 +283,7 @@ function MatchHUD() {
   const sumoRound = useStore((s) => s.sumoRound);
   const sumoOutLeft = useStore((s) => s.sumoOutLeft);
   const sumoDead = useStore((s) => s.sumoDead);
+  const sumoRest = useStore((s) => s.sumoRest);
   const lcs = useStore((s) => s.lcs);
   const spectating = useStore((s) => s.spectating);
   const spectateTarget = useStore((s) => s.spectateTarget);
@@ -308,7 +309,10 @@ function MatchHUD() {
   const warnRoom = lcs?.warn ? map.ROOMS.find((r) => r.id === lcs.warn.room) : null;
   const warnLeft = lcs?.warn ? Math.max(0, Math.ceil((lcs.warn.until - Date.now()) / 1000)) : 0;
   const myRoom = !spectating ? map.roomAt(telemetry.x, telemetry.z) : null;
-  const inLockedRoom = !!(modeId === 'last_standing' && myRoom && lcs?.locked?.includes(myRoom.id));
+  // the finale's ring: outside it is as deadly as a closed room
+  const finale = modeId === 'last_standing' ? net.zone : null;
+  const outsideRing = !!(finale && !spectating && Math.hypot(telemetry.x - finale.x, telemetry.z - finale.z) > finale.r);
+  const inLockedRoom = !!(modeId === 'last_standing' && ((myRoom && lcs?.locked?.includes(myRoom.id)) || outsideRing));
 
   return (
     <>
@@ -345,27 +349,27 @@ function MatchHUD() {
           {modeId === 'battery' && (
             <div className="chip"><Icon name="battery" size={15} /> hold the battery to score</div>
           )}
-          {modeId === 'koth' && (
-            <div className="chip"><Icon name="target" size={15} /> hold the standup zone to score</div>
-          )}
+          {modeId === 'koth' && <StandupChip map={map} spectating={spectating} />}
           {modeId === 'tag' && (
             <div className="chip"><Icon name="crown" size={15} />
               {itId === myId ? "YOU'RE IT — keep scoring!" : itId ? `${players[itId]?.name || '???'} is It — bump them!` : '…'}
             </div>
           )}
           {modeId === 'sumo' && (
-            <div className={`chip ${sumoOutLeft != null && !sumoDead ? 'mutator-chip' : ''}`}>
-              <Icon name={sumoDead ? 'skull' : sumoOutLeft != null ? 'warning' : 'target'} size={15} />
-              {sumoDead
-                ? 'out — next round soon'
-                : sumoOutLeft != null
-                  ? `GET BACK IN! ${sumoOutLeft.toFixed(1)}s`
-                  : `round ${sumoRound || 1} — stay inside the ring`}
+            <div className={`chip ${sumoOutLeft != null && !sumoDead && !sumoRest ? 'mutator-chip' : ''}`}>
+              <Icon name={sumoRest ? 'flag' : sumoDead ? 'skull' : sumoOutLeft != null ? 'warning' : 'target'} size={15} />
+              {sumoRest
+                ? `round ${sumoRound} over — next round in ${sumoRest}s`
+                : sumoDead
+                  ? 'out — next round soon'
+                  : sumoOutLeft != null
+                    ? `GET BACK IN! ${sumoOutLeft.toFixed(1)}s`
+                    : `round ${sumoRound || 1} — stay inside the ring`}
             </div>
           )}
           {modeId === 'last_standing' && (
             <div className="chip"><Icon name="crown" size={15} />
-              {lcs?.alive ?? '…'} cars left{warnRoom ? ` · ${warnRoom.name} closes in ${warnLeft}s` : ''}
+              {lcs?.alive ?? '…'} cars left{warnRoom ? ` · ${warnRoom.name} closes in ${warnLeft}s` : finale ? ' · the last meeting — stay in the ring' : ''}
             </div>
           )}
           {modeId === 'free_roam' && (
@@ -382,7 +386,7 @@ function MatchHUD() {
       {inLockedRoom && (
         <div className="toast toast-bad zap-toast">
           <span className="toast-icon"><Icon name="warning" /></span>
-          <div><b>ROOM CLOSED — GET OUT!</b></div>
+          <div><b>{outsideRing ? 'OUTSIDE THE RING — GET IN!' : 'ROOM CLOSED — GET OUT!'}</b></div>
         </div>
       )}
       {spectating && (
@@ -425,6 +429,29 @@ function MatchHUD() {
       </div>
       <TouchControls />
     </>
+  );
+}
+
+// ------------------------------------------------------- standup chip
+// Where the meeting is, when it moves, and whether you're scoring: the
+// server stamps the hop time and how many cars share the zone.
+function StandupChip({ map, spectating }) {
+  const z = net.zone;
+  if (!z) return <div className="chip"><Icon name="target" size={15} /> hold the standup zone to score</div>;
+  const hopIn = z.until ? Math.max(0, Math.ceil((z.until - net.clockOffset - performance.now()) / 1000)) : null;
+  const inZone = !spectating && Math.hypot(telemetry.x - z.x, telemetry.z - z.z) <= z.r;
+  const n = z.n || 0;
+  const rate = MODES.koth.scorePerSecond / Math.max(1, n);
+  const room = map.roomAt(z.x, z.z)?.name;
+  const soon = hopIn != null && hopIn <= 5;
+  return (
+    <div className={`chip ${inZone && n > 1 ? 'mutator-chip' : ''}`}>
+      <Icon name={inZone && n > 1 ? 'warning' : 'target'} size={15} />
+      {inZone
+        ? n > 1 ? `CONTESTED ×${n} · +${rate.toFixed(1)}/s` : `IN THE STANDUP · +${rate}/s`
+        : `standup${room ? ` in the ${room}` : ''}`}
+      {hopIn != null && <span className={soon ? 'variant-tag' : ''}> · moves in {hopIn}s</span>}
+    </div>
   );
 }
 
@@ -567,6 +594,16 @@ function Minimap() {
         g.beginPath();
         g.ellipse(px(net.zone.x), pz(net.zone.z), net.zone.r * sx, net.zone.r * sz, 0, 0, 7);
         g.stroke();
+        // the standup's next spot, in its last five seconds
+        const nx = net.zone.next;
+        if (nx && net.zone.until && net.zone.until - net.clockOffset - performance.now() < 5000) {
+          g.setLineDash([3, 3]);
+          g.strokeStyle = `rgba(255, 180, 84, ${0.35 + 0.5 * pulse})`;
+          g.beginPath();
+          g.ellipse(px(nx.x), pz(nx.z), net.zone.r * sx, net.zone.r * sz, 0, 0, 7);
+          g.stroke();
+          g.setLineDash([]);
+        }
       }
       // whoever is It glows amber
       if (net.it) {
@@ -583,6 +620,7 @@ function Minimap() {
         const buf = net.remotes.get(id);
         const s = buf?.[buf.length - 1];
         if (!s) continue;
+        if (((s.f || 0) & 128) && st.modeId === 'last_standing') continue; // ghosts are off the map
         const p = st.players[id];
         g.globalAlpha = p?.bot ? 0.55 : 1;
         g.fillStyle = st.modeId === 'soccer' ? (p?.team ? '#4da3ff' : '#ff8a3d') : p?.paint || '#9aa7c0';

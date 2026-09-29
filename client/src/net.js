@@ -137,7 +137,7 @@ function handleMessage(msg) {
         powerup: null, spectateTarget: null,
         event: null, eventWarn: null, podium: null,
         scores: {}, raceProgress: {}, myBeans: 0,
-        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, lcs: null,
+        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, sumoRest: 0, lcs: null,
         // a Last Car Standing drop-in after the first knockout watches
         spectating: !!msg.spectating,
         // always set, so a reconnect into a non-cup room drops a stale chip
@@ -188,7 +188,7 @@ function handleMessage(msg) {
         countdownEnd: Date.now() + msg.countdown * 1000,
         players, scores: {}, teamScores: [0, 0], podium: null, powerup: null,
         raceProgress: {}, myBeans: 0, event: null,
-        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false,
+        itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, sumoRest: 0,
         spectating: false, spectateTarget: null, lcs: null, rivalry: null, nemesis: null,
         mutator: msg.mutator || null, cup: msg.cup || null, variant: msg.variant || 'classic',
         mapId: msg.map || S.getState().mapId,
@@ -260,6 +260,8 @@ function handleMessage(msg) {
         const mine = msg.sumo?.out?.find((o) => o[0] === net.myId);
         const outLeft = mine ? mine[1] / 10 : null;
         if (st.sumoOutLeft !== outLeft) S.setState({ sumoOutLeft: outLeft });
+        const rest = msg.sumo?.rest ? Math.ceil(msg.sumo.rest) : 0;
+        if (st.sumoRest !== rest) S.setState({ sumoRest: rest });
       }
       break;
     }
@@ -310,6 +312,9 @@ function handleMessage(msg) {
     case MSG.MATCH_END: {
       S.setState({
         phase: PHASE.PODIUM, podium: msg.podium,
+        // lights out / wind / wet floors end with the match, not whenever
+        // their duration timer happens to fire
+        event: null, eventWarn: null,
         rivalry: msg.rivalries?.[net.myId] || null, nemesis: msg.nemesis || null,
         cup: msg.cup || null,
       });

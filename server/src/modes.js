@@ -7,6 +7,7 @@ import {
   raceCheckpoints, raceLaps, sumoTarget, sumoCenter, kothHopSeconds,
   groundAt, clearDropSpot, wallBetween, MUTATORS, soccerGoalHeight,
 } from '@rc/shared';
+import { sightBlocked, navOf, navTo, roomsConnected } from './nav.js';
 
 const now = () => Date.now();
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -49,6 +50,7 @@ export function createMode(id, room) {
 }
 
 // ------------------------------------------------------------ Open Office
+const STYLE_FRESH_MS = 300; // a human's style counts only this long after its last report
 // Open-world sandbox: no objectives, no pressure — ten minutes of playground.
 // Style points keep the scoreboard honest: drifting, air time and mayhem.
 class FreeRoamMode {
@@ -56,11 +58,24 @@ class FreeRoamMode {
     this.room = room;
     this.acc = 0;
   }
+  // Style is scored from what the server can check, not just the flags a
+  // client reports: a human scores only while its reports are fresh (a
+  // backgrounded tab whose last report said "drifting, airborne" used to
+  // bank points forever), a drift needs real speed, and air time needs the
+  // car actually up or moving vertically — capped per jump.
   update(dt) {
     const cfg = MODES.free_roam;
+    const t = now();
     for (const p of this.room.players.values()) {
-      if (p.drifting) p.score += cfg.driftPerS * dt;
-      if (!p.grounded) p.score += cfg.airPerS * dt;
+      if (!p.bot && t - p.lastStateAt > STYLE_FRESH_MS) { p.airT = 0; continue; }
+      if (p.drifting && Math.hypot(p.v[0], p.v[2]) > cfg.driftMinSpeed) p.score += cfg.driftPerS * dt;
+      const up = !p.grounded && (p.p[1] > cfg.airMinY || Math.abs(p.v[1]) > 1);
+      if (up) {
+        p.airT = (p.airT || 0) + dt;
+        if (p.airT <= cfg.airCapS) p.score += cfg.airPerS * dt;
+      } else if (p.grounded) {
+        p.airT = 0;
+      }
     }
     this.acc += dt;
     if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
@@ -73,6 +88,7 @@ class FreeRoamMode {
 }
 
 // ------------------------------------------------------ Last Car Standing
+const GHOST_Y = -40; // where an eliminated car is parked (below the floor, out of play)
 // Facilities closes the office room by room (telegraphed like office
 // events). Linger in a locked room and you're zapped; fall off the balcony
 // and you're gone. One refuge room always survives for the final showdown.
@@ -80,7 +96,10 @@ class FreeRoamMode {
 class LastStandingMode {
   constructor(room) {
     this.room = room;
-    // Shuffled closure order — the final entry is the refuge, never locked.
+    // Shuffled closure order. Each closure takes the first room in it whose
+    // loss still leaves the open rooms connected, so a hub (the cellar's
+    // corridor) closes late instead of cutting the floor in half at 15 s.
+    // The last room left is the refuge, never locked.
     this.order = this.room.map.ROOMS.map((r) => r.id);
     for (let i = this.order.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -89,18 +108,43 @@ class LastStandingMode {
     this.locked = [];
     this.warn = null; // { room, until }
     this.nextLockAt = now() + (COUNTDOWN_SECONDS + LCS.FIRST_LOCK_S) * 1000;
+    this.interval = 0; // paced to the match on the first playing tick
+    this.finale = null; // { room, x, z, r0, r, start } — the zap ring in the refuge
+    this.robot = null;
     this.outCount = 0;
     this.over = false;
     for (const p of room.players.values()) { p.eliminated = false; p.zapT = 0; }
   }
   alive() { return [...this.room.players.values()].filter((p) => !p.eliminated); }
+  closures() { return this.room.map.ROOMS.length - 1; }
+  nextRoom() {
+    const open = this.room.map.ROOMS.map((r) => r.id).filter((id) => !this.locked.includes(id));
+    const k = this.order.findIndex((id) => roomsConnected(this.room.map, open.filter((o) => o !== id)));
+    return this.order.splice(Math.max(0, k), 1)[0];
+  }
+  // A car that is somewhere it will be zapped: a locked room, or — in the
+  // finale — outside the ring.
+  zapZone(p) {
+    if (this.finale) {
+      return Math.hypot(p.p[0] - this.finale.x, p.p[2] - this.finale.z) > this.finale.r ? 'the final meeting' : null;
+    }
+    const rm = this.room.map.roomAt(p.p[0], p.p[2]);
+    return rm && this.locked.includes(rm.id) ? `the ${rm.name}` : null;
+  }
   update(dt) {
+    // crowned: the wind-down is a victory lap — no more closures, no more
+    // survival points for anyone
+    if (this.over) return;
     const t = now();
+    if (!this.interval) {
+      const left = (this.room.endsAt - t) / 1000 - LCS.FIRST_LOCK_S - LCS.FINALE_S;
+      this.interval = Math.min(LCS.LOCK_INTERVAL_MAX_S, Math.max(LCS.LOCK_INTERVAL_MIN_S, left / Math.max(1, this.closures() - 1)));
+    }
     const alive = this.alive();
     for (const p of alive) p.score += LCS.SURVIVAL_SCORE_PER_S * dt;
     // telegraph the next closure…
-    if (!this.warn && this.locked.length < this.room.map.ROOMS.length - 1 && t >= this.nextLockAt - LCS.WARN_S * 1000) {
-      const roomId = this.order.shift();
+    if (!this.warn && this.locked.length < this.closures() && t >= this.nextLockAt - LCS.WARN_S * 1000) {
+      const roomId = this.nextRoom();
       this.warn = { room: roomId, until: this.nextLockAt };
       const r = this.room.map.ROOMS.find((rm) => rm.id === roomId);
       this.room.feed(`🚧 Facilities is closing the ${r?.name ?? roomId} — clear out!`);
@@ -109,29 +153,118 @@ class LastStandingMode {
     if (this.warn && t >= this.warn.until) {
       this.locked.push(this.warn.room);
       this.warn = null;
-      this.nextLockAt = t + LCS.LOCK_INTERVAL_S * 1000;
+      this.nextLockAt = t + this.interval * 1000;
+      if (this.locked.length >= this.closures()) this.startFinale(t);
+      else if (!this.robot && this.locked.length >= Math.ceil(this.closures() * LCS.ROBOT_AFTER)) this.deployRobot();
     }
+    if (this.finale) {
+      const F = this.finale;
+      const k = Math.min(1, (t - F.start) / (LCS.FINALE_S * 800)); // closed with a fifth of the finale to spare
+      F.r = F.r0 + (LCS.FINALE_R1_M * M - F.r0) * k;
+    }
+    if (this.robot) this.moveRobot(dt, t);
     // zap loiterers (short grace so a near-miss is escapable)
     for (const p of alive) {
-      const rm = this.room.map.roomAt(p.p[0], p.p[2]);
-      if (rm && this.locked.includes(rm.id)) {
+      const where = this.zapZone(p);
+      if (where) {
         p.zapT = (p.zapT || 0) + dt;
-        if (p.zapT > LCS.ZAP_GRACE_S) this.eliminate(p, `lingered in the ${rm.name}`);
+        if (p.zapT > LCS.ZAP_GRACE_S) this.eliminate(p, `lingered in ${where}`);
       } else {
         p.zapT = 0;
       }
+    }
+  }
+  // The finale: only the refuge is left and nothing else can eliminate a car
+  // in it, so a zap ring closes in on its clearest spot.
+  startFinale(t) {
+    const map = this.room.map;
+    const rm = map.ROOMS.find((r) => !this.locked.includes(r.id));
+    if (!rm) return;
+    const solid = [...map.WALLS.filter((w) => !w.low), ...map.FURNITURE.filter((f) => !isDecor(f))];
+    let best = { x: rm.x, z: rm.z }, bs = -Infinity;
+    for (let x = rm.x - rm.w / 2 + M; x <= rm.x + rm.w / 2 - M; x += 0.5 * M) {
+      for (let z = rm.z - rm.d / 2 + M; z <= rm.z + rm.d / 2 - M; z += 0.5 * M) {
+        let clear = Infinity;
+        for (const b of solid) {
+          const q = Math.abs(Math.sin(b.rotY || 0)) > 0.7;
+          const w = q ? b.d : b.w, d = q ? b.w : b.d;
+          const dx = Math.max(0, Math.abs(x - b.x) - w / 2), dz = Math.max(0, Math.abs(z - b.z) - d / 2);
+          clear = Math.min(clear, Math.hypot(dx, dz));
+        }
+        const sc = Math.min(clear, 2 * M) - 0.1 * Math.hypot(x - rm.x, z - rm.z);
+        if (sc > bs) { bs = sc; best = { x, z }; }
+      }
+    }
+    const r0 = Math.max(...[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz]) =>
+      Math.hypot(rm.x + (sx * rm.w) / 2 - best.x, rm.z + (sz * rm.d) / 2 - best.z))) + 0.5 * M;
+    this.finale = { room: rm.id, x: best.x, z: best.z, r0, r: r0, start: t };
+    this.room.feed(`⚡ The ${rm.name} is the last room open — and the zap ring is closing in!`);
+  }
+  // The robot: a real hazard here, not a 1-in-6 office event. It patrols
+  // the rooms that are still open, door to door, and zaps what it touches.
+  deployRobot() {
+    const map = this.room.map;
+    const { nodes } = navOf(map);
+    const good = nodes.filter((n) => n.room && !this.locked.includes(n.room) && this.warn?.room !== n.room);
+    if (!good.length) return;
+    // enter where nobody is
+    let start = good[0], bd = -1;
+    for (const n of good) {
+      const d = Math.min(...this.alive().map((p) => Math.hypot(p.p[0] - n.x, p.p[2] - n.z)), 1e9);
+      if (d > bd) { bd = d; start = n; }
+    }
+    this.robot = { x: start.x, z: start.z, mode: true, goal: null };
+    this.room.robot = this.robot;
+    this.room.feed('🤖 Facilities sent in the cleaning robot. Do not get eaten.');
+  }
+  moveRobot(dt, t) {
+    const map = this.room.map;
+    const R = this.robot;
+    this.room.robot = R;
+    const openRoom = (id) => id && !this.locked.includes(id) && this.warn?.room !== id;
+    if (!R.goal || Math.hypot(R.goal.x - R.x, R.goal.z - R.z) < 1.5 || !openRoom(map.roomAt(R.goal.x, R.goal.z)?.id)) {
+      const pool = this.finale
+        ? [{ x: this.finale.x, z: this.finale.z }]
+        : navOf(map).nodes.filter((n) => openRoom(n.room));
+      R.goal = pool[Math.floor(Math.random() * pool.length)] || { x: R.x, z: R.z };
+      if (this.finale) { const a = Math.random() * Math.PI * 2; R.goal = { x: R.goal.x + Math.cos(a) * this.finale.r * 0.6, z: R.goal.z + Math.sin(a) * this.finale.r * 0.6 }; }
+    }
+    if (R.digestUntil > t) return; // it stops to chew — the pack gets a moment to scatter
+    const step = navTo(map, R, R.goal);
+    const dx = step.x - R.x, dz = step.z - R.z;
+    const len = Math.hypot(dx, dz);
+    const sp = LCS.ROBOT_SPEED_MS * M * dt;
+    if (len > 1e-6) { R.x += (dx / len) * Math.min(sp, len); R.z += (dz / len) * Math.min(sp, len); }
+    for (const p of this.alive()) {
+      if (Math.hypot(p.p[0] - R.x, p.p[2] - R.z) >= LCS.ROBOT_REACH_M * M) continue;
+      if (p.spawnProtectUntil > t) continue;
+      if (p.shieldUntil > t) {
+        p.shieldUntil = 0;
+        p.stunUntil = t + 1500;
+        this.room.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: p.id });
+        continue;
+      }
+      if (p.stunUntil > t) continue; // it just bounced off a shield
+      this.room.broadcast({ t: MSG.EFFECT, type: 'robot_hit', target: p.id, at: [r2(R.x), 0, r2(R.z)] });
+      this.eliminate(p, 'the cleaning robot got them');
+      R.digestUntil = t + LCS.ROBOT_DIGEST_S * 1000;
+      break; // one car per bite
     }
   }
   eliminate(p, cause) {
     if (p.eliminated || this.over) return;
     p.eliminated = true;
     p.zapT = 0;
+    this.room.dropItem?.(p);
     p.allowTeleportUntil = now() + 2500; // ghost client parks its car off-map
     this.outCount++;
     p.score += LCS.PLACEMENT_SCORE * this.outCount; // dying later pays more
     const left = this.alive();
     this.room.broadcast({ t: MSG.EFFECT, type: 'eliminated', id: p.id, at: p.p.map(r2), left: left.length });
     this.room.feed(`💀 ${p.name} is out — ${cause}! ${left.length} car${left.length === 1 ? '' : 's'} left`);
+    // a ghost is nowhere: a bot's body would otherwise stay where it died, an
+    // invisible solid car in a doorway (a human's client parks itself)
+    if (p.bot) { p.p = [0, GHOST_Y, 0]; p.v = [0, 0, 0]; }
     this.room.scoreChanged();
     if (this.room.players.size > 1) this.checkLastStanding();
   }
@@ -158,12 +291,26 @@ class LastStandingMode {
   // a disconnect can leave one car standing just like an elimination can —
   // without this the survivor idles out the whole remaining match timer
   onLeave() { this.checkLastStanding(); }
+  // Time ran out with more than one car rolling: they all outlasted every
+  // eliminated car, so they place above them, and they share the crown.
+  onMatchEnd() {
+    if (this.over) return;
+    const left = this.alive();
+    this.over = true;
+    if (!left.length || this.room.players.size < 2) return;
+    for (const p of left) p.score += LCS.PLACEMENT_SCORE * (this.outCount + 1) + LCS.WINNER_SCORE / left.length;
+    this.room.feed(left.length === 1
+      ? `👑 ${left[0].name} is the LAST CAR STANDING!`
+      : `👑 Time! ${left.map((p) => p.name).join(', ')} share the crown`);
+  }
   onHit() {}
   rocketTarget(player) {
     return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
   }
   snapshot() {
-    return { lcs: { locked: this.locked, warn: this.warn, alive: this.alive().length } };
+    const snap = { lcs: { locked: this.locked, warn: this.warn, alive: this.alive().length } };
+    if (this.finale) snap.zone = { x: this.finale.x, z: this.finale.z, r: this.finale.r };
+    return snap;
   }
 }
 
@@ -370,13 +517,18 @@ class BatteryMode {
   // A hit knocks the battery a couple of units along the hit, clear of any
   // wall, and the victim can't grab it back for a moment — it used to stay
   // under the victim, who picked it straight up again on the next tick.
-  drop(p, from = null) {
+  // `inPlace`: a respawn leaves it exactly where the car was — the car is
+  // leaving anyway, so there's no grab-back to knock it clear of
+  drop(p, from = null, inPlace = false) {
     const b = this.battery;
     if (b.carrier !== p.id) return;
     b.carrier = null;
     p.hasBattery = false;
     const map = this.room.map;
-    if (p.p[1] < -8) {
+    if (inPlace && p.p[1] >= -8) {
+      b.x = p.p[0]; b.z = p.p[2]; b.y = r2(groundAt(map, b.x, b.z, standY(p)));
+      b.noPickup = { id: p.id, until: now() + BATTERY_NO_PICKUP_MS };
+    } else if (p.p[1] < -8) {
       // it fell out of the world: respawn it home
       b.x = map.BATTERY_SPAWN.x; b.z = map.BATTERY_SPAWN.z; b.y = 0; b.noPickup = null;
     } else {
@@ -401,7 +553,7 @@ class BatteryMode {
   onFall(p) { if (p.p[1] < -6) this.drop(p); }
   // …but it doesn't ride the respawn either: it stays where the carrier was
   // (R every second kept it, spawn-protected, out of everyone's reach)
-  onRespawn(p) { this.drop(p); }
+  onRespawn(p) { this.drop(p, null, true); }
   onLeave(p) { this.drop(p); }
   rocketTarget(player) {
     if (this.battery.carrier && this.battery.carrier !== player.id) return this.room.players.get(this.battery.carrier);
@@ -595,32 +747,51 @@ class KothMode {
     this.room = room;
     this.cfg = MODES.koth;
     this.spot = Math.floor(Math.random() * this.room.map.KOTH_SPOTS.length);
+    this.next = this.pickNext();
     this.hopAt = 0; // armed on the first playing tick, after the countdown
     this.acc = 0;
+    this.holders = [];
   }
   zonePos() { return this.room.map.KOTH_SPOTS[this.spot]; }
+  // The next spot is chosen a whole hop ahead, so the client can show where
+  // the meeting goes before it moves. Rush Hour only hops to the nearer half
+  // of the floor: at ten seconds a hop across the whole building landed
+  // where nobody could make it in time.
+  pickNext() {
+    const spots = this.room.map.KOTH_SPOTS;
+    const cur = spots[this.spot];
+    let pool = spots.map((s, i) => i).filter((i) => i !== this.spot);
+    if (this.room.variant === 'rush' && pool.length > 2) {
+      pool.sort((a, b) => Math.hypot(spots[a].x - cur.x, spots[a].z - cur.z) - Math.hypot(spots[b].x - cur.x, spots[b].z - cur.z));
+      pool = pool.slice(0, Math.ceil(pool.length / 2));
+    }
+    return pool[Math.floor(Math.random() * pool.length)] ?? this.spot;
+  }
+  // In the zone: inside the radius, on the floor (or the furniture in it) and
+  // in sight of its centre — a car behind a wall is not at the meeting.
+  inZone(p, z) {
+    return Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS && Math.abs(p.p[1]) < 4
+      && !sightBlocked(this.room.map, z.x, z.z, p.p[0], p.p[2]);
+  }
   update(dt) {
     const t = now();
     const hop = kothHopSeconds(this.cfg.hopSeconds, this.room.variant); // Rush Hour halves it
     if (!this.hopAt) this.hopAt = t + hop * 1000;
     if (t >= this.hopAt) {
-      let next;
-      do { next = Math.floor(Math.random() * this.room.map.KOTH_SPOTS.length); } while (next === this.spot);
-      this.spot = next;
+      this.spot = this.next;
+      this.next = this.pickNext();
       this.hopAt = t + hop * 1000;
       this.room.broadcast({ t: MSG.EFFECT, type: 'zone_hop' });
-      this.room.feed('📍 The standup moved!');
+      const z = this.zonePos();
+      const rm = this.room.map.roomAt(z.x, z.z);
+      this.room.feed(rm ? `📍 The standup moved to the ${rm.name}!` : '📍 The standup moved!');
     }
     const z = this.zonePos();
-    let scored = false;
-    for (const p of this.room.players.values()) {
-      if (p.stunUntil > t) continue;
-      if (Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS && Math.abs(p.p[1]) < 4) {
-        p.score += this.cfg.scorePerSecond * dt;
-        scored = true;
-      }
-    }
-    if (scored) {
+    // A shared zone is a split zone: the points are divided among everyone
+    // in it, so parking together pays nobody — hold it alone or fight for it.
+    this.holders = [...this.room.players.values()].filter((p) => !(p.stunUntil > t) && this.inZone(p, z));
+    for (const p of this.holders) p.score += (this.cfg.scorePerSecond / this.holders.length) * dt;
+    if (this.holders.length) {
       this.acc += dt;
       if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
     }
@@ -629,13 +800,19 @@ class KothMode {
   rocketTarget(player) {
     const z = this.zonePos();
     const inZone = [...this.room.players.values()]
-      .filter((p) => p.id !== player.id && Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS)
+      .filter((p) => p.id !== player.id && this.inZone(p, z))
       .sort((a, b) => b.score - a.score);
     return inZone[0] || null;
   }
   snapshot() {
     const z = this.zonePos();
-    return { zone: { x: z.x, z: z.z, r: KOTH_RADIUS, until: this.hopAt || undefined } };
+    const nx = this.room.map.KOTH_SPOTS[this.next];
+    return {
+      zone: {
+        x: z.x, z: z.z, r: KOTH_RADIUS, until: this.hopAt || undefined,
+        n: this.holders.length, next: nx && this.next !== this.spot ? { x: nx.x, z: nx.z } : undefined,
+      },
+    };
   }
 }
 
@@ -698,6 +875,7 @@ class TagMode {
 }
 
 // ------------------------------------------------------ Meeting Room Sumo
+const MIN_ROUND_S = 15; // less match left than this: no new round
 // Rounds: the safe zone starts covering most of the office and shrinks to a
 // circle in the open office. Leave it too long (or fall) and you're out for
 // the round. Score by elimination order; last car rolling banks the bonus.
@@ -710,18 +888,26 @@ class SumoMode {
     this.roundEndsAt = 0;
     this.restUntil = 0;
     this.order = [];
+    this.target = null;
     this.zone = { x: this.room.map.SUMO_ZONE.x, z: this.room.map.SUMO_ZONE.z, r: this.room.map.SUMO_ZONE.r0 };
   }
   startRound() {
     const t = now();
+    // The match clock outranks the round clock: a round that would run past
+    // it is cut to fit (the ring still closes fully), and one too short to
+    // be a round isn't started at all.
+    const left = this.room.endsAt - t - 100;
+    if (left < MIN_ROUND_S * 1000) { this.restUntil = this.room.endsAt; return; }
     this.round++;
-    this.roundEndsAt = t + this.cfg.roundSeconds * 1000;
+    this.roundLen = Math.min(this.cfg.roundSeconds * 1000, left);
+    this.roundEndsAt = t + this.roundLen;
     this.order = [];
     this.zone.r = this.room.map.SUMO_ZONE.r0;
-    // Moving Meeting: this round's ring slides toward a room as it shrinks
-    this.target = sumoTarget(this.round, this.room.variant, this.room.map);
+    // Moving Meeting: this round's ring slides toward a room as it shrinks —
+    // a different one from last round's
+    this.target = sumoTarget(this.round, this.room.variant, this.room.map, Math.random, this.target);
     this.zone.x = this.room.map.SUMO_ZONE.x; this.zone.z = this.room.map.SUMO_ZONE.z;
-    for (const p of this.room.players.values()) { p.sumoDead = false; p.sumoOutAt = 0; }
+    for (const p of this.room.players.values()) { p.sumoDead = false; p.sumoOutT = 0; }
     this.room.broadcast({ t: MSG.EFFECT, type: 'sumo_round', round: this.round });
     this.room.feed(`🥋 Round ${this.round} — stay inside the circle!`);
   }
@@ -729,7 +915,8 @@ class SumoMode {
   eliminate(p, why) {
     if (p.sumoDead || this.restUntil) return;
     p.sumoDead = true;
-    p.sumoOutAt = 0;
+    p.sumoOutT = 0;
+    this.room.dropItem?.(p);
     this.order.push(p.id);
     p.score += this.cfg.placeScore * (this.order.length - 1);
     this.room.feed(`💀 ${p.name} is out${why ? ` (${why})` : ''}`);
@@ -738,37 +925,57 @@ class SumoMode {
     const alive = this.alive();
     if (alive.length <= 1) this.endRound(alive);
   }
+  // Every survivor banks a place for each car it outlasted. The win bonus
+  // goes to the last car rolling — or, when the bell goes with several
+  // still in, to whoever holds the centre of the ring: a timeout is not a
+  // six-way win.
   endRound(survivors) {
     const nOut = this.order.length;
-    for (const p of survivors) {
-      p.score += this.cfg.placeScore * nOut + this.cfg.winBonus;
-      this.room.feed(`🏆 ${p.name} wins round ${this.round}!`);
+    let winners = survivors;
+    if (survivors.length > 1) {
+      const d = (p) => Math.hypot(p.p[0] - this.zone.x, p.p[2] - this.zone.z) + (p.p[1] < -2 ? 1e6 : 0);
+      const best = Math.min(...survivors.map(d));
+      winners = survivors.filter((p) => d(p) <= best + 0.05);
     }
+    for (const p of survivors) p.score += this.cfg.placeScore * nOut;
+    for (const p of winners) p.score += this.cfg.winBonus / winners.length;
+    // one line for the round, not one per car
+    const names = winners.map((p) => p.name);
+    if (winners.length === 1 && survivors.length === 1) this.room.feed(`🏆 ${names[0]} wins round ${this.round}!`);
+    else if (winners.length === 1) this.room.feed(`🏆 Time! ${names[0]} holds the centre and takes round ${this.round} (${survivors.length} cars still in)`);
+    else if (winners.length > 1) this.room.feed(`🤝 Round ${this.round}: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} share it`);
+    for (const p of this.room.players.values()) p.sumoOutT = 0; // no countdown carries into the break
     this.room.scoreChanged();
     this.restUntil = now() + this.cfg.restSeconds * 1000;
   }
-  update() {
+  update(dt = 0) {
     const t = now();
     if (!this.round) { this.startRound(); return; }
     if (this.restUntil) {
       if (t >= this.restUntil) { this.restUntil = 0; this.startRound(); }
       return;
     }
-    // round timeout: everyone still alive shares the win
+    // round timeout: the centre takes it (endRound)
     if (t >= this.roundEndsAt) { this.endRound(this.alive()); return; }
-    // linear shrink over the round
-    const frac = 1 - Math.max(0, (this.roundEndsAt - t) / (this.cfg.roundSeconds * 1000));
+    // The ring closes over the first part of the round, then holds at its
+    // final size: the last stretch is a shoving match in a small ring, not a
+    // ring that only gets small as the bell goes.
+    const frac = Math.min(1, (1 - Math.max(0, (this.roundEndsAt - t) / this.roundLen)) / this.cfg.closeFrac);
     this.zone.r = this.room.map.SUMO_ZONE.r0 + (this.room.map.SUMO_ZONE.r1 - this.room.map.SUMO_ZONE.r0) * frac;
     const c = sumoCenter(this.room.map.SUMO_ZONE, this.target, frac);
     this.zone.x = c.x; this.zone.z = c.z;
+    // Out of the ring drains the grace; back in refills it, slowly — a car
+    // shoved out and nudging one wheel back in for a tick no longer resets
+    // the whole countdown.
     for (const p of this.room.players.values()) {
       if (p.sumoDead) continue;
       if (Math.hypot(p.p[0] - this.zone.x, p.p[2] - this.zone.z) <= this.zone.r) {
-        p.sumoOutAt = 0;
-      } else if (!p.sumoOutAt) {
-        p.sumoOutAt = t;
-      } else if (t - p.sumoOutAt > this.cfg.outSeconds * 1000) {
-        this.eliminate(p, 'left the ring');
+        p.sumoIn = true;
+        p.sumoOutT = Math.max(0, (p.sumoOutT || 0) - dt * this.cfg.refillRate);
+      } else {
+        p.sumoIn = false;
+        p.sumoOutT = (p.sumoOutT || 0) + dt;
+        if (p.sumoOutT > this.cfg.outSeconds) this.eliminate(p, 'left the ring');
       }
     }
   }
@@ -777,6 +984,11 @@ class SumoMode {
   // auto-recovery respawn) inside the ring is not "out"
   onFall(p) { if (p.p[1] < -6) this.eliminate(p, 'gravity'); }
   onJoin(p) { p.sumoDead = true; } // drop-ins wait for the next round
+  // the match ending mid-round is a timeout like any other: the survivors
+  // get paid, or getting knocked out would out-score surviving
+  onMatchEnd() {
+    if (this.round && !this.restUntil) this.endRound(this.alive());
+  }
   onLeave() {
     const alive = this.alive();
     if (this.round && !this.restUntil && alive.length <= 1) this.endRound(alive);
@@ -785,13 +997,16 @@ class SumoMode {
     return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
   }
   snapshot() {
-    const t = now();
     const out = [];
-    for (const p of this.room.players.values()) {
-      if (!p.sumoDead && p.sumoOutAt) {
-        out.push([p.id, Math.max(0, Math.round((this.cfg.outSeconds * 1000 - (t - p.sumoOutAt)) / 100))]);
+    // outside the ring, the grace left; nothing during the break
+    if (!this.restUntil) {
+      for (const p of this.room.players.values()) {
+        if (!p.sumoDead && !p.sumoIn && p.sumoOutT > 0) {
+          out.push([p.id, Math.max(0, Math.round((this.cfg.outSeconds - p.sumoOutT) * 10))]);
+        }
       }
     }
-    return { zone: { x: this.zone.x, z: this.zone.z, r: this.zone.r }, sumo: { round: this.round, out } };
+    const rest = this.restUntil && this.restUntil < this.room.endsAt ? Math.max(0, (this.restUntil - now()) / 1000) : 0;
+    return { zone: { x: this.zone.x, z: this.zone.z, r: this.zone.r }, sumo: { round: this.round, out, rest } };
   }
 }
