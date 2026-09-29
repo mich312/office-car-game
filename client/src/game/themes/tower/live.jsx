@@ -609,9 +609,9 @@ const rainTex = () => canvas('train', 128, 256, (g, w, h) => {
   g.clearRect(0, 0, w, h);
   let s = 71;
   for (let i = 0; i < 40; i++) {
-    const x = hash(s++) * w, y = hash(s++) * h, len = 6 + hash(s++) * 40;
+    const x = hash(s++) * w, y = hash(s++) * h, len = 4 + hash(s++) * 18;
     g.strokeStyle = `rgba(210,225,255,${0.12 + hash(s++) * 0.3})`;
-    g.lineWidth = 0.8 + hash(s++) * 1.2;
+    g.lineWidth = 0.6 + hash(s++) * 0.6;
     g.beginPath(); g.moveTo(x, y); g.lineTo(x + (hash(s++) - 0.5) * 3, y + len); g.stroke();
     g.fillStyle = 'rgba(220,235,255,0.35)';
     g.beginPath(); g.arc(x, y + len, 1.4, 0, Math.PI * 2); g.fill();
@@ -626,7 +626,7 @@ export function RainGlass({ map }) {
       const alongX = wl.w >= wl.d, L = alongX ? wl.w : wl.d, H = wl.h;
       const g = new THREE.PlaneGeometry(L, H);
       const uv = g.attributes.uv;
-      for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * L) / M / 2.4, (uv.getY(i) * H) / M / 2.4);
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * L) / M / 0.9, (uv.getY(i) * H) / M / 0.9);
       // just outside the glass, facing in (which side is outside: away from the middle)
       const out = alongX ? Math.sign(wl.z) : Math.sign(wl.x);
       g.rotateY(alongX ? (out > 0 ? Math.PI : 0) : (out > 0 ? -Math.PI / 2 : Math.PI / 2));
@@ -642,7 +642,7 @@ export function RainGlass({ map }) {
   useFrame((_, dt) => {
     const st = useStore.getState();
     const wet = lightingFor(st.timeOfDay, st.event?.id === 'lights_out').wet;
-    m.opacity += ((wet ? 0.2 : 0) - m.opacity) * Math.min(1, dt);
+    m.opacity += ((wet ? 0.16 : 0) - m.opacity) * Math.min(1, dt);
     m.map.offset.y = (m.map.offset.y + dt * 0.18) % 1;
   });
   return geo ? <mesh geometry={geo} material={m} frustumCulled={false} renderOrder={2} /> : null;
