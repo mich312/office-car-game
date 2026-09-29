@@ -445,14 +445,21 @@ export class Room {
       });
     }
     this.mode = createMode(this.modeId, this);
-    // Bots line up where the humans' clients put themselves. After the mode
+    // Everyone lines up where the humans' clients put themselves. After the mode
     // exists, because soccer assigns the teams that pick the kickoff half.
     // Office Cup rounds keep their bots, so this also clears everything a
     // bot carried out of the last round: where it stood, which way it faced,
     // its waypoint and speed.
     for (const p of this.players.values()) {
-      if (!p.bot) continue;
       const s = this.startSpot(p);
+      if (!p.bot) {
+        // a human's client teleports itself there on START; until its first
+        // report on the new floor the server had it at the last map's
+        // coordinates — outside a sumo ring (knocked out before GO on a slow
+        // client), in a closing room, on a pad
+        p.p = [s.x, SPAWN_Y, s.z]; p.v = [0, 0, 0]; p.q = [0, Math.sin(s.rotY / 2), 0, Math.cos(s.rotY / 2)];
+        continue;
+      }
       Object.assign(p, {
         p: [s.x, 0.24, s.z], q: [0, Math.sin(s.rotY / 2), 0, Math.cos(s.rotY / 2)], v: [0, 0, 0],
         heading: s.rotY, wp: 0, speed: 0, kick: { x: 0, z: 0 }, stuckT: 0,

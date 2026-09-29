@@ -253,6 +253,24 @@ for (const map of ['office', 'cellar']) {
   }
 }
 
+// ------------------------------------- a new floor, before the client says so
+// Quick play changes the map every round; a slow client reports its new spot
+// seconds after START, and the server judged it at the last map's
+// coordinates meanwhile (office -> cellar: out of the sumo ring before GO)
+{
+  const sim = await createSim({ seed: 2, mode: 'desk_dash', map: 'office' });
+  const room = sim.room;
+  const h = human(sim, 'Slow');
+  h.me.p = [-88, 0.24, -36]; // where it was driving on the office
+  room.setMap('cellar');
+  room.startCountdown('sumo', 'classic');
+  const s = room.startSpot(h.me);
+  check('new map: START puts a human on its start spot server-side too', Math.hypot(h.me.p[0] - s.x, h.me.p[2] - s.z) < 0.01);
+  while (room.phase !== PHASE.PLAYING) sim.step();
+  sim.run(6);
+  check('new map: …so a slow client is not knocked out of the sumo ring before it reports', !h.me.sumoDead);
+}
+
 // ---------------------------------------- what a drop-in has to be told
 {
   const sim = await createSim({ seed: 4, mode: 'koth', map: 'office' });
