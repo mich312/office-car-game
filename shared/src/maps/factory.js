@@ -122,8 +122,8 @@ const WALLS = [
   ...[[-12, -2], [4, -2], [14, -2], [-10, 2], [12, 2], [-12, -13], [4, -13], [14, -13], [-10, 13], [12, 13]]
     .map(([x, z]) => wall(x, z, 0.4, 0.4, { style: 'factory_column' })),
   // the Andon portal's legs, either side of the aisle over the grid
-  wall(13.5, 1.8, 0.25, 0.25, { style: 'factory_column', h: 2.95 }),
-  wall(13.5, -1.8, 0.25, 0.25, { style: 'factory_column', h: 2.95 }),
+  wall(13.5, 1.8, 0.25, 0.25, { style: 'factory_column', h: 2.65 }),
+  wall(13.5, -1.8, 0.25, 0.25, { style: 'factory_column', h: 2.65 }),
 ];
 
 const f = (type, x, z, w, d, h, rotY = 0, extra = {}) => ({ type, x: u(x), z: u(z), w: u(w), d: u(d), h: u(h), rotY, ...extra });

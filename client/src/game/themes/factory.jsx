@@ -1945,11 +1945,11 @@ function Andon({ map }) {
     if (!A) return {};
     const k = new Kit();
     const span = m(A.span);
-    k.box('paint', C.yellow, m(0.2), m(0.25), span + m(0.25), [0, m(2.83), 0]);
-    k.box('paint', '#16181a', m(0.12), m(0.9), m(3.1), [0, m(2.05), 0]);
-    for (const s of [-1, 1]) k.box('metal', C.steel, m(0.03), m(0.2), m(0.03), [0, m(2.6), s * m(1.2)]);
+    k.box('paint', C.yellow, m(0.2), m(0.25), span + m(0.25), [0, m(2.53), 0]);
+    k.box('paint', '#16181a', m(0.12), m(0.9), m(3.1), [0, m(1.75), 0]);
+    for (const s of [-1, 1]) k.box('metal', C.steel, m(0.03), m(0.2), m(0.03), [0, m(2.3), s * m(1.2)]);
     // the stack light's column on the north leg
-    k.cyl('paint', C.joint, m(0.025), m(0.025), m(0.2), [0, m(3.05), span / 2 - m(0.1)]);
+    k.cyl('paint', C.joint, m(0.025), m(0.025), m(0.2), [0, m(2.75), span / 2 - m(0.1)]);
     return k.build();
   }), [A]);
   if (!A) return null;
@@ -1957,16 +1957,16 @@ function Andon({ map }) {
     <group position={[m(A.x), 0, m(A.z)]}>
       <KitMeshes geo={frame} receive={false} />
       {[1, -1].map((s) => (
-        <mesh key={s} position={[s * m(0.065), m(2.05), 0]} rotation-y={s > 0 ? Math.PI / 2 : -Math.PI / 2} material={board.mat}>
+        <mesh key={s} position={[s * m(0.065), m(1.75), 0]} rotation-y={s > 0 ? Math.PI / 2 : -Math.PI / 2} material={board.mat}>
           <planeGeometry args={[m(2.9), m(0.8)]} />
         </mesh>
       ))}
       {lampMats.map((mm, i) => (
-        <mesh key={i} ref={(r) => { lights.current[i] = r; }} position={[0, m(3.2) + (2 - i) * m(0.11), m(A.span) / 2 - m(0.1)]} material={mm}>
+        <mesh key={i} ref={(r) => { lights.current[i] = r; }} position={[0, m(2.9) + (2 - i) * m(0.11), m(A.span) / 2 - m(0.1)]} material={mm}>
           <cylinderGeometry args={[m(0.06), m(0.06), m(0.1), 14]} />
         </mesh>
       ))}
-      <group ref={beacon} position={[0, m(3.02), -m(A.span) / 2 + m(0.2)]}>
+      <group ref={beacon} position={[0, m(2.72), -m(A.span) / 2 + m(0.2)]}>
         <mesh>
           <cylinderGeometry args={[m(0.06), m(0.07), m(0.12), 14]} />
           <meshBasicMaterial color="#ffae3d" toneMapped={false} />
