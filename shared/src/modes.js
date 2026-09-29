@@ -41,7 +41,7 @@ export const MODES = {
     id: 'koth',
     name: 'Standup Standoff',
     icon: '📍',
-    desc: 'The meeting zone moves between rooms. Hold it to score — don’t be late.',
+    desc: 'The meeting zone moves between rooms. Hold it alone to score — share it and you split it. Don’t be late.',
     scorePerSecond: 3,
     hopSeconds: 20, // zone relocates this often
     seconds: 180,

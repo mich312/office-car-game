@@ -332,9 +332,7 @@ function MatchHUD() {
           {modeId === 'battery' && (
             <div className="chip"><Icon name="battery" size={15} /> hold the battery to score</div>
           )}
-          {modeId === 'koth' && (
-            <div className="chip"><Icon name="target" size={15} /> hold the standup zone to score</div>
-          )}
+          {modeId === 'koth' && <StandupChip map={map} spectating={spectating} />}
           {modeId === 'tag' && (
             <div className="chip"><Icon name="crown" size={15} />
               {itId === myId ? "YOU'RE IT — keep scoring!" : itId ? `${players[itId]?.name || '???'} is It — bump them!` : '…'}
@@ -412,6 +410,29 @@ function MatchHUD() {
       </div>
       <TouchControls />
     </>
+  );
+}
+
+// ------------------------------------------------------- standup chip
+// Where the meeting is, when it moves, and whether you're scoring: the
+// server stamps the hop time and how many cars share the zone.
+function StandupChip({ map, spectating }) {
+  const z = net.zone;
+  if (!z) return <div className="chip"><Icon name="target" size={15} /> hold the standup zone to score</div>;
+  const hopIn = z.until ? Math.max(0, Math.ceil((z.until - net.clockOffset - performance.now()) / 1000)) : null;
+  const inZone = !spectating && Math.hypot(telemetry.x - z.x, telemetry.z - z.z) <= z.r;
+  const n = z.n || 0;
+  const rate = MODES.koth.scorePerSecond / Math.max(1, n);
+  const room = map.roomAt(z.x, z.z)?.name;
+  const soon = hopIn != null && hopIn <= 5;
+  return (
+    <div className={`chip ${inZone && n > 1 ? 'mutator-chip' : ''}`}>
+      <Icon name={inZone && n > 1 ? 'warning' : 'target'} size={15} />
+      {inZone
+        ? n > 1 ? `CONTESTED ×${n} · +${rate.toFixed(1)}/s` : `IN THE STANDUP · +${rate}/s`
+        : `standup${room ? ` in the ${room}` : ''}`}
+      {hopIn != null && <span className={soon ? 'variant-tag' : ''}> · moves in {hopIn}s</span>}
+    </div>
   );
 }
 
@@ -540,6 +561,16 @@ function Minimap() {
         g.beginPath();
         g.ellipse(px(net.zone.x), pz(net.zone.z), net.zone.r * sx, net.zone.r * sz, 0, 0, 7);
         g.stroke();
+        // the standup's next spot, in its last five seconds
+        const nx = net.zone.next;
+        if (nx && net.zone.until && net.zone.until - net.clockOffset - performance.now() < 5000) {
+          g.setLineDash([3, 3]);
+          g.strokeStyle = `rgba(255, 180, 84, ${0.35 + 0.5 * pulse})`;
+          g.beginPath();
+          g.ellipse(px(nx.x), pz(nx.z), net.zone.r * sx, net.zone.r * sz, 0, 0, 7);
+          g.stroke();
+          g.setLineDash([]);
+        }
       }
       // whoever is It glows amber
       if (net.it) {

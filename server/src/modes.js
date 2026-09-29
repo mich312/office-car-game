@@ -6,6 +6,7 @@ import {
   GRAVITY, M, LCS, COUNTDOWN_SECONDS, isDecor,
   raceCheckpoints, raceLaps, sumoTarget, sumoCenter, kothHopSeconds,
 } from '@rc/shared';
+import { sightBlocked } from './nav.js';
 
 const now = () => Date.now();
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -460,32 +461,51 @@ class KothMode {
     this.room = room;
     this.cfg = MODES.koth;
     this.spot = Math.floor(Math.random() * this.room.map.KOTH_SPOTS.length);
+    this.next = this.pickNext();
     this.hopAt = 0; // armed on the first playing tick, after the countdown
     this.acc = 0;
+    this.holders = [];
   }
   zonePos() { return this.room.map.KOTH_SPOTS[this.spot]; }
+  // The next spot is chosen a whole hop ahead, so the client can show where
+  // the meeting goes before it moves. Rush Hour only hops to the nearer half
+  // of the floor: at ten seconds a hop across the whole building landed
+  // where nobody could make it in time.
+  pickNext() {
+    const spots = this.room.map.KOTH_SPOTS;
+    const cur = spots[this.spot];
+    let pool = spots.map((s, i) => i).filter((i) => i !== this.spot);
+    if (this.room.variant === 'rush' && pool.length > 2) {
+      pool.sort((a, b) => Math.hypot(spots[a].x - cur.x, spots[a].z - cur.z) - Math.hypot(spots[b].x - cur.x, spots[b].z - cur.z));
+      pool = pool.slice(0, Math.ceil(pool.length / 2));
+    }
+    return pool[Math.floor(Math.random() * pool.length)] ?? this.spot;
+  }
+  // In the zone: inside the radius, on the floor (or the furniture in it) and
+  // in sight of its centre — a car behind a wall is not at the meeting.
+  inZone(p, z) {
+    return Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS && Math.abs(p.p[1]) < 4
+      && !sightBlocked(this.room.map, z.x, z.z, p.p[0], p.p[2]);
+  }
   update(dt) {
     const t = now();
     const hop = kothHopSeconds(this.cfg.hopSeconds, this.room.variant); // Rush Hour halves it
     if (!this.hopAt) this.hopAt = t + hop * 1000;
     if (t >= this.hopAt) {
-      let next;
-      do { next = Math.floor(Math.random() * this.room.map.KOTH_SPOTS.length); } while (next === this.spot);
-      this.spot = next;
+      this.spot = this.next;
+      this.next = this.pickNext();
       this.hopAt = t + hop * 1000;
       this.room.broadcast({ t: MSG.EFFECT, type: 'zone_hop' });
-      this.room.feed('📍 The standup moved!');
+      const z = this.zonePos();
+      const rm = this.room.map.roomAt(z.x, z.z);
+      this.room.feed(rm ? `📍 The standup moved to the ${rm.name}!` : '📍 The standup moved!');
     }
     const z = this.zonePos();
-    let scored = false;
-    for (const p of this.room.players.values()) {
-      if (p.stunUntil > t) continue;
-      if (Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS && Math.abs(p.p[1]) < 4) {
-        p.score += this.cfg.scorePerSecond * dt;
-        scored = true;
-      }
-    }
-    if (scored) {
+    // A shared zone is a split zone: the points are divided among everyone
+    // in it, so parking together pays nobody — hold it alone or fight for it.
+    this.holders = [...this.room.players.values()].filter((p) => !(p.stunUntil > t) && this.inZone(p, z));
+    for (const p of this.holders) p.score += (this.cfg.scorePerSecond / this.holders.length) * dt;
+    if (this.holders.length) {
       this.acc += dt;
       if (this.acc > 2) { this.acc = 0; this.room.scoreChanged(); }
     }
@@ -494,13 +514,19 @@ class KothMode {
   rocketTarget(player) {
     const z = this.zonePos();
     const inZone = [...this.room.players.values()]
-      .filter((p) => p.id !== player.id && Math.hypot(p.p[0] - z.x, p.p[2] - z.z) <= KOTH_RADIUS)
+      .filter((p) => p.id !== player.id && this.inZone(p, z))
       .sort((a, b) => b.score - a.score);
     return inZone[0] || null;
   }
   snapshot() {
     const z = this.zonePos();
-    return { zone: { x: z.x, z: z.z, r: KOTH_RADIUS, until: this.hopAt || undefined } };
+    const nx = this.room.map.KOTH_SPOTS[this.next];
+    return {
+      zone: {
+        x: z.x, z: z.z, r: KOTH_RADIUS, until: this.hopAt || undefined,
+        n: this.holders.length, next: nx && this.next !== this.spot ? { x: nx.x, z: nx.z } : undefined,
+      },
+    };
   }
 }
 

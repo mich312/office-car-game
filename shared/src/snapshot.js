@@ -157,6 +157,9 @@ export function encodeSnapshot(snap) {
     w.i16(snap.zone.x * POS); w.i16(snap.zone.z * POS);
     w.u16(snap.zone.r * POS);
     w.u32(snap.zone.until ? Math.max(0, snap.zone.until - t) : 0);
+    // standup: cars sharing the zone, and where it goes next
+    w.u8(snap.zone.n || 0);
+    if (snap.zone.next) { w.u8(1); w.i16(snap.zone.next.x * POS); w.i16(snap.zone.next.z * POS); } else w.u8(0);
   }
   if (sections & S_IT) w.str(snap.it);
   if (sections & S_SUMO) {
@@ -245,6 +248,8 @@ export function decodeSnapshot(data) {
     snap.zone = { x: r.i16() / POS, z: r.i16() / POS, r: r.u16() / POS };
     const d = r.u32();
     if (d) snap.zone.until = time + d;
+    snap.zone.n = r.u8();
+    if (r.u8()) snap.zone.next = { x: r.i16() / POS, z: r.i16() / POS };
   }
   if (sections & S_IT) snap.it = r.str();
   if (sections & S_SUMO) {

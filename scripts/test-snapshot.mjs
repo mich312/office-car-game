@@ -19,7 +19,7 @@ const snap = {
   battery: { x: 26.7, z: -2.2, carrier: 'p1' },
   race: { p1: [2, 11], bot2: [0, 3] },
   teamScores: [3, 5],
-  zone: { x: -13.3, z: -13.3, r: 44.4, until: t + 20000 },
+  zone: { x: -13.3, z: -13.3, r: 44.4, until: t + 20000, n: 3, next: { x: 21.5, z: -7.25 } },
   it: 'bot2',
   sumo: { round: 2, out: [['p1', 43]] },
   lcs: { locked: ['reception', 'storage'], warn: { room: 'games', until: t + 5000 }, alive: 4 },
@@ -53,6 +53,7 @@ check('battery', approx(d.battery.x, 26.7, 0.011) && d.battery.carrier === 'p1')
 check('race', d.race.p1[0] === 2 && d.race.p1[1] === 11 && d.race.bot2[1] === 3);
 check('teamScores', d.teamScores[0] === 3 && d.teamScores[1] === 5);
 check('zone', approx(d.zone.r, 44.4, 0.011) && approx(d.zone.until, t + 20000, 1));
+check('zone: holders and the next spot', d.zone.n === 3 && approx(d.zone.next.x, 21.5, 0.011) && approx(d.zone.next.z, -7.25, 0.011));
 check('it', d.it === 'bot2');
 check('sumo', d.sumo.round === 2 && d.sumo.out.length === 1 && d.sumo.out[0][0] === 'p1' && d.sumo.out[0][1] === 43);
 check('lcs locked', d.lcs.locked.length === 2 && d.lcs.locked[0] === 'reception' && d.lcs.locked[1] === 'storage');

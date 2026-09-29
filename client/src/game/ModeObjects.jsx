@@ -30,7 +30,7 @@ export default function ModeObjects() {
       {active && modeId === 'coffee_run' && <><Beans /><CoffeeMachine /></>}
       {active && modeId === 'battery' && <Battery />}
       {active && modeId === 'soccer' && <><SoccerBall /><Goals /></>}
-      {active && modeId === 'koth' && <Zone color="#ffd166" label="📍 STANDUP" />}
+      {active && modeId === 'koth' && <><Zone color="#ffd166" label="📍 STANDUP" standup /><NextZone color="#ffd166" /></>}
       {active && modeId === 'sumo' && <Zone color="#ff5c5c" label="🥋 RING" wall />}
       {active && modeId === 'tag' && <ItCrown />}
       {active && modeId === 'last_standing' && <LockedRooms />}
@@ -41,44 +41,135 @@ export default function ModeObjects() {
 // ---------------------------------------------------- zone (koth & sumo)
 // A translucent ring + wall driven directly from net.zone: unit-radius
 // geometry scaled to the live radius, so the sumo shrink animates for free.
-function Zone({ color, label, wall = false }) {
+// The standup turns red while it's contested, and its ring is also drawn on
+// top of any furniture standing in it (the meeting table), since a floor
+// ring under a tabletop is invisible from a car's seat.
+const CONTESTED = new THREE.Color('#ff6b4a');
+function Zone({ color, label, wall = false, standup = false }) {
+  const map = useMap();
   const group = useRef();
   const ring = useRef();
   const wallRef = useRef();
   const labelRef = useRef();
+  const base = useMemo(() => new THREE.Color(color), [color]);
+  const [spot, setSpot] = useState(null); // standup: the spot the zone is on
+  const tops = useMemo(() => (spot ? furnitureIn(map, spot.x, spot.z, spot.r) : []), [map, spot]);
+  const labelY = Math.max(3.2, ...tops.map((f) => f.h + 1.6));
+  const topMat = useMemo(() => zoneTopMaterial(color), [color]);
+  useEffect(() => () => topMat.dispose(), [topMat]);
   useFrame(({ clock }) => {
     const z = net.zone;
     if (!group.current) return;
     group.current.visible = !!z;
     if (!z) return;
+    if (standup && (!spot || spot.x !== z.x || spot.z !== z.z)) setSpot({ x: z.x, z: z.z, r: z.r });
     group.current.position.x += (z.x - group.current.position.x) * 0.2;
     group.current.position.z += (z.z - group.current.position.z) * 0.2;
+    const hot = standup && (z.n || 0) > 1;
     if (ring.current) {
       ring.current.scale.setScalar(z.r);
       ring.current.rotation.z = clock.elapsedTime * 0.4;
-      ring.current.material.opacity = 0.55 + Math.sin(clock.elapsedTime * 3) * 0.2;
+      ring.current.material.opacity = 0.55 + Math.sin(clock.elapsedTime * (hot ? 9 : 3)) * 0.2;
+      ring.current.material.color.copy(hot ? CONTESTED : base);
     }
+    const u = topMat.uniforms;
+    u.uCenter.value.set(group.current.position.x, group.current.position.z);
+    u.uR.value = z.r;
+    u.uColor.value.copy(hot ? CONTESTED : base);
+    u.uOpacity.value = 0.55 + Math.sin(clock.elapsedTime * (hot ? 9 : 3)) * 0.2;
     if (wallRef.current) {
       wallRef.current.scale.set(z.r, 1, z.r);
       wallRef.current.material.opacity = 0.1 + Math.sin(clock.elapsedTime * 2) * 0.04;
     }
-    if (labelRef.current) labelRef.current.position.y = 3.2 + Math.sin(clock.elapsedTime * 1.5) * 0.2;
+    if (labelRef.current) labelRef.current.position.y = labelY + Math.sin(clock.elapsedTime * 1.5) * 0.2;
+  });
+  return (
+    <>
+      <group ref={group} visible={false}>
+        <mesh ref={ring} position={[0, 0.05, 0]} rotation-x={-Math.PI / 2}>
+          <ringGeometry args={[0.94, 1, 64]} />
+          <meshBasicMaterial color={color} transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
+        </mesh>
+        {wall && (
+          <mesh ref={wallRef} position={[0, 1.4, 0]}>
+            <cylinderGeometry args={[1, 1, 2.8, 64, 1, true]} />
+            <meshBasicMaterial color={color} transparent opacity={0.12} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+        )}
+        <group ref={labelRef} position={[0, labelY, 0]}>
+          <TextSprite text={label} size={0.9} color={color} />
+        </group>
+      </group>
+      {tops.map((f, i) => (
+        <mesh key={i} position={[f.x, f.h + 0.03, f.z]} rotation-x={-Math.PI / 2} material={topMat}>
+          <planeGeometry args={[f.w, f.d]} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+// Solid furniture whose footprint reaches into a disc: the tops a zone ring
+// has to be drawn on. Quarter-turned pieces swap their footprint.
+function furnitureIn(map, x, z, r) {
+  const out = [];
+  for (const f of map.FURNITURE) {
+    if (f.type === 'rug' || f.type === 'art' || f.type === 'tv' || f.decor || f.h < 0.25 * M) continue;
+    const q = Math.abs(Math.sin(f.rotY || 0)) > 0.7;
+    const w = q ? f.d : f.w, d = q ? f.w : f.d;
+    const cx = Math.max(f.x - w / 2, Math.min(x, f.x + w / 2)), cz = Math.max(f.z - d / 2, Math.min(z, f.z + d / 2));
+    if (Math.hypot(cx - x, cz - z) < r) out.push({ x: f.x, z: f.z, w, d, h: f.h });
+  }
+  return out;
+}
+
+// A plane that draws only the band of the zone ring passing over it.
+function zoneTopMaterial(color) {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, toneMapped: false,
+    polygonOffset: true, polygonOffsetFactor: -2,
+    uniforms: {
+      uCenter: { value: new THREE.Vector2() }, uR: { value: 1 },
+      uColor: { value: new THREE.Color(color) }, uOpacity: { value: 0.6 },
+    },
+    vertexShader: `varying vec2 vW;
+      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform vec2 uCenter; uniform float uR; uniform vec3 uColor; uniform float uOpacity; varying vec2 vW;
+      void main() {
+        float d = distance(vW, uCenter);
+        float band = step(uR * 0.94, d) * step(d, uR);
+        float fill = step(d, uR) * 0.12;
+        float a = max(band, fill) * uOpacity;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(uColor, a);
+      }`,
+  });
+}
+
+// Standup: where the meeting goes next, shown for its last five seconds so
+// nobody is late — a ghost ring on the floor and a marker above it.
+function NextZone({ color }) {
+  const group = useRef();
+  const ring = useRef();
+  useFrame(({ clock }) => {
+    const z = net.zone;
+    if (!group.current) return;
+    const left = z?.until ? z.until - net.clockOffset - performance.now() : Infinity;
+    const show = !!z?.next && left < 5000;
+    group.current.visible = show;
+    if (!show) return;
+    group.current.position.set(z.next.x, 0, z.next.z);
+    ring.current.scale.setScalar(z.r);
+    ring.current.rotation.z = -clock.elapsedTime * 0.8;
+    ring.current.material.opacity = 0.25 + (Math.sin(clock.elapsedTime * 8) + 1) * 0.12;
   });
   return (
     <group ref={group} visible={false}>
-      <mesh ref={ring} position={[0, 0.05, 0]} rotation-x={-Math.PI / 2}>
-        <ringGeometry args={[0.94, 1, 64]} />
-        <meshBasicMaterial color={color} transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
+      <mesh ref={ring} position={[0, 0.04, 0]} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.9, 1, 48, 1, 0, Math.PI * 1.6]} />
+        <meshBasicMaterial color={color} transparent opacity={0.3} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
-      {wall && (
-        <mesh ref={wallRef} position={[0, 1.4, 0]}>
-          <cylinderGeometry args={[1, 1, 2.8, 64, 1, true]} />
-          <meshBasicMaterial color={color} transparent opacity={0.12} depthWrite={false} side={THREE.DoubleSide} />
-        </mesh>
-      )}
-      <group ref={labelRef} position={[0, 3.2, 0]}>
-        <TextSprite text={label} size={0.9} color={color} />
-      </group>
+      <TextSprite text="📍 NEXT" size={0.7} y={3} color={color} />
     </group>
   );
 }

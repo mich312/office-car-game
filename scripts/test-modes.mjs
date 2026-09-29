@@ -2,7 +2,7 @@
 // each mode *starts* and snapshots correctly; this proves a mode taken all the
 // way to its win condition pays out what it says it does.
 import {
-  CHECKPOINTS, MODES, LCS, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
+  CHECKPOINTS, MODES, LCS, M, KOTH_SPOTS, KOTH_RADIUS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
   raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
@@ -132,6 +132,58 @@ const N = CHECKPOINTS.length;
   check('sumo: outlasting one car pays one place', b.score === MODES.sumo.placeScore);
   check('sumo: last car rolling banks places + win bonus',
     c.score === MODES.sumo.placeScore * 2 + MODES.sumo.winBonus);
+}
+
+// ------------------------------------------------------ Standup Standoff
+{
+  // a car behind a wall is not at the meeting, even inside the radius: the
+  // cellar Archive spot used to sit 1.6 m from a car parked in the corridor
+  // on the far side of the wall, and that car scored
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob');
+  const room = stubRoom([a, b]);
+  room.map = { ...MAPS.cellar, KOTH_SPOTS: [{ x: 12.1 * M, z: -2.4 * M }] };
+  room.modeId = 'koth';
+  const mode = createMode('koth', room);
+  mode.hopAt = Date.now() + 1e6;
+  a.p = [12.1 * M, 0, -2.4 * M]; b.p = [12.1 * M, 0, -0.8 * M];
+  mode.update(1);
+  check('standup: a car behind a wall scores nothing, even inside the radius', b.score === 0 && a.score > 0);
+}
+{
+  // a shared zone is a split zone
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob'), c = player('p3', 'Cass');
+  const room = stubRoom([a, b, c]);
+  room.modeId = 'koth';
+  const mode = createMode('koth', room);
+  mode.hopAt = Date.now() + 1e6;
+  const z = mode.zonePos();
+  a.p = [z.x, 0, z.z]; b.p = [z.x + 1, 0, z.z]; c.p = [z.x + 500, 0, z.z];
+  mode.update(1);
+  check('standup: two cars in the zone split the points', Math.abs(a.score - MODES.koth.scorePerSecond / 2) < 1e-9 && a.score === b.score && c.score === 0);
+  check('standup: the snapshot says how many hold it, and where it goes next', mode.snapshot().zone.n === 2 && !!mode.snapshot().zone.next);
+  b.p = [z.x + 500, 0, z.z];
+  mode.update(1);
+  check('standup: alone in it pays the full rate', Math.abs(a.score - MODES.koth.scorePerSecond * 1.5) < 1e-9);
+  const next = mode.snapshot().zone.next;
+  mode.hopAt = Date.now() - 1;
+  mode.update(0);
+  check('standup: it moves where it said it would', mode.zonePos().x === next.x && mode.zonePos().z === next.z);
+}
+{
+  // Rush Hour hops to the nearer half of the floor
+  const room = stubRoom([player('p1', 'A')]);
+  room.modeId = 'koth';
+  room.variant = 'rush';
+  const spots = room.map.KOTH_SPOTS;
+  let worst = 0;
+  for (let i = 0; i < 200; i++) {
+    const mode = createMode('koth', room);
+    const cur = spots[mode.spot];
+    const ds = spots.map((s) => Math.hypot(s.x - cur.x, s.z - cur.z)).filter((d) => d > 0).sort((a, b) => a - b);
+    const d = Math.hypot(spots[mode.next].x - cur.x, spots[mode.next].z - cur.z);
+    worst = Math.max(worst, ds.indexOf(d) / ds.length);
+  }
+  check('rush hour: the next spot is always in the nearer half', worst < 0.5 + 1e-9);
 }
 
 // ------------------------------------------------- the match clock ends it

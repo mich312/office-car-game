@@ -36,6 +36,28 @@ export function lineBlocked(wallBoxes, x1, z1, x2, z2) {
   return false;
 }
 
+// Line of sight through the walls themselves (unpadded): can a zone at A
+// see a car at B? Glass counts — you can't score through a window.
+const sightCache = new WeakMap();
+export function sightBlocked(map, x1, z1, x2, z2) {
+  let boxes = sightCache.get(map);
+  if (!boxes) {
+    boxes = map.WALLS.filter((w) => !w.low).map((w) => ({
+      minX: w.x - w.w / 2, maxX: w.x + w.w / 2, minZ: w.z - w.d / 2, maxZ: w.z + w.d / 2,
+    }));
+    sightCache.set(map, boxes);
+  }
+  const steps = Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 0.25) + 1;
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = x1 + (x2 - x1) * t, z = z1 + (z2 - z1) * t;
+    for (const b of boxes) {
+      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
+    }
+  }
+  return false;
+}
+
 const inBoxes = (boxes, x, z) => boxes.some((b) => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ);
 
 // Doorways: gaps between collinear wall segments. Runs are authored as one

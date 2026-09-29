@@ -259,12 +259,12 @@ const KOTH_SPOTS = [
   cp(1.5, 1), // the crossroads
   cp(12.5, 1), // corridor east
   cp(-11.8, 5.2), // boiler room
-  cp(-3.5, 4.6), // server hall, cold side
+  cp(-1, 5.2), // server hall, cold aisle — 2.2 m off the corridor glass
   cp(10.5, 7.1), // helpdesk
   cp(-12, -6.4), // loading dock
   cp(-4.5, -3.2), // e-waste
   cp(4.5, -5.5), // hardware lab
-  cp(12.1, -2.4), // archive
+  cp(12.1, -3.2), // archive — 2.2 m in from the corridor wall
 ];
 
 const SUMO_ZONE = { x: u(1.5), z: u(1), r0: u(21), r1: u(1.5) };
