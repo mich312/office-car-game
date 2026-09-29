@@ -1,21 +1,34 @@
-// Procedural RC car visuals — five body styles, spinning/steering wheels,
-// body roll, boost flame, headlights, shield bubble, battery pack, name tag,
-// equipped cosmetics (hats, antenna variants, trails), a per-body detail kit
-// (fender flares, splitter, grille, mirrors, exhaust, name plate) and the
+// Procedural RC car visuals — five lofted body shells with real glass,
+// spinning/steering wheels on working coil-overs, body roll, boost flame,
+// headlights, shield bubble, battery pack, name tag, equipped cosmetics
+// (hats, antenna variants, trails), the garage's bolt-on parts and the
 // visible half of the setup sheet: ride height, tyre width and wing angle all
 // read straight off the tuning numbers the car drives with.
-import { useRef, useMemo } from 'react';
+//
+// Draw calls are the budget that matters with twelve of these on screen: the
+// whole static car (shell, lamps, kit, every bolt-on) is merged per material
+// by carParts.js, the four wheels and four corners of suspension are
+// instanced, and remote cars step down to a merged mid LOD and a two-draw
+// proxy with distance (RemoteCars).
+import { useRef, useMemo, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
 import {
   CARS, WHEEL_STYLES, DEFAULT_STYLE, sanitizeStyle, FINISHES,
   tunedStats, sanitizeTune, STOCK_TUNE,
-  antennaStep, newAntenna,
+  antennaStep, newAntenna, SUSPENSION_SETTLE,
 } from '@rc/shared';
 import { vinylTopTex, vinylSideTex, glowTex, plateTex } from './textures.js';
 import { useStore } from '../store.js';
 import TextSprite from './TextSprite.jsx';
 import Trail from './Trail.jsx';
+import { shellGeos, shellBounds } from './carShell.js';
+import { buildCar, anchorsOf } from './carParts.js';
+import {
+  OUTLINE_MAT, KIT_MAT, METAL_MAT, HEAD_DAY, HEAD_NIGHT, TAIL_MAT, Parts, mat4,
+  paintMat, glassMat, rimMat, plateMat, tyreMat, tyreGeo, rimGeo, brakeGeo, suspGeos, driverGeos,
+} from './carKit.js';
 
 const WHEEL_POS = [
   [-0.3, 0.34], [0.3, 0.34],
@@ -23,258 +36,58 @@ const WHEEL_POS = [
 ];
 
 // ------------------------------------------------------------ suspension
-// Exposed RC suspension on the open-wheel bodies: per corner a lower
-// wishbone from the chassis to the hub, and a coil-over (spring around a
-// damper) from the body down to the wishbone. Every frame they're stretched
-// between where the wheel really is (the suspension rays) and where the body
-// really is (its lean and landing squash), so you see the springs work. The
-// hatch bodies get the same kit tucked inside the arches: you see the coil
-// working in the gap above the tyre.
+// Exposed RC suspension: per corner an A-arm from the chassis to the hub, and
+// a coil-over (spring around a damper) from the body down to the arm. Every
+// frame they're stretched between where the wheel really is (the suspension
+// rays) and where the body really is (its lean and landing squash), so you
+// see the springs work. The hatch bodies get the same kit tucked inside the
+// arches: you see the coil working in the gap above the tyre.
 // top: shock-tower height; out: how far out the tower sits, as a share of
 // the wheel's own x (near 1 = right beside the wheel, where RC shocks live)
 const SUSPENSION = {
-  buggy: { top: 0.24, out: 0.9, spring: '#e8b830' },
-  monster: { top: 0.28, out: 0.82, spring: '#e0362f' },
-  formula: { top: 0.13, out: 0.72, spring: '#3d8bff' },
-  drift: { top: 0.11, out: 0.76, spring: '#b04dff' },
-  balanced: { top: 0.12, out: 0.76, spring: '#34c46a' },
+  buggy: { top: 0.2, out: 0.86, spring: '#e8b830' },
+  monster: { top: 0.2, out: 0.82, spring: '#e0362f' },
+  formula: { top: 0.1, out: 0.72, spring: '#3d8bff' },
+  drift: { top: 0.06, out: 0.8, spring: '#b04dff' },
+  balanced: { top: 0.06, out: 0.8, spring: '#34c46a' },
 };
-const _unitY = new THREE.Vector3(0, 1, 0);
-const _unitX = new THREE.Vector3(1, 0, 0);
-const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _n = new THREE.Vector3(), _top = new THREE.Vector3();
-let _suspGeo = null;
-function suspGeo() {
-  if (_suspGeo) return _suspGeo;
-  // a unit-height coil along +y: scaled to the shock's length each frame, so
-  // it visibly squashes and stretches
-  const turns = 7, pts = [];
-  for (let i = 0; i <= turns * 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    pts.push(new THREE.Vector3(Math.cos(a) * 0.028, i / (turns * 16), Math.sin(a) * 0.028));
-  }
-  _suspGeo = {
-    coil: new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), turns * 16, 0.0065, 5, false),
-    damper: new THREE.CylinderGeometry(0.013, 0.013, 1, 8).translate(0, 0.5, 0),
-    arm: new THREE.BoxGeometry(1, 0.014, 0.05).translate(0.5, 0, 0),
-  };
-  return _suspGeo;
-}
 const SUSP_MATS = new Map();
 function suspMats(color) {
   if (!SUSP_MATS.has(color)) {
-    SUSP_MATS.set(color, {
-      coil: new THREE.MeshStandardMaterial({ color, metalness: 0.5, roughness: 0.35 }),
-      damper: new THREE.MeshStandardMaterial({ color: '#c9ced6', metalness: 0.9, roughness: 0.2 }),
-      arm: new THREE.MeshStandardMaterial({ color: '#2a2d33', roughness: 0.6 }),
-    });
+    SUSP_MATS.set(color, new THREE.MeshStandardMaterial({ color, metalness: 0.5, roughness: 0.35 }));
   }
   return SUSP_MATS.get(color);
 }
 
-// Where a bolt-on spoiler mounts per body: [deck y, deck z, half width]
-const SPOILER_MOUNT = {
-  buggy: [0.13, -0.42, 0.23],
-  drift: [0.06, -0.44, 0.27],
-  monster: [0.24, -0.36, 0.24],
-  formula: [0.05, -0.46, 0.24],
-  balanced: [0.09, -0.42, 0.26],
-};
-
-// Vinyl wrap planes per body: top [w, l, y, z], side [l, h, y, x, z]
-const DECAL_FIT = {
-  buggy: { top: [0.46, 0.8, 0.155, 0.02], side: [0.8, 0.14, 0.02, 0.26, 0] },
-  drift: { top: [0.5, 0.9, 0.2, -0.06], side: [0.9, 0.11, -0.01, 0.28, 0] },
-  monster: { top: [0.42, 0.7, 0.395, 0], side: [0.75, 0.18, 0.11, 0.26, 0] },
-  formula: { top: [0.24, 0.85, 0.115, 0.1], side: [0.85, 0.1, -0.02, 0.14, 0.1] },
-  balanced: { top: [0.5, 0.9, 0.245, -0.1], side: [0.9, 0.15, 0, 0.28, 0] },
-};
-
-// Per-body detail kit. Everything here is a few boxes and cylinders, but it's
-// the difference between "extruded shape" and "model of a car": lamps that sit
-// on the actual nose instead of floating off it, arches over the wheels,
-// a splitter, mirrors, a pipe and an asset-tag plate.
-// Only the numbers that are genuinely per-body live here — heights, widths and
-// which parts a body has at all. The fore/aft mounting planes are measured off
-// the shell instead (see `shellBounds`): the extrude bevel grows every hull
-// ~0.03 past its authored profile, so hand-written z values end up buried
-// inside the bodywork.
-//   arch: [radius over the tyre, y at the axle line] — null on open-wheelers
-//   head/tail: [x, y] lamp pairs, mirrored across x · splitter: [y, halfWidth]
-//   grille: [y, halfWidth, halfHeight] · mirrors: [y, z] · exhaust: [x, y] tips
-//   plate: [y, width] · hood: [y, z] bonnet surface · roof: [y, z] roof surface
-//   rocker: [y, length] sill line for skirts and side pipes
-const KIT = {
-  buggy: {
-    arch: [0.04, -0.13], head: [0.16, 0.06], tail: [0.15, 0.08],
-    splitter: null, grille: [0.05, 0.15, 0.045], mirrors: null,
-    exhaust: [[0.2, -0.02]], plate: [0.0, 0.24],
-    hood: [0.135, 0.16], roof: [0.3, -0.05], rocker: [-0.045, 0.72],
-  },
-  drift: {
-    arch: [0.04, -0.135], head: [0.18, 0.02], tail: [0.18, 0.04],
-    splitter: [-0.055, 0.26], grille: [-0.005, 0.16, 0.045], mirrors: [0.115, 0.135],
-    exhaust: [], plate: [-0.01, 0.26],
-    hood: [0.055, 0.34], roof: [0.185, -0.06], rocker: [-0.05, 0.82],
-  },
-  monster: {
-    arch: [0.05, -0.08], head: [0.15, 0.12], tail: [0.15, 0.12],
-    splitter: null, grille: [0.11, 0.16, 0.045], mirrors: [0.3, 0.12],
-    exhaust: [], plate: [0.1, 0.26],
-    hood: [0.155, 0.28], roof: [0.33, -0.02], rocker: [0.0, 0.64],
-  },
-  formula: {
-    arch: null, head: [0.09, 0.04], tail: [0.07, 0.05],
-    splitter: null, grille: null, mirrors: [0.11, 0.02],
-    exhaust: [[0.0, 0.02]], plate: [0.13, 0.18],
-    hood: [0.075, 0.24], roof: [0.115, -0.2], rocker: [-0.03, 0.7],
-  },
-  balanced: {
-    arch: [0.04, -0.135], head: [0.18, 0.02], tail: [0.18, 0.05],
-    splitter: [-0.06, 0.26], grille: [0.0, 0.17, 0.05], mirrors: [0.155, 0.115],
-    exhaust: [[0.16, -0.04]], plate: [-0.01, 0.26],
-    hood: [0.12, 0.3], roof: [0.235, -0.08], rocker: [-0.055, 0.82],
-  },
-};
-
-// 4-step toon ramp (shared): banded shading gives the cars a plastic-toy pop
-// against the realistic office. NearestFilter keeps the bands crisp.
-let _ramp = null;
-function toonRamp() {
-  if (_ramp) return _ramp;
-  const data = new Uint8Array([70, 135, 200, 255]);
-  _ramp = new THREE.DataTexture(data, 4, 1, THREE.RedFormat);
-  _ramp.minFilter = _ramp.magFilter = THREE.NearestFilter;
-  _ramp.needsUpdate = true;
-  return _ramp;
-}
-
-// Inverted-hull outline — rendered backface-only so it draws a clean dark
-// rim around the painted shell (works for boxes and extruded shells alike).
-const OUTLINE_MAT = new THREE.MeshBasicMaterial({ color: '#0b0c12', side: THREE.BackSide });
-
-// Fitted tyres. `r`/`w` scale the rubber; `tread` adds a chunky ring around the
-// tread face (one extra mesh, not a ring of lugs — this is a 1-unit-long car).
+// Fitted tyres: `r`/`w` scale the rubber; the tread itself is in the geometry
+// (tyreGeo) and its normal map.
 const TYRES = {
-  road: { r: 1, w: 1, tread: null, rough: 0.9 },
-  knobby: { r: 1.09, w: 1.16, tread: { seg: 7, tube: 0.028 }, rough: 0.95 },
-  slick: { r: 0.97, w: 1.1, tread: null, rough: 0.5 },
+  road: { r: 1, w: 1 },
+  knobby: { r: 1.09, w: 1.16 },
+  slick: { r: 0.97, w: 1.1 },
 };
 
-// Window tint. Clear glass still reads dark against the toon shell, so the
-// three steps are about how much of the cabin you can make out.
-const TINTS = {
-  clear: { color: '#2a3d55', opacity: 0.82 },
-  smoke: { color: '#141a24', opacity: 0.92 },
-  limo: { color: '#07080b', opacity: 1 },
+// Vinyl wrap projectors per body: top [width, length, z centre] looking
+// down, side [length, height, y centre, z centre] looking across.
+const VINYL_FIT = {
+  balanced: { top: [0.5, 0.95, 0], side: [0.9, 0.15, 0.03, 0] },
+  drift: { top: [0.52, 0.98, 0], side: [0.94, 0.13, -0.01, 0] },
+  monster: { top: [0.44, 0.84, 0], side: [0.8, 0.12, 0.13, 0] },
+  buggy: { top: [0.34, 0.76, 0.07], side: [0.72, 0.13, 0.02, 0.07] },
+  formula: { top: [0.3, 0.9, 0], side: [0.8, 0.1, 0.0, 0] },
 };
 
-// Paint. Gloss keeps the toon ramp the whole art direction is built on; the
-// other finishes switch shading model so flake and pearl actually catch the
-// office strip lights (both scenes ship an Environment, so metals reflect).
-function paintMat(color, finishId) {
-  const f = FINISHES[finishId] || FINISHES.gloss;
-  if (f.toon) return new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() });
-  if (f.clearcoat !== undefined || f.iridescence !== undefined) {
-    return new THREE.MeshPhysicalMaterial({
-      color,
-      roughness: f.roughness,
-      metalness: f.metalness,
-      clearcoat: f.clearcoat ?? 0,
-      clearcoatRoughness: 0.12,
-      iridescence: f.iridescence ?? 0,
-      iridescenceIOR: 1.4,
-      envMapIntensity: 1.15,
-    });
-  }
-  return new THREE.MeshStandardMaterial({
-    color, roughness: f.roughness, metalness: f.metalness, envMapIntensity: 1,
-  });
-}
-
-// ---------------------------------------------------------------- shells
-// Die-cast-toy silhouettes: each body is a 2D side profile (x = length,
-// +x = nose; y = height) extruded across the car's width with a bevel.
-// Geometries are cached per car id and shared by every car in the lobby.
-const SHELL_W = { buggy: 0.5, drift: 0.54, monster: 0.5, formula: 0.26, balanced: 0.54 };
-const shellCache = new Map();
-function shellGeo(carId) {
-  if (shellCache.has(carId)) return shellCache.get(carId);
-  const s = new THREE.Shape();
-  switch (carId) {
-    case 'buggy': // chunky open-top with a sloped nose
-      s.moveTo(-0.44, -0.06); s.lineTo(-0.44, 0.09); s.lineTo(-0.3, 0.13); s.lineTo(0.02, 0.13);
-      s.quadraticCurveTo(0.24, 0.12, 0.36, 0.06); s.quadraticCurveTo(0.45, 0.02, 0.44, -0.06);
-      break;
-    case 'drift': // low coupe: ducktail, fast roofline
-      s.moveTo(-0.48, -0.07); s.lineTo(-0.48, 0.06); s.lineTo(-0.44, 0.1); s.lineTo(-0.34, 0.09);
-      s.quadraticCurveTo(-0.26, 0.17, -0.14, 0.17); s.lineTo(0.03, 0.17);
-      s.quadraticCurveTo(0.16, 0.13, 0.26, 0.07); s.lineTo(0.44, 0.05);
-      s.quadraticCurveTo(0.48, 0.03, 0.48, -0.07);
-      break;
-    case 'monster': // tall pickup cab over a stubby bed
-      s.moveTo(-0.4, -0.02); s.lineTo(-0.4, 0.14); s.lineTo(-0.16, 0.14); s.lineTo(-0.13, 0.3);
-      s.quadraticCurveTo(0.0, 0.32, 0.08, 0.3); s.lineTo(0.19, 0.16); s.lineTo(0.38, 0.14);
-      s.quadraticCurveTo(0.42, 0.1, 0.4, -0.02);
-      break;
-    case 'formula': // needle nose, engine cover behind the driver
-      s.moveTo(-0.45, -0.05); s.lineTo(-0.45, 0.07); s.quadraticCurveTo(-0.28, 0.11, -0.12, 0.09);
-      s.lineTo(0.06, 0.07); s.lineTo(0.4, 0.03); s.quadraticCurveTo(0.47, 0.02, 0.47, -0.05);
-      break;
-    default: // balanced hatch: honest two-box
-      s.moveTo(-0.48, -0.08); s.lineTo(-0.48, 0.1); s.quadraticCurveTo(-0.44, 0.13, -0.34, 0.14);
-      s.quadraticCurveTo(-0.3, 0.21, -0.2, 0.22); s.lineTo(0.0, 0.22);
-      s.quadraticCurveTo(0.12, 0.2, 0.2, 0.12); s.lineTo(0.42, 0.1);
-      s.quadraticCurveTo(0.48, 0.07, 0.48, -0.08);
-      break;
-  }
-  s.closePath();
-  const w = SHELL_W[carId] ?? 0.54;
-  const depth = Math.max(0.1, w - 0.06); // bevel adds the rest of the width
-  const geo = new THREE.ExtrudeGeometry(s, {
-    depth, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.025, bevelSegments: 2, curveSegments: 5,
-  });
-  geo.translate(0, 0, -depth / 2);
-  geo.rotateY(-Math.PI / 2); // profile length → world +z (car forward)
-  shellCache.set(carId, geo);
-  return geo;
-}
-
-// Real outer surfaces of a shell, bevel included: where the nose, tail and
-// flanks actually are. Cached alongside the geometry, and the single source of
-// truth for bolting the detail kit on so nothing ends up inside the body.
-const boundsCache = new Map();
-function shellBounds(carId) {
-  if (boundsCache.has(carId)) return boundsCache.get(carId);
-  const geo = shellGeo(carId);
-  geo.computeBoundingBox();
-  const bb = geo.boundingBox;
-  const b = { noseZ: bb.max.z, tailZ: bb.min.z, halfW: bb.max.x, topY: bb.max.y, botY: bb.min.y };
-  boundsCache.set(carId, b);
-  return b;
-}
-
-// The tiny driver: helmet, visor, torso. Leans into corners via driverRef.
-function Driver({ mats, y, z, s = 1, refGroup }) {
-  return (
-    <group ref={refGroup} position={[0, y, z]} scale={s}>
-      <mesh castShadow position={[0, 0.05, 0]} material={mats.dark}>
-        <boxGeometry args={[0.16, 0.12, 0.1]} />
-      </mesh>
-      <mesh castShadow position={[0, 0.16, 0]} material={mats.accent}>
-        <sphereGeometry args={[0.075, 10, 8]} />
-      </mesh>
-      <mesh position={[0, 0.155, 0.055]} material={mats.glassDark}>
-        <boxGeometry args={[0.09, 0.045, 0.03]} />
-      </mesh>
-    </group>
-  );
-}
-
-// Roof height per body style — where hats sit.
-const ROOF_Y = { buggy: 0.3, drift: 0.22, monster: 0.4, formula: 0.21, balanced: 0.29 };
+// scratch (never allocate per frame)
+const _unitY = new THREE.Vector3(0, 1, 0);
+const _unitX = new THREE.Vector3(1, 0, 0);
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _n = new THREE.Vector3(), _top = new THREE.Vector3();
+const _pos = new THREE.Vector3(), _scl = new THREE.Vector3(1, 1, 1), _mat = new THREE.Matrix4();
+const _qs = new THREE.Quaternion(), _qf = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qt = new THREE.Quaternion();
+const _flip = new THREE.Quaternion().setFromAxisAngle(_unitY, Math.PI);
 
 export default function CarModel({ carId, paint, style, tune, name, cosmetics, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, leanRef, team }) {
   const car = CARS[carId] || CARS.balanced;
+  const id = CARS[carId] ? carId : 'balanced';
   const color = paint || car.color;
   const st = useMemo(() => (style ? sanitizeStyle(style) : DEFAULT_STYLE), [style]);
   const tu = useMemo(() => (tune ? sanitizeTune(tune) : STOCK_TUNE), [tune]);
@@ -284,16 +97,13 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const night = useStore((s) => s.night);
   const event = useStore((s) => s.event);
   const dark = night || event?.id === 'lights_out';
-  const wheels = useRef([]);
-  const wheelGroups = useRef([]);
-  const susp = useRef([]); // per corner: { coil, damper, arm } meshes
   const bodyRef = useRef();
+  const tyreRef = useRef(), rimRef = useRef(), brakeRef = useRef();
+  const armRef = useRef(), damperRef = useRef(), coilRef = useRef();
   const flameRef = useRef();
   const shieldRef = useRef();
   const batteryRef = useRef();
   const stunRef = useRef();
-  const antennaRef = useRef();
-  const antennaSegs = useRef([]);
   const antenna = useRef(newAntenna());
   const propellerRef = useRef();
   const driverRef = useRef();
@@ -304,44 +114,80 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const beamTarget = useMemo(() => new THREE.Object3D(), []);
   const wheelStyle = WHEEL_STYLES[st.wheels] || WHEEL_STYLES.stock;
 
+  // Rubber: the fitted tyre sets the base size, then the setup sheet's compound
+  // nudges the width (soft = fatter). Widebody arches come with a wider track.
+  const tyre = TYRES[st.tyre] || TYRES.road;
+  const wheelR = (id === 'monster' ? 0.18 : 0.13) * tyre.r;
+  const wheelW = (id === 'formula' ? 0.1 : 0.14) * tyre.w * (1 + 0.075 * tu.tires);
+  const wide = st.flares === 'wide';
+  const trackOut = wide ? 0.03 : 0;
+  // rest pose: wheels at the TUNED equilibrium sag, tires kissing the floor —
+  // soft springs slam the car, stiff springs stand it up
+  const restY = -0.05 - T.settle + wheelR;
+  const suspPivotY = restY + 0.02; // wishbone inner pivot: chassis height at the hubs
+  const wheelY = useRef([restY, restY, restY, restY]);
+
+  const build = useMemo(() => buildCar(id, {
+    wide, front: st.front, hood: st.hood, roof: st.roof, skirts: st.skirts, exhaust: st.exhaust,
+    spoiler: st.spoiler, wing: tu.wing, wheelR, wheelW, trackOut, trim: !!st.accent,
+  }), [id, wide, st.front, st.hood, st.roof, st.skirts, st.exhaust, st.spoiler, st.accent, tu.wing, wheelR, wheelW, trackOut]);
+  const anchors = build.anchors;
+  const A = anchorsOf(id);
+
   const mats = useMemo(() => ({
-    // painted panels follow the chosen finish; metal rims and glass stay PBR
-    body: paintMat(color, st.finish),
-    // trim package: accent colour where one is picked, body colour otherwise
-    trim: paintMat(st.accent || color, st.finish),
-    dark: new THREE.MeshToonMaterial({ color: '#191c22', gradientMap: toonRamp() }),
-    tire: new THREE.MeshStandardMaterial({ color: '#17181c', roughness: 0.9 }),
-    slick: new THREE.MeshStandardMaterial({ color: '#1d1e24', roughness: 0.45, metalness: 0.05 }),
-    rim: new THREE.MeshStandardMaterial({ color: wheelStyle.rim, metalness: 0.92, roughness: 0.18 }),
-    disc: new THREE.MeshStandardMaterial({ color: '#4a505c', metalness: 0.8, roughness: 0.45 }),
-    caliper: new THREE.MeshStandardMaterial({ color: st.accent || '#c0392b', roughness: 0.4, metalness: 0.2 }),
-    glassDark: new THREE.MeshStandardMaterial({
-      color: TINTS[st.tint]?.color ?? TINTS.clear.color,
-      roughness: 0.08,
-      metalness: 0.55,
-      transparent: (TINTS[st.tint] ?? TINTS.clear).opacity < 1,
-      opacity: (TINTS[st.tint] ?? TINTS.clear).opacity,
-    }),
-    paper: new THREE.MeshStandardMaterial({ color: '#d9d2c4', roughness: 0.85 }),
-    accent: new THREE.MeshToonMaterial({ color: st.accent || '#f5f5f5', gradientMap: toonRamp() }),
-    chrome: new THREE.MeshStandardMaterial({ color: '#c9cfd8', metalness: 0.9, roughness: 0.22 }),
-  }), [color, wheelStyle.rim, st.finish, st.accent, st.tint]);
+    // painted panels follow the chosen finish; metal, glass and rubber are PBR
+    paint: paintMat(color, st.finish, FINISHES),
+    trim: paintMat(st.accent || color, st.finish, FINISHES),
+    glass: glassMat(st.tint),
+    rim: rimMat(wheelStyle.rim),
+    tyre: tyreMat(st.tyre in TYRES ? st.tyre : 'road'),
+  }), [color, st.finish, st.accent, st.tint, st.tyre, wheelStyle.rim]);
+  const plateText = st.plate || name || 'RC';
+  const plate = useMemo(() => {
+    const tex = plateTex(plateText);
+    return { mat: plateMat(tex, plateText) };
+  }, [plateText]);
+  const wheelGeos = useMemo(() => ({
+    tyre: tyreGeo(st.tyre in TYRES ? st.tyre : 'road', wheelR, wheelW),
+    rim: rimGeo(wheelStyle, wheelR, wheelW),
+    brake: brakeGeo(wheelR, wheelW, st.accent || '#c0392b'),
+  }), [st.tyre, wheelR, wheelW, wheelStyle, st.accent]);
+  const sp = SUSPENSION[id];
+  // antenna: one bent mesh + its tip, per car
+  const whip = useWhip(cosmetics?.antenna);
 
   useFrame((state, dt) => {
     const speed = speedRef?.current ?? 0;
     const steer = steerRef?.current ?? 0;
     const t = state.clock.elapsedTime;
-    spin.current += (speed / 0.14) * dt;
-    wheels.current.forEach((w, i) => {
-      if (!w) return;
-      w.rotation.x = spin.current;
-      if (i < 2 && w.parent) w.parent.rotation.y = steer * 0.42;
-      // wheels follow the suspension rays (local car) — touch the ground, compress, droop
-      const g = wheelGroups.current[i];
-      if (g && wheelYRef?.current) {
-        g.position.y += (wheelYRef.current[i] - g.position.y) * Math.min(1, dt * 22);
+    spin.current += (speed / wheelR / 1.08) * dt;
+    // wheels follow the suspension rays (local car) — touch the ground,
+    // compress, droop — then four instances get their transforms
+    const wy = wheelY.current;
+    const k = Math.min(1, dt * 22);
+    _qs.setFromAxisAngle(_unitX, spin.current);
+    for (let i = 0; i < 4; i++) {
+      if (wheelYRef?.current) wy[i] += (wheelYRef.current[i] - wy[i]) * k;
+      else wy[i] = restY;
+      const [wx, wz] = WHEEL_POS[i];
+      const left = wx < 0;
+      _pos.set(wx + trackOut * Math.sign(wx), wy[i], wz);
+      _qt.setFromAxisAngle(_unitY, i < 2 ? steer * 0.42 : 0);
+      if (left) _qt.multiply(_flip);
+      _qf.copy(_qt);
+      if (left) _qw.setFromAxisAngle(_unitX, -spin.current); else _qw.copy(_qs);
+      _qt.multiply(_qw);
+      if (tyreRef.current) {
+        tyreRef.current.setMatrixAt(i, _mat.compose(_pos, _qt, _scl));
+        rimRef.current.setMatrixAt(i, _mat);
+        brakeRef.current.setMatrixAt(i, _mat.compose(_pos, _qf, _scl));
       }
-    });
+    }
+    if (tyreRef.current) {
+      tyreRef.current.instanceMatrix.needsUpdate = true;
+      rimRef.current.instanceMatrix.needsUpdate = true;
+      brakeRef.current.instanceMatrix.needsUpdate = true;
+    }
     if (bodyRef.current) {
       // Weight transfer on the visual shell. With a leanRef (in-game cars,
       // local & remote) roll/pitch come from measured acceleration: outward
@@ -358,37 +204,33 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
       bodyRef.current.scale.set(1 + sq * 0.06, 1 - sq * 0.13, 1 + sq * 0.06);
       bodyRef.current.position.y = -sq * 0.045;
     }
-    // coil-overs: from the (leaning, squashing) body down to the wishbone,
-    // wishbones from the chassis out to wherever the wheel is right now
-    const sp = SUSPENSION[carId];
-    if (sp && bodyRef.current && susp.current[0]) {
+    // coil-overs: from the (leaning, squashing) body down to the A-arm,
+    // A-arms from the chassis out to wherever the wheel is right now
+    if (sp && bodyRef.current && armRef.current) {
       bodyRef.current.updateMatrix();
       for (let i = 0; i < 4; i++) {
-        const parts = susp.current[i], g = wheelGroups.current[i];
-        if (!parts || !g) continue;
         const [wx, wz] = WHEEL_POS[i];
         const side = Math.sign(wx);
-        // wishbone: fixed chassis pivot → hub
+        // arm: fixed chassis pivot → hub
         _a.set(wx * 0.3, suspPivotY, wz);
-        _b.set(g.position.x - side * 0.02, g.position.y, wz);
+        _b.set(wx + trackOut * side - side * 0.02, wy[i], wz);
         _d.subVectors(_b, _a);
-        parts.arm.position.copy(_a);
-        parts.arm.quaternion.setFromUnitVectors(_unitX, _n.copy(_d).normalize());
-        parts.arm.scale.set(_d.length(), 1, 1);
+        _qt.setFromUnitVectors(_unitX, _n.copy(_d).normalize());
+        armRef.current.setMatrixAt(i, _mat.compose(_a, _qt, _scl.set(_d.length(), 1, 1)));
         // coil-over: body-mounted top (rides the lean and the landing squash)
-        // → a point 80% of the way out along the wishbone
+        // → a point 80% of the way out along the arm
         _top.set(wx * sp.out, sp.top, wz * 0.9).applyMatrix4(bodyRef.current.matrix);
         _b.lerpVectors(_a, _b, 0.8);
         _d.subVectors(_top, _b);
         const len = _d.length();
-        _d.normalize();
-        for (const m of [parts.coil, parts.damper]) {
-          m.position.copy(_b);
-          m.quaternion.setFromUnitVectors(_unitY, _d);
-        }
-        parts.coil.scale.set(1, len, 1);
-        parts.damper.scale.set(1, len * 0.85, 1);
+        _qt.setFromUnitVectors(_unitY, _d.normalize());
+        coilRef.current.setMatrixAt(i, _mat.compose(_b, _qt, _scl.set(1, len, 1)));
+        damperRef.current.setMatrixAt(i, _mat.compose(_b, _qt, _scl.set(1, len, 1)));
       }
+      _scl.set(1, 1, 1);
+      armRef.current.instanceMatrix.needsUpdate = true;
+      coilRef.current.instanceMatrix.needsUpdate = true;
+      damperRef.current.instanceMatrix.needsUpdate = true;
     }
     if (flameRef.current) {
       const on = boostingRef?.current;
@@ -415,84 +257,46 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
     // length: in-game cars feed it their real acceleration, so braking flicks
     // it forward, corners throw it outward, bumps and landings set it ringing.
     // The garage turntable has no acceleration to give, so it idles on steer.
-    if (antennaSegs.current[0]) {
-      const lean = leanRef?.current;
-      if (lean && lean.aLong !== undefined) {
-        antennaStep(antenna.current, lean.aLong, lean.aLat, lean.aUp || 0, speed, Math.min(dt, 0.05));
-      } else {
-        antenna.current.pitch = Math.sin(t * 1.3) * 0.05;
-        antenna.current.roll = steer * 0.12;
-      }
-      const { pitch, roll } = antenna.current;
-      for (const seg of antennaSegs.current) {
-        if (!seg) continue;
-        seg.rotation.x = pitch / ANTENNA_SEGS;
-        seg.rotation.z = -roll / ANTENNA_SEGS;
-      }
+    const lean = leanRef?.current;
+    if (lean && lean.aLong !== undefined) {
+      antennaStep(antenna.current, lean.aLong, lean.aLat, lean.aUp || 0, speed, Math.min(dt, 0.05));
+    } else {
+      antenna.current.pitch = Math.sin(t * 1.3) * 0.05;
+      antenna.current.roll = steer * 0.12;
     }
+    whip.bend(antenna.current.pitch, antenna.current.roll);
     if (propellerRef.current) propellerRef.current.rotation.y += dt * (3 + Math.abs(speed) * 0.8);
     // the driver leans into corners and hunkers down with speed
     if (driverRef.current) {
-      const lean = -steer * Math.min(1, Math.abs(speed) / 14) * 0.35;
-      driverRef.current.rotation.z += (lean - driverRef.current.rotation.z) * Math.min(1, dt * 7);
+      const dl = -steer * Math.min(1, Math.abs(speed) / 14) * 0.35;
+      driverRef.current.rotation.z += (dl - driverRef.current.rotation.z) * Math.min(1, dt * 7);
       driverRef.current.rotation.x = Math.min(0.18, Math.abs(speed) * 0.008);
     }
   });
 
-  // Rubber: the fitted tyre sets the base size, then the setup sheet's compound
-  // nudges the width (soft = fatter). Widebody arches come with a wider track.
-  const tyre = TYRES[st.tyre] || TYRES.road;
-  const wheelR = (carId === 'monster' ? 0.18 : 0.13) * tyre.r;
-  const wheelW = (carId === 'formula' ? 0.1 : 0.14) * tyre.w * (1 + 0.075 * tu.tires);
-  const trackOut = st.flares === 'wide' ? 0.03 : 0;
-  // rest pose: wheels at the TUNED equilibrium sag, tires kissing the floor —
-  // soft springs slam the car, stiff springs stand it up
-  const restY = -0.05 - T.settle + wheelR;
-  const suspPivotY = restY + 0.02; // wishbone inner pivot: chassis height at the hubs
-  const decal = DECAL_FIT[carId] || DECAL_FIT.balanced;
-  const kit = KIT[carId] || KIT.balanced;
-  const bounds = shellBounds(carId);
+  const S = build.slots;
+  const seat = anchors.seat;
+  const roofY = anchors.roofY ?? 0.28;
+  const flame = anchors.flame || [0, -0.02, -0.55];
+  const antY = useMemo(() => shellTopAt(id, A.antenna[0], A.antenna[1], wide, anchors), [id, A, wide, anchors]);
 
   return (
     <group>
       <group ref={bodyRef}>
-        <Body carId={carId} mats={mats} driverRef={driverRef} />
-        <Kit
-          kit={kit}
-          mats={mats}
-          plateText={st.plate || name || 'RC'}
-          wheelR={wheelR}
-          bounds={bounds}
-          wide={st.flares === 'wide'}
-        />
-        {/* bolt-on parts, front of the car to back */}
-        <FrontEnd id={st.front} mats={mats} bounds={bounds} kit={kit} />
-        <Hood id={st.hood} mats={mats} kit={kit} />
-        <RoofKit id={st.roof} mats={mats} kit={kit} dark={dark} />
-        <Sills id={st.skirts} mats={mats} bounds={bounds} kit={kit} />
-        <Exhaust id={st.exhaust} mats={mats} bounds={bounds} kit={kit} />
-        {st.vinyl !== 'none' && <Vinyl id={st.vinyl} color={st.vinylColor} fit={decal} />}
-        {st.spoiler !== 'none' && (
-          <Spoiler
-            id={st.spoiler}
-            mount={SPOILER_MOUNT[carId] || SPOILER_MOUNT.balanced}
-            mats={mats}
-            wing={tu.wing}
-          />
+        {/* the static car: one draw per material */}
+        {S.outline && <mesh geometry={S.outline} material={OUTLINE_MAT} />}
+        <mesh castShadow receiveShadow geometry={S.paint} material={mats.paint} />
+        {S.trim && <mesh castShadow geometry={S.trim} material={mats.trim} />}
+        {S.kit && <mesh castShadow geometry={S.kit} material={KIT_MAT} />}
+        {S.metal && <mesh geometry={S.metal} material={METAL_MAT} />}
+        {S.head && <mesh geometry={S.head} material={dark ? HEAD_NIGHT : HEAD_DAY} />}
+        {S.tail && <mesh geometry={S.tail} material={TAIL_MAT} />}
+        {S.glass && <mesh geometry={S.glass} material={mats.glass} renderOrder={1} />}
+        {build.plate && (
+          <mesh geometry={plateGeo(build.plate.w, build.plate.h)} material={plate.mat} position={build.plate.pos} rotation-y={Math.PI} />
         )}
-        {/* lamps, let into the nose and tail this body actually has */}
-        {[-kit.head[0], kit.head[0]].map((x) => (
-          <mesh key={x} position={[x, kit.head[1], bounds.noseZ - 0.012]}>
-            <boxGeometry args={[0.09, 0.06, 0.03]} />
-            <meshStandardMaterial color="#fffce0" emissive="#fff6c0" emissiveIntensity={dark ? 3.5 : 0.4} toneMapped={false} />
-          </mesh>
-        ))}
-        {[-kit.tail[0], kit.tail[0]].map((x) => (
-          <mesh key={x} position={[x, kit.tail[1], bounds.tailZ + 0.012]}>
-            <boxGeometry args={[0.08, 0.05, 0.03]} />
-            <meshStandardMaterial color="#3d0505" emissive="#ff2222" emissiveIntensity={1.2} toneMapped={false} />
-          </mesh>
-        ))}
+        {st.vinyl !== 'none' && <Vinyl carId={id} wide={wide} vinyl={st.vinyl} color={st.vinylColor} />}
+        {seat && <Driver seat={seat} trim={mats.trim} refGroup={driverRef} />}
         {isLocal && dark && (
           <>
             {/* the target is a child of the car body, so the beam always
@@ -502,93 +306,50 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
           </>
         )}
         {/* antenna (equipped variant or the stock whip) */}
-        <group ref={antennaRef} position={[-0.2, 0.14, -0.4]}>
-          <Antenna kind={cosmetics?.antenna} segs={antennaSegs} />
+        <group position={[A.antenna[0], antY, A.antenna[1]]}>
+          <primitive object={whip.group} />
         </group>
         {/* hat, socketed to the roof */}
         {cosmetics?.hat && (
-          <group position={[0, ROOF_Y[carId] ?? 0.28, -0.05]}>
+          <group position={[0, roofY, anchors.roofZ ?? -0.05]}>
             <Hat kind={cosmetics.hat} propellerRef={propellerRef} />
           </group>
         )}
       </group>
-      {/* wheels */}
-      {WHEEL_POS.map(([x, z], i) => (
-        <group
-          key={i}
-          ref={(el) => (wheelGroups.current[i] = el)}
-          position={[x + trackOut * Math.sign(x), restY, z]}
-        >
-          <group>
-            <Wheel
-              style={wheelStyle}
-              tyre={tyre}
-              r={wheelR}
-              w={wheelW}
-              mats={mats}
-              innerRef={(el) => (wheels.current[i] = el)}
-            />
-          </group>
-        </group>
-      ))}
-      {/* exposed suspension (open-wheel bodies) */}
-      {SUSPENSION[carId] && [0, 1, 2, 3].map((i) => {
-        const G = suspGeo(), M = suspMats(SUSPENSION[carId].spring);
-        const set = (k) => (el) => { susp.current[i] = { ...(susp.current[i] || {}), [k]: el }; };
-        return (
-          <group key={`susp${i}`}>
-            <mesh ref={set('arm')} geometry={G.arm} material={M.arm} />
-            <mesh ref={set('damper')} geometry={G.damper} material={M.damper} />
-            <mesh ref={set('coil')} geometry={G.coil} material={M.coil} castShadow />
-          </group>
-        );
-      })}
+      {/* wheels: four instances each of tyre, rim and brake */}
+      <instancedMesh ref={tyreRef} args={[wheelGeos.tyre, mats.tyre, 4]} castShadow frustumCulled={false} />
+      <instancedMesh ref={rimRef} args={[wheelGeos.rim, mats.rim, 4]} frustumCulled={false} />
+      <instancedMesh ref={brakeRef} args={[wheelGeos.brake, METAL_MAT, 4]} frustumCulled={false} />
+      {/* exposed suspension */}
+      {sp && (
+        <>
+          <instancedMesh ref={armRef} args={[suspGeos().arm, KIT_MAT, 4]} frustumCulled={false} />
+          <instancedMesh ref={damperRef} args={[suspGeos().damper, KIT_MAT, 4]} frustumCulled={false} />
+          <instancedMesh ref={coilRef} args={[suspGeos().coil, suspMats(sp.spring), 4]} castShadow frustumCulled={false} />
+        </>
+      )}
       {/* underglow */}
       {st.glow && (
         <group>
-          <mesh position={[0, restY - wheelR + 0.015, 0]} rotation-x={-Math.PI / 2}>
-            <planeGeometry args={[1.15, 1.55]} />
-            <meshBasicMaterial
-              map={glowTex()}
-              color={st.glow}
-              transparent
-              opacity={dark ? 0.95 : 0.4}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-              toneMapped={false}
-            />
-          </mesh>
+          <mesh position={[0, restY - wheelR + 0.015, 0]} rotation-x={-Math.PI / 2} geometry={GLOW_GEO} material={glowMat(st.glow, dark)} />
           {isLocal && dark && <pointLight position={[0, -0.1, 0]} color={st.glow} intensity={5} distance={2.2} />}
         </group>
       )}
-      {/* boost flame */}
-      <mesh ref={flameRef} position={[0, -0.02, -0.62]} rotation-x={-Math.PI / 2} visible={false}>
-        <coneGeometry args={[0.09, 0.42, 8]} />
-        <meshBasicMaterial color="#7ab8ff" toneMapped={false} transparent opacity={0.9} />
-      </mesh>
+      {/* boost flame, out of the exhaust */}
+      <mesh ref={flameRef} position={[flame[0], flame[1], flame[2] - 0.12]} rotation-x={-Math.PI / 2} visible={false} geometry={FLAME_GEO} material={FLAME_MAT} />
       {/* shield bubble */}
-      <mesh ref={shieldRef} visible={false}>
-        <sphereGeometry args={[0.85, 18, 14]} />
+      <mesh ref={shieldRef} visible={false} geometry={SHIELD_GEO}>
         <meshPhysicalMaterial color="#7ad8ff" transparent opacity={0.22} roughness={0} metalness={0} side={THREE.DoubleSide} />
       </mesh>
       {/* battery pack */}
       <group ref={batteryRef} visible={false} position={[0, 0.35, 0]}>
-        <mesh castShadow>
-          <boxGeometry args={[0.3, 0.18, 0.5]} />
-          <meshStandardMaterial color="#2ecc71" emissive="#2ecc71" emissiveIntensity={0.6} />
-        </mesh>
-        <mesh position={[0, 0, 0.28]} rotation-x={Math.PI / 2}>
-          <cylinderGeometry args={[0.05, 0.05, 0.08, 8]} />
-          <meshStandardMaterial color="#f1c40f" />
-        </mesh>
+        <mesh castShadow geometry={BATTERY.body} material={BATTERY.mat} />
+        <mesh position={[0, 0, 0.28]} rotation-x={Math.PI / 2} geometry={BATTERY.cap} material={BATTERY.capMat} />
       </group>
       {/* stun stars */}
       <group ref={stunRef} visible={false} position={[0, 0.55, 0]}>
         {[0, 1, 2].map((i) => (
-          <mesh key={i} position={[Math.cos((i / 3) * Math.PI * 2) * 0.35, 0, Math.sin((i / 3) * Math.PI * 2) * 0.35]}>
-            <sphereGeometry args={[0.05, 6, 6]} />
-            <meshBasicMaterial color="#ffe27a" toneMapped={false} />
-          </mesh>
+          <mesh key={i} position={[Math.cos((i / 3) * Math.PI * 2) * 0.35, 0, Math.sin((i / 3) * Math.PI * 2) * 0.35]} geometry={STAR_GEO} material={STAR_MAT} />
         ))}
       </group>
       {/* trail anchor + ribbon (world-space, portaled to the scene root) */}
@@ -602,733 +363,326 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   );
 }
 
-// One wheel: tire + styled rim. innerRef is the spin group (rotation.x per
-// frame); the wheel axis runs along local x.
-function Wheel({ style, tyre, r, w, mats, innerRef }) {
-  const spokes = [];
-  for (let i = 0; i < (style.spokes || 0); i++) spokes.push((i / style.spokes) * Math.PI * 2);
+// Where the antenna foot lands on this body (deck, bed wall or tub).
+function shellTopAt(carId, x, z, wide, anchors) {
+  if (carId === 'monster') return (anchors.bedDeck ?? 0.2) + 0.06;
+  const b = shellBounds(carId, wide);
+  const geo = shellGeos(carId, wide).paint;
+  // highest paint vertex near the foot: robust to the ducktail and the tub
+  const p = geo.attributes.position;
+  let y = b.botY;
+  for (let i = 0; i < p.count; i++) {
+    if (Math.abs(p.getX(i) - x) < 0.03 && Math.abs(p.getZ(i) - z) < 0.03) y = Math.max(y, p.getY(i));
+  }
+  return y - 0.004;
+}
+
+// ------------------------------------------------------------- shared bits
+const plateGeos = new Map();
+function plateGeo(w, h) {
+  const k = `${w.toFixed(3)}|${h.toFixed(3)}`;
+  if (!plateGeos.has(k)) plateGeos.set(k, new THREE.PlaneGeometry(w, h));
+  return plateGeos.get(k);
+}
+const GLOW_GEO = new THREE.PlaneGeometry(1.15, 1.55);
+const glowMats = new Map();
+function glowMat(color, dark) {
+  const k = `${color}|${dark}`;
+  if (!glowMats.has(k)) {
+    glowMats.set(k, new THREE.MeshBasicMaterial({
+      map: glowTex(), color, transparent: true, opacity: dark ? 0.95 : 0.4,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+    }));
+  }
+  return glowMats.get(k);
+}
+const FLAME_GEO = new THREE.ConeGeometry(0.07, 0.3, 10).translate(0, 0.0, 0);
+const FLAME_MAT = new THREE.MeshBasicMaterial({ color: '#7ab8ff', toneMapped: false, transparent: true, opacity: 0.9 });
+const SHIELD_GEO = new THREE.SphereGeometry(0.85, 18, 14);
+const BATTERY = {
+  body: new THREE.BoxGeometry(0.3, 0.18, 0.5),
+  cap: new THREE.CylinderGeometry(0.05, 0.05, 0.08, 8),
+  mat: new THREE.MeshStandardMaterial({ color: '#2ecc71', emissive: '#2ecc71', emissiveIntensity: 0.6 }),
+  capMat: new THREE.MeshStandardMaterial({ color: '#f1c40f' }),
+};
+const STAR_GEO = new THREE.SphereGeometry(0.05, 6, 6);
+const STAR_MAT = new THREE.MeshBasicMaterial({ color: '#ffe27a', toneMapped: false });
+
+// ------------------------------------------------------------- driver
+// Helmet in the accent colour, a dark visor, suit and arms to the wheel.
+// Leans into corners via driverRef.
+function Driver({ seat, trim, refGroup }) {
+  const G = driverGeos();
+  const [y, z, s] = seat;
   return (
-    <>
-    {/* brake disc + caliper live OUTSIDE the spin group so the caliper stays
-        bolted to the hub while the wheel turns — visible through open spokes */}
-    <group>
-      <mesh rotation-z={Math.PI / 2} material={mats.disc}>
-        <cylinderGeometry args={[r * 0.6, r * 0.6, w * 0.3, 14]} />
-      </mesh>
-      <mesh position={[0, r * 0.42, -r * 0.2]} material={mats.caliper}>
-        <boxGeometry args={[w * 0.34, r * 0.42, r * 0.3]} />
-      </mesh>
+    <group ref={refGroup} position={[0, y, z]} scale={s}>
+      <mesh castShadow geometry={G.suit} material={KIT_MAT} />
+      <mesh castShadow geometry={G.helmet} material={trim} />
+      <mesh geometry={G.visor} material={METAL_MAT} />
     </group>
-    <group ref={innerRef}>
-      <mesh rotation-z={Math.PI / 2} castShadow material={tyre?.rough === 0.5 ? mats.slick : mats.tire}>
-        <cylinderGeometry args={[r, r, w, 14]} />
-      </mesh>
-      {/* knobbly tread: a low-segment torus around the tread face */}
-      {tyre?.tread && (
-        <mesh rotation-y={Math.PI / 2} scale={[1, 1, (w * 0.9) / (tyre.tread.tube * 2)]} material={mats.tire}>
-          <torusGeometry args={[r * 0.94, tyre.tread.tube, 4, tyre.tread.seg]} />
-        </mesh>
-      )}
-      {/* Everything below is the RIM FACE, and every piece of it is sized to
-          reach past both sidewalls (the tyre is a solid cylinder — anything
-          narrower than `w` is buried inside it and the wheel style becomes
-          invisible, which is exactly what used to happen). */}
-      {/* hub / centre cap */}
-      <mesh rotation-z={Math.PI / 2} material={mats.rim}>
-        <cylinderGeometry args={[r * (style.disc ? 0.72 : 0.24), r * (style.disc ? 0.72 : 0.24), w + 0.03, style.disc ? 18 : 8]} />
-      </mesh>
-      {/* spokes radiate in the wheel plane (yz) */}
-      {spokes.map((a, i) => (
-        <group key={i} rotation-x={a}>
-          <mesh position={[0, r * 0.36, 0]} material={mats.rim}>
-            <boxGeometry args={[w + 0.024, r * 0.75, 0.05]} />
-          </mesh>
-        </group>
-      ))}
-      {/* outer ring ties the spokes together (scale runs before the rotation,
-          so local z is what ends up across the car's width) */}
-      {!style.disc && style.spokes > 0 && (
-        <mesh rotation-y={Math.PI / 2} scale={[1, 1, (w + 0.024) / 0.044]} material={mats.rim}>
-          <torusGeometry args={[r * 0.68, 0.022, 6, 18]} />
-        </mesh>
-      )}
-      {/* deep-dish lip */}
-      {style.lip && (
-        <mesh rotation-y={Math.PI / 2} scale={[1, 1, (w + 0.03) / 0.07]} material={mats.rim}>
-          <torusGeometry args={[r * 0.6, 0.035, 6, 18]} />
-        </mesh>
-      )}
-      {/* stock steelie keeps the simple flat cap, with four wheel nuts */}
-      {!style.disc && !style.spokes && (
-        <>
-          <mesh rotation-z={Math.PI / 2} material={mats.rim}>
-            <cylinderGeometry args={[r * 0.55, r * 0.55, w + 0.024, 10]} />
-          </mesh>
-          {[0, 1, 2, 3].map((i) => (
-            <mesh
-              key={i}
-              rotation-z={Math.PI / 2}
-              position={[0, Math.cos((i / 4) * Math.PI * 2) * r * 0.34, Math.sin((i / 4) * Math.PI * 2) * r * 0.34]}
-              material={mats.dark}
-            >
-              <cylinderGeometry args={[r * 0.07, r * 0.07, w + 0.032, 6]} />
-            </mesh>
-          ))}
-        </>
-      )}
-    </group>
-    </>
   );
 }
 
-// Bolt-on spoilers, painted in the trim colour with dark struts. `wing` is the
-// downforce notch (−2…2) and rakes the blade — the setup sheet you can see.
-function Spoiler({ id, mount, mats, wing = 0 }) {
-  const [y, z, hw] = mount;
-  const rake = wing * 0.075;
-  switch (id) {
-    case 'duck':
-      return (
-        <mesh castShadow material={mats.trim} position={[0, y + 0.04, z]} rotation-x={0.38 + rake}>
-          <boxGeometry args={[hw * 2, 0.022, 0.13]} />
-        </mesh>
-      );
-    case 'gt':
-      return (
-        <group position={[0, y, z]}>
-          {[-hw * 0.7, hw * 0.7].map((x) => (
-            <mesh key={x} material={mats.dark} position={[x, 0.06, 0]}>
-              <boxGeometry args={[0.025, 0.12, 0.03]} />
-            </mesh>
-          ))}
-          <mesh castShadow material={mats.trim} position={[0, 0.13, 0]} rotation-x={0.12 + rake}>
-            <boxGeometry args={[hw * 2, 0.022, 0.15]} />
-          </mesh>
-          {[-hw, hw].map((x) => (
-            <mesh key={x} material={mats.trim} position={[x, 0.13, 0]}>
-              <boxGeometry args={[0.02, 0.07, 0.15]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'mega':
-      return (
-        <group position={[0, y, z]}>
-          {[-hw * 0.75, hw * 0.75].map((x) => (
-            <mesh key={x} material={mats.dark} position={[x, 0.11, 0]}>
-              <boxGeometry args={[0.03, 0.22, 0.035]} />
-            </mesh>
-          ))}
-          <mesh castShadow material={mats.trim} position={[0, 0.23, 0]} rotation-x={0.16 + rake}>
-            <boxGeometry args={[hw * 2 + 0.12, 0.026, 0.17]} />
-          </mesh>
-          {[-(hw + 0.06), hw + 0.06].map((x) => (
-            <mesh key={x} material={mats.trim} position={[x, 0.23, 0]}>
-              <boxGeometry args={[0.025, 0.1, 0.18]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    default:
-      return null;
-  }
-}
-
-// how much of a full arch a fender flare shows (the rest is inside the body)
-const ARCH_ARC = Math.PI * 0.68;
-
-// ------------------------------------------------------------- bolt-on parts
-// One component per slot. Each takes the shell's measured surfaces (nose, tail,
-// flank) plus that body's anchor points, so a bumper or a roof rack fits the
-// Micro Monster and the Formula without a per-car table of its own.
-
-function FrontEnd({ id, mats, bounds, kit }) {
-  const { noseZ, halfW } = bounds;
-  const hw = kit.splitter ? kit.splitter[1] : halfW * 0.9;
-  const y = kit.splitter ? kit.splitter[0] : kit.head[1] - 0.075;
-  switch (id) {
-    case 'splitter':
-      return (
-        <mesh castShadow material={mats.trim} position={[0, y, noseZ - 0.03]} rotation-x={-0.06}>
-          <boxGeometry args={[hw * 2, 0.018, 0.11]} />
-        </mesh>
-      );
-    case 'bar': // bull bar: hoop across the nose on two stubby mounts
-      return (
-        <group position={[0, y + 0.04, noseZ + 0.01]}>
-          <mesh castShadow material={mats.chrome} rotation-z={Math.PI / 2}>
-            <cylinderGeometry args={[0.022, 0.022, hw * 1.9, 8]} />
-          </mesh>
-          {[-hw * 0.62, hw * 0.62].map((x) => (
-            <mesh key={x} material={mats.chrome} position={[x, 0.06, 0]}>
-              <cylinderGeometry args={[0.016, 0.016, 0.13, 6]} />
-            </mesh>
-          ))}
-          {[-hw * 0.62, hw * 0.62].map((x) => (
-            <mesh key={`m${x}`} material={mats.dark} position={[x, 0.02, -0.05]}>
-              <boxGeometry args={[0.03, 0.05, 0.1]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'winch': // recovery bumper with a drum and a hook
-      return (
-        <group position={[0, y + 0.03, noseZ - 0.005]}>
-          <mesh castShadow material={mats.dark}>
-            <boxGeometry args={[hw * 1.9, 0.075, 0.06]} />
-          </mesh>
-          <mesh castShadow material={mats.chrome} position={[0, 0.045, 0.01]} rotation-z={Math.PI / 2}>
-            <cylinderGeometry args={[0.035, 0.035, 0.14, 10]} />
-          </mesh>
-          <mesh material={mats.trim} position={[0, 0.045, 0.06]}>
-            <torusGeometry args={[0.022, 0.008, 5, 10]} />
-          </mesh>
-        </group>
-      );
-    default: // stock bumper: a painted blade tucked under the grille
-      return (
-        <mesh castShadow material={mats.body} position={[0, y + 0.005, noseZ - 0.02]}>
-          <boxGeometry args={[hw * 1.85, 0.05, 0.05]} />
-        </mesh>
-      );
-  }
-}
-
-function Hood({ id, mats, kit }) {
-  const [y, z] = kit.hood;
-  switch (id) {
-    case 'scoop':
-      return (
-        <group position={[0, y, z]}>
-          <mesh castShadow material={mats.body} position={[0, 0.035, 0]}>
-            <boxGeometry args={[0.2, 0.07, 0.24]} />
-          </mesh>
-          <mesh material={mats.dark} position={[0, 0.04, 0.115]}>
-            <boxGeometry args={[0.16, 0.045, 0.03]} />
-          </mesh>
-        </group>
-      );
-    case 'vents':
-      return (
-        <group position={[0, y + 0.008, z]}>
-          {[-0.075, 0.075].map((x) => (
-            <group key={x} position={[x, 0, 0]}>
-              {[-0.04, 0, 0.04].map((dz) => (
-                <mesh key={dz} material={mats.dark} position={[0, 0, dz]} rotation-x={-0.25}>
-                  <boxGeometry args={[0.085, 0.012, 0.022]} />
-                </mesh>
-              ))}
-            </group>
-          ))}
-        </group>
-      );
-    case 'pins':
-      return (
-        <group position={[0, y + 0.006, z]}>
-          {[[-0.14, 0.1], [0.14, 0.1], [-0.14, -0.1], [0.14, -0.1]].map(([x, dz]) => (
-            <mesh key={`${x}${dz}`} material={mats.chrome} position={[x, 0, dz]}>
-              <cylinderGeometry args={[0.016, 0.016, 0.02, 8]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    default:
-      return null;
-  }
-}
-
-function RoofKit({ id, mats, kit, dark }) {
-  const [y, z] = kit.roof;
-  switch (id) {
-    case 'rack': // cargo rack with an office file box strapped down
-      return (
-        <group position={[0, y, z]}>
-          {[[-0.16, 0.14], [0.16, 0.14], [-0.16, -0.14], [0.16, -0.14]].map(([x, dz]) => (
-            <mesh key={`${x}${dz}`} material={mats.dark} position={[x, 0.02, dz]}>
-              <cylinderGeometry args={[0.012, 0.012, 0.045, 5]} />
-            </mesh>
-          ))}
-          {[-0.16, 0.16].map((x) => (
-            <mesh key={x} castShadow material={mats.dark} position={[x, 0.045, 0]}>
-              <boxGeometry args={[0.022, 0.014, 0.36]} />
-            </mesh>
-          ))}
-          <mesh castShadow material={mats.paper} position={[0, 0.095, -0.02]}>
-            <boxGeometry args={[0.24, 0.09, 0.2]} />
-          </mesh>
-          <mesh material={mats.dark} position={[0, 0.098, -0.02]}>
-            <boxGeometry args={[0.026, 0.094, 0.205]} />
-          </mesh>
-        </group>
-      );
-    case 'lightbar':
-      return (
-        <group position={[0, y + 0.035, z + 0.06]}>
-          <mesh castShadow material={mats.dark}>
-            <boxGeometry args={[0.42, 0.045, 0.05]} />
-          </mesh>
-          {[-0.15, -0.05, 0.05, 0.15].map((x) => (
-            <mesh key={x} position={[x, 0, 0.03]}>
-              <cylinderGeometry args={[0.019, 0.019, 0.02, 10]} />
-              <meshStandardMaterial
-                color="#fffbe8"
-                emissive="#fff4c0"
-                emissiveIntensity={dark ? 4 : 0.6}
-                toneMapped={false}
-              />
-            </mesh>
-          ))}
-          {[-0.19, 0.19].map((x) => (
-            <mesh key={`m${x}`} material={mats.dark} position={[x, -0.04, 0]}>
-              <boxGeometry args={[0.02, 0.04, 0.03]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'tray': // stacked inbox trays, because this is an office
-      return (
-        <group position={[0, y + 0.01, z]}>
-          {[0, 0.055].map((dy, i) => (
-            <group key={dy} position={[0, dy, 0]}>
-              <mesh castShadow material={i ? mats.trim : mats.paper} position={[0, 0.012, 0]}>
-                <boxGeometry args={[0.3, 0.012, 0.22]} />
-              </mesh>
-              {[-0.105, 0.105].map((dz) => (
-                <mesh key={dz} material={i ? mats.trim : mats.paper} position={[0, 0.028, dz]}>
-                  <boxGeometry args={[0.3, 0.032, 0.012]} />
-                </mesh>
-              ))}
-            </group>
-          ))}
-        </group>
-      );
-    default:
-      return null;
-  }
-}
-
-function Sills({ id, mats, bounds, kit }) {
-  const [y, len] = kit.rocker;
-  const x = bounds.halfW - 0.01;
-  if (id === 'skirt') {
-    return (
-      <group>
-        {[-1, 1].map((s) => (
-          <mesh key={s} castShadow material={mats.trim} position={[x * s, y, 0]} rotation-z={0.12 * s}>
-            <boxGeometry args={[0.03, 0.05, len]} />
-          </mesh>
-        ))}
-      </group>
-    );
-  }
-  if (id === 'steps') {
-    return (
-      <group>
-        {[-1, 1].map((s) => (
-          <group key={s}>
-            <mesh castShadow material={mats.dark} position={[(x + 0.035) * s, y - 0.03, 0]}>
-              <boxGeometry args={[0.075, 0.018, len * 0.8]} />
-            </mesh>
-            {[-len * 0.28, len * 0.28].map((dz) => (
-              <mesh key={dz} material={mats.dark} position={[(x + 0.01) * s, y - 0.012, dz]}>
-                <boxGeometry args={[0.03, 0.03, 0.02]} />
-              </mesh>
-            ))}
-          </group>
-        ))}
-      </group>
-    );
-  }
-  return null;
-}
-
-function Exhaust({ id, mats, bounds, kit }) {
-  const { tailZ, halfW } = bounds;
-  const y = kit.exhaust?.[0]?.[1] ?? kit.rocker[0] + 0.02;
-  const tip = (key, pos, rot = [Math.PI / 2, 0, 0], r = 0.026) => (
-    <mesh key={key} material={mats.chrome} position={pos} rotation={rot}>
-      <cylinderGeometry args={[r, r * 1.15, 0.1, 8]} />
-    </mesh>
-  );
-  switch (id) {
-    case 'twin':
-      return <group>{[-0.13, 0.13].map((x) => tip(x, [x, y, tailZ + 0.02]))}</group>;
-    case 'side': // pipes running along the sills, exiting behind the door
-      return (
-        <group>
-          {[-1, 1].map((s) => (
-            <mesh
-              key={s}
-              castShadow
-              material={mats.chrome}
-              position={[(halfW - 0.005) * s, kit.rocker[0] + 0.01, -0.06]}
-              rotation-x={Math.PI / 2}
-            >
-              <cylinderGeometry args={[0.026, 0.026, kit.rocker[1] * 0.55, 8]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'stacks': { // stacks running up the outside of the rear pillars
-      const top = kit.roof[0] + 0.08;
-      const base = kit.rocker[0] + 0.03;
-      const h = Math.max(0.16, top - base);
-      return (
-        <group>
-          {[-1, 1].map((sx) => (
-            <group key={sx} position={[(halfW - 0.015) * sx, (top + base) / 2, kit.roof[1] - 0.06]}>
-              <mesh castShadow material={mats.chrome}>
-                <cylinderGeometry args={[0.024, 0.028, h, 8]} />
-              </mesh>
-              <mesh material={mats.dark} position={[0, h / 2 + 0.008, 0]}>
-                <cylinderGeometry args={[0.026, 0.026, 0.016, 8]} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-      );
+// ------------------------------------------------------------- vinyl
+// The wrap is projected onto the shell (DecalGeometry), so it follows every
+// curve instead of floating over them as a flat card. Top and sides share one
+// atlas texture and one draw; geometry is cached per body, material per wrap.
+const vinylGeoCache = new Map();
+function vinylGeo(carId, wide) {
+  const key = `${carId}${wide ? ':w' : ''}`;
+  if (vinylGeoCache.has(key)) return vinylGeoCache.get(key);
+  const fit = VINYL_FIT[carId] || VINYL_FIT.balanced;
+  const mesh = new THREE.Mesh(shellGeos(carId, wide).paint);
+  const [tw, tl, tz] = fit.top;
+  const [sl, sh, sy, sz] = fit.side;
+  // top: looking straight down, v runs nose → tail (canvas top = rear)
+  const top = new DecalGeometry(mesh, new THREE.Vector3(0, 0.3, tz), new THREE.Euler(-Math.PI / 2, 0, 0), new THREE.Vector3(tw, tl, 0.8));
+  // sides: one projector straight through the car, u runs nose → tail
+  const side = new DecalGeometry(mesh, new THREE.Vector3(0, sy, sz), new THREE.Euler(0, Math.PI / 2, 0), new THREE.Vector3(sl, sh, 1));
+  const P = new Parts();
+  const keep = (g, test, remap) => {
+    const p = g.attributes.position, n = g.attributes.normal, uv = g.attributes.uv;
+    const pos = [], nor = [], uvs = [];
+    for (let i = 0; i < p.count; i += 3) {
+      let ok = true;
+      for (let k = 0; k < 3; k++) if (!test(n.getX(i + k), n.getY(i + k))) ok = false;
+      if (!ok) continue;
+      for (let k = 0; k < 3; k++) {
+        const j = i + k, d = 0.0015; // lift off the paint along the normal
+        pos.push(p.getX(j) + n.getX(j) * d, p.getY(j) + n.getY(j) * d, p.getZ(j) + n.getZ(j) * d);
+        nor.push(n.getX(j), n.getY(j), n.getZ(j));
+        const [u, v] = remap(uv.getX(j), uv.getY(j), n.getX(j));
+        uvs.push(u, v);
+      }
     }
-    default:
-      return <group>{tip('single', [kit.exhaust?.[0]?.[0] ?? 0.14, y, tailZ + 0.02], [Math.PI / 2, 0, 0], 0.03)}</group>;
-  }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    return out;
+  };
+  // atlas: top wrap in the left third (full height), side wrap in the
+  // right two thirds, top quarter
+  P.add('v', keep(top, (nx, ny) => ny > 0.35, (u, v) => [u / 3, v]));
+  P.add('v', keep(side, (nx) => Math.abs(nx) > 0.5, (u, v, nx) => [1 / 3 + (nx > 0 ? u : 1 - u) * (2 / 3), 0.75 + v * 0.25]));
+  const g = P.build().v;
+  vinylGeoCache.set(key, g);
+  return g;
+}
+const vinylMats = new Map();
+function vinylMat(id, color) {
+  const key = `${id}|${color}`;
+  if (vinylMats.has(key)) return vinylMats.get(key);
+  const topImg = vinylTopTex(id, color).image, sideImg = vinylSideTex(id, color).image;
+  const c = document.createElement('canvas');
+  c.width = 768; c.height = 512;
+  const g = c.getContext('2d');
+  g.drawImage(topImg, 0, 0, 256, 512);
+  g.drawImage(sideImg, 256, 0, 512, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const m = new THREE.MeshPhysicalMaterial({
+    map: tex, transparent: true, depthWrite: false, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08,
+    polygonOffset: true, polygonOffsetFactor: -2,
+  });
+  vinylMats.set(key, m);
+  return m;
+}
+function Vinyl({ carId, wide, vinyl, color }) {
+  return <mesh geometry={vinylGeo(carId, wide)} material={vinylMat(vinyl, color)} renderOrder={2} />;
 }
 
-// ------------------------------------------------------------- detail kit
-// Fender flares, front splitter, grille, mirrors, exhaust tip and the office
-// asset-tag plate. Table-driven (see KIT) so every body gets the same parts
-// fitted to its own silhouette.
-function Kit({ kit, mats, plateText, wheelR, bounds, wide }) {
-  const { noseZ, tailZ, halfW } = bounds;
-  return (
-    <group>
-      {/* fender flares arching over each wheel. The wrapper does the turn
-          (ring plane → the car's side view) and the widening — group scale runs
-          on the child's local axes, where z is the tube direction, so the tube
-          spreads across the car's width instead of stretching the arc. The
-          child's z-spin centres a 0.68π arc over the tyre so the flare reads as
-          a fender lip and not as a ring around the wheel. */}
-      {kit.arch && WHEEL_POS.map(([x, z], i) => (
-        <group
-          key={i}
-          position={[x + (wide ? 0.02 * Math.sign(x) : 0), kit.arch[1], z]}
-          rotation-y={Math.PI / 2}
-          scale={wide ? [0.88, 1.0, 2.5] : [0.85, 0.95, 1.9]}
-        >
-          <mesh castShadow material={mats.body} rotation-z={(Math.PI - ARCH_ARC) / 2}>
-            <torusGeometry args={[wheelR + kit.arch[0] + (wide ? 0.015 : 0), 0.03, 5, 9, ARCH_ARC]} />
-          </mesh>
-        </group>
-      ))}
-      {/* grille: dark panel let into the nose, with two chrome bars */}
-      {kit.grille && (
-        <group position={[0, kit.grille[0], noseZ - 0.012]}>
-          <mesh material={mats.dark}>
-            <boxGeometry args={[kit.grille[1] * 2, kit.grille[2] * 2, 0.03]} />
-          </mesh>
-          {[-kit.grille[2] * 0.55, kit.grille[2] * 0.55].map((y) => (
-            <mesh key={y} material={mats.chrome} position={[0, y, 0.02]}>
-              <boxGeometry args={[kit.grille[1] * 1.8, 0.012, 0.012]} />
-            </mesh>
-          ))}
-        </group>
-      )}
-      {/* door mirrors on little stalks, hung off the actual flank */}
-      {kit.mirrors && [-1, 1].map((s) => (
-        <group key={s} position={[(halfW - 0.005) * s, kit.mirrors[0], kit.mirrors[1]]}>
-          <mesh material={mats.dark} rotation-z={Math.PI / 2}>
-            <cylinderGeometry args={[0.008, 0.008, 0.05, 5]} />
-          </mesh>
-          <mesh castShadow material={mats.trim} position={[0.04 * s, 0.014, 0]}>
-            <boxGeometry args={[0.04, 0.03, 0.055]} />
-          </mesh>
-        </group>
-      ))}
-      {/* asset-tag plate: custom text, or the driver name by default */}
-      {kit.plate && (
-        <mesh position={[0, kit.plate[0], tailZ - 0.003]} rotation-y={Math.PI}>
-          <planeGeometry args={[kit.plate[1], kit.plate[1] * 0.5]} />
-          <meshStandardMaterial map={plateTex(plateText)} roughness={0.55} />
-        </mesh>
-      )}
-    </group>
-  );
-}
-
-// Vinyl wrap: transparent decal planes hugging the roof/hood and doors.
-function Vinyl({ id, color, fit }) {
-  const topT = vinylTopTex(id, color);
-  const sideT = vinylSideTex(id, color);
-  const [tw, tl, ty, tz] = fit.top;
-  const [sl, sh, sy, sx, sz] = fit.side;
-  const mat = (tex) => (
-    <meshBasicMaterial map={tex} transparent depthWrite={false} polygonOffset polygonOffsetFactor={-2} />
-  );
-  return (
-    <group>
-      <mesh position={[0, ty + 0.004, tz]} rotation-x={-Math.PI / 2}>
-        <planeGeometry args={[tw, tl]} />
-        {mat(topT)}
-      </mesh>
-      {[1, -1].map((s) => (
-        // mirrored so the flames pour nose-to-tail on both doors
-        <mesh key={s} position={[sx * s, sy, sz]} rotation-y={(Math.PI / 2) * s} scale-x={s}>
-          <planeGeometry args={[sl, sh]} />
-          {mat(sideT)}
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-// ------------------------------------------------------------- cosmetics
-const FLAG_SHAPE = new THREE.Shape();
-FLAG_SHAPE.moveTo(0, 0); FLAG_SHAPE.lineTo(0.22, 0.06); FLAG_SHAPE.lineTo(0, 0.12);
-
-// The whip in ANTENNA_SEGS nested pieces, each bent a share of the total, so
-// the rod curves along its length like a real one instead of pivoting stiff
-// at the base. The tip decoration rides the last piece.
-const ANTENNA_SEGS = 4;
+// ------------------------------------------------------------- antenna
+// The whip is one tube mesh bent on the CPU each frame (a few dozen
+// vertices) instead of a chain of nested segment meshes: the same curve along
+// its length, two draws instead of five.
 const ANTENNA_LEN = 0.45;
-function Antenna({ kind, segs }) {
-  const segLen = ANTENNA_LEN / ANTENNA_SEGS;
-  const tip = kind === 'ball' ? (
-    <mesh position={[0, 0.03, 0]}>
-      <sphereGeometry args={[0.07, 10, 10]} />
-      <meshStandardMaterial color="#ffb347" emissive="#ff8c00" emissiveIntensity={0.35} roughness={0.3} />
-    </mesh>
-  ) : kind === 'flag' ? (
-    <mesh position={[0.005, -0.11, 0]} rotation-y={Math.PI / 2}>
-      <shapeGeometry args={[FLAG_SHAPE]} />
-      <meshStandardMaterial color="#e8332a" side={THREE.DoubleSide} roughness={0.8} />
-    </mesh>
-  ) : (
-    <mesh position={[0, 0.01, 0]}>
-      <sphereGeometry args={[0.035, 8, 8]} />
-      <meshStandardMaterial color="#ff3333" />
-    </mesh>
-  );
-  // build inside-out: each segment holds the next at its top
-  let inner = tip;
-  for (let i = ANTENNA_SEGS - 1; i >= 0; i--) {
-    const child = inner;
-    const r0 = 0.012 - (0.004 * i) / ANTENNA_SEGS, r1 = 0.012 - (0.004 * (i + 1)) / ANTENNA_SEGS;
-    inner = (
-      <group key={i} ref={(el) => { segs.current[i] = el; }} position={[0, i === 0 ? 0 : segLen, 0]}>
-        <mesh position={[0, segLen / 2, 0]} material={ANTENNA_MAT}>
-          <cylinderGeometry args={[r1, r0, segLen, 6]} />
-        </mesh>
-        {i === ANTENNA_SEGS - 1 ? <group position={[0, segLen, 0]}>{child}</group> : child}
-      </group>
-    );
-  }
-  return inner;
+const WHIP_RINGS = 9, WHIP_SIDES = 5;
+const ANTENNA_MAT = new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.5 });
+const TIP = {
+  ball: { geo: new THREE.SphereGeometry(0.07, 12, 10).translate(0, 0.03, 0), mat: new THREE.MeshStandardMaterial({ color: '#ffb347', emissive: '#ff8c00', emissiveIntensity: 0.35, roughness: 0.3 }) },
+  flag: {
+    geo: (() => { const s = new THREE.Shape(); s.moveTo(0, 0); s.lineTo(0.22, 0.06); s.lineTo(0, 0.12); return new THREE.ShapeGeometry(s).rotateY(Math.PI / 2).translate(0.005, -0.11, 0); })(),
+    mat: new THREE.MeshStandardMaterial({ color: '#e8332a', side: THREE.DoubleSide, roughness: 0.8 }),
+  },
+  stock: { geo: new THREE.SphereGeometry(0.035, 10, 8).translate(0, 0.01, 0), mat: new THREE.MeshStandardMaterial({ color: '#ff3333', roughness: 0.4 }) },
+};
+function useWhip(kind) {
+  const w = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    const n = WHIP_RINGS * WHIP_SIDES;
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+    const idx = [];
+    for (let i = 0; i < WHIP_RINGS - 1; i++) {
+      for (let j = 0; j < WHIP_SIDES; j++) {
+        const a = i * WHIP_SIDES + j, b = a + WHIP_SIDES, c = i * WHIP_SIDES + ((j + 1) % WHIP_SIDES), d = c + WHIP_SIDES;
+        idx.push(a, b, c, c, b, d);
+      }
+    }
+    geo.setIndex(idx);
+    const group = new THREE.Group();
+    const rod = new THREE.Mesh(geo, ANTENNA_MAT);
+    rod.frustumCulled = false;
+    const tip = new THREE.Mesh();
+    group.add(rod, tip);
+    const pts = Array.from({ length: WHIP_RINGS }, () => new THREE.Vector3());
+    const dir = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), q = new THREE.Quaternion(), e = new THREE.Euler();
+    let last = [NaN, NaN];
+    const bend = (pitch, roll) => {
+      if (Math.abs(pitch - last[0]) < 1e-4 && Math.abs(roll - last[1]) < 1e-4) return;
+      last = [pitch, roll];
+      const pos = geo.attributes.position.array, nor = geo.attributes.normal.array;
+      const seg = ANTENNA_LEN / (WHIP_RINGS - 1);
+      pts[0].set(0, 0, 0);
+      for (let i = 0; i < WHIP_RINGS; i++) {
+        const s = i / (WHIP_RINGS - 1);
+        // the bend accumulates along the rod: the tip swings furthest
+        e.set(pitch * s, 0, -roll * s);
+        q.setFromEuler(e);
+        dir.copy(up).applyQuaternion(q);
+        if (i > 0) pts[i].copy(pts[i - 1]).addScaledVector(dir, seg);
+        const r = 0.012 - 0.006 * s;
+        for (let j = 0; j < WHIP_SIDES; j++) {
+          const a = (j / WHIP_SIDES) * Math.PI * 2;
+          const k = (i * WHIP_SIDES + j) * 3;
+          const cx = Math.cos(a), cz = Math.sin(a);
+          pos[k] = pts[i].x + cx * r; pos[k + 1] = pts[i].y; pos[k + 2] = pts[i].z + cz * r;
+          nor[k] = cx; nor[k + 1] = 0; nor[k + 2] = cz;
+        }
+      }
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.normal.needsUpdate = true;
+      tip.position.copy(pts[WHIP_RINGS - 1]);
+      tip.quaternion.copy(q);
+    };
+    return { group, tip, bend };
+  }, []);
+  useLayoutEffect(() => {
+    const t = TIP[kind] || TIP.stock;
+    w.tip.geometry = t.geo;
+    w.tip.material = t.mat;
+  }, [kind, w]);
+  return w;
 }
-const ANTENNA_MAT = new THREE.MeshStandardMaterial({ color: '#222' });
 
-function Hat({ kind, propellerRef }) {
+// ------------------------------------------------------------- hats
+// Each hat is one merged, vertex-coloured mesh (the propeller spins on its own).
+const hatCache = new Map();
+function hatGeo(kind) {
+  if (hatCache.has(kind)) return hatCache.get(kind);
+  const P = new Parts();
   switch (kind) {
     case 'cone':
-      return (
-        <group>
-          <mesh castShadow position={[0, 0.01, 0]}>
-            <cylinderGeometry args={[0.13, 0.15, 0.025, 10]} />
-            <meshStandardMaterial color="#ff6b1a" roughness={0.7} />
-          </mesh>
-          <mesh castShadow position={[0, 0.11, 0]}>
-            <coneGeometry args={[0.1, 0.2, 10]} />
-            <meshStandardMaterial color="#ff6b1a" roughness={0.7} />
-          </mesh>
-          <mesh position={[0, 0.11, 0]}>
-            <cylinderGeometry args={[0.075, 0.085, 0.045, 10]} />
-            <meshStandardMaterial color="#f5f5f5" roughness={0.7} />
-          </mesh>
-        </group>
-      );
+      P.box('h', [0.28, 0.022, 0.28], [0, 0.011, 0], null, '#ff6b1a', 0.008);
+      P.cyl('h', 0.03, 0.1, 0.22, [0, 0.13, 0], null, '#ff6b1a', 16);
+      P.cyl('h', 0.066, 0.078, 0.04, [0, 0.1, 0], null, '#f5f5f5', 16);
+      P.cyl('h', 0.043, 0.052, 0.025, [0, 0.165, 0], null, '#f5f5f5', 16);
+      break;
     case 'tophat':
-      return (
-        <group>
-          <mesh castShadow position={[0, 0.01, 0]}>
-            <cylinderGeometry args={[0.16, 0.16, 0.02, 14]} />
-            <meshStandardMaterial color="#15161c" roughness={0.4} />
-          </mesh>
-          <mesh castShadow position={[0, 0.12, 0]}>
-            <cylinderGeometry args={[0.1, 0.11, 0.2, 14]} />
-            <meshStandardMaterial color="#15161c" roughness={0.4} />
-          </mesh>
-          <mesh position={[0, 0.035, 0]}>
-            <cylinderGeometry args={[0.112, 0.112, 0.03, 14]} />
-            <meshStandardMaterial color="#c0392b" roughness={0.6} />
-          </mesh>
-        </group>
-      );
+      P.cyl('h', 0.16, 0.16, 0.016, [0, 0.008, 0], null, '#15161c', 24);
+      P.cyl('h', 0.1, 0.11, 0.2, [0, 0.11, 0], null, '#15161c', 20);
+      P.cyl('h', 0.113, 0.113, 0.03, [0, 0.03, 0], null, '#c0392b', 20);
+      break;
     case 'propeller':
-      return (
-        <group>
-          <mesh castShadow position={[0, 0.035, 0]}>
-            <sphereGeometry args={[0.11, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2]} />
-            <meshStandardMaterial color="#3498db" roughness={0.6} />
-          </mesh>
-          <mesh position={[0, 0.11, 0]}>
-            <cylinderGeometry args={[0.012, 0.012, 0.06, 6]} />
-            <meshStandardMaterial color="#f1c40f" />
-          </mesh>
-          <group ref={propellerRef} position={[0, 0.15, 0]}>
-            {[0, Math.PI / 2].map((r) => (
-              <mesh key={r} rotation-y={r}>
-                <boxGeometry args={[0.3, 0.012, 0.045]} />
-                <meshStandardMaterial color="#e8332a" roughness={0.5} />
-              </mesh>
-            ))}
-          </group>
-        </group>
-      );
+      P.add('h', new THREE.SphereGeometry(0.11, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), null, '#3498db');
+      for (let i = 0; i < 4; i++) {
+        P.add('h', new THREE.SphereGeometry(0.1105, 4, 8, (i / 4) * Math.PI * 2, Math.PI / 4, 0, Math.PI / 2), null, ['#e8332a', '#f1c40f', '#2ecc71', '#f5f5f5'][i]);
+      }
+      P.box('h', [0.1, 0.01, 0.06], [0, 0.005, 0.1], [0.2, 0, 0], '#3498db', 0.004);
+      P.cyl('h', 0.01, 0.01, 0.06, [0, 0.13, 0], null, '#f1c40f', 8);
+      break;
     case 'plant':
-      return (
-        <group>
-          <mesh castShadow position={[0, 0.045, 0]}>
-            <cylinderGeometry args={[0.07, 0.055, 0.09, 10]} />
-            <meshStandardMaterial color="#b5651d" roughness={0.85} />
-          </mesh>
-          {[[0, 0.14, 0, 0.06], [-0.045, 0.12, 0.02, 0.045], [0.04, 0.125, -0.03, 0.05]].map(([x, y, z, r], i) => (
-            <mesh key={i} castShadow position={[x, y, z]}>
-              <sphereGeometry args={[r, 8, 6]} />
-              <meshStandardMaterial color="#2ecc71" roughness={0.8} />
-            </mesh>
-          ))}
-        </group>
-      );
+      P.cyl('h', 0.07, 0.055, 0.09, [0, 0.045, 0], null, '#b5651d', 16);
+      P.cyl('h', 0.074, 0.074, 0.016, [0, 0.086, 0], null, '#9a531a', 16);
+      P.cyl('h', 0.064, 0.064, 0.004, [0, 0.092, 0], null, '#3a2616', 16);
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        P.add('h', new THREE.SphereGeometry(0.03, 6, 4), mat4([Math.cos(a) * 0.035, 0.13 + (i % 2) * 0.02, Math.sin(a) * 0.035], [0.5 * Math.sin(a), a, 0.5 * Math.cos(a)], [0.7, 1.9, 0.45]), i % 2 ? '#2ecc71' : '#27ae60');
+      }
+      break;
     default:
-      return null;
   }
+  const g = P.slots.h ? P.build().h : null;
+  hatCache.set(kind, g);
+  return g;
 }
-
-// Far-LOD stand-in: the shared shell geometry + a dark base — two meshes
-// instead of ~20, but the silhouette matches so the LOD switch is invisible.
-export function CarProxy({ carId, paint }) {
-  const car = CARS[carId] || CARS.balanced;
-  const color = paint || car.color;
-  const mat = useMemo(() => new THREE.MeshToonMaterial({ color, gradientMap: toonRamp() }), [color]);
+const PROP_GEO = (() => {
+  const P = new Parts();
+  P.box('p', [0.3, 0.008, 0.045], [0, 0, 0], [0.25, 0, 0], '#e8332a', 0.003);
+  P.box('p', [0.045, 0.008, 0.3], [0, 0, 0], [0, 0, 0.25], '#e8332a', 0.003);
+  P.sphere('p', 0.014, [0, 0.004, 0], '#f1c40f', 8, 6);
+  return P.build().p;
+})();
+function Hat({ kind, propellerRef }) {
+  const g = hatGeo(kind);
+  if (!g) return null;
   return (
-    <group position={[0, -0.05, 0]}>
-      <mesh geometry={shellGeo(carId)} material={mat} />
-      <mesh position={[0, -0.08, 0]}>
-        <boxGeometry args={[0.62, 0.14, 0.8]} />
-        <meshBasicMaterial color="#17181c" />
-      </mesh>
+    <group>
+      <mesh castShadow geometry={g} material={KIT_MAT} />
+      {kind === 'propeller' && <mesh ref={propellerRef} position={[0, 0.165, 0]} geometry={PROP_GEO} material={KIT_MAT} />}
     </group>
   );
 }
 
-function Body({ carId, mats, driverRef }) {
-  const geo = shellGeo(carId);
-  const shell = (
-    <>
-      <mesh geometry={geo} material={OUTLINE_MAT} scale={1.06} />
-      <mesh castShadow geometry={geo} material={mats.body} />
-    </>
+// ------------------------------------------------------------- LODs
+// Mid LOD (RemoteCars, 12–28 u): the same merged car with the wheels baked
+// in and the metals folded into the kit draw — no suspension, driver or
+// moving parts. Six-ish draws. The name tag stays, as it always has out to
+// the far LOD.
+export function CarMid({ carId, paint, style, tune, name, team }) {
+  const car = CARS[carId] || CARS.balanced;
+  const id = CARS[carId] ? carId : 'balanced';
+  const st = useMemo(() => (style ? sanitizeStyle(style) : DEFAULT_STYLE), [style]);
+  const tu = useMemo(() => (tune ? sanitizeTune(tune) : STOCK_TUNE), [tune]);
+  const T = useMemo(() => tunedStats(car, tu), [car, tu]);
+  const night = useStore((s) => s.night);
+  const event = useStore((s) => s.event);
+  const dark = night || event?.id === 'lights_out';
+  const tyre = TYRES[st.tyre] || TYRES.road;
+  const wheelR = (id === 'monster' ? 0.18 : 0.13) * tyre.r;
+  const wheelW = (id === 'formula' ? 0.1 : 0.14) * tyre.w * (1 + 0.075 * tu.tires);
+  const wide = st.flares === 'wide';
+  const restY = -0.05 - T.settle + wheelR;
+  const S = useMemo(() => buildCar(id, {
+    wide, front: st.front, hood: st.hood, roof: st.roof, skirts: st.skirts, exhaust: st.exhaust,
+    spoiler: st.spoiler, wing: tu.wing, wheelR, wheelW, trackOut: wide ? 0.03 : 0, trim: !!st.accent,
+    mid: true, restY,
+  }).slots, [id, wide, st, tu.wing, wheelR, wheelW, restY]);
+  const color = paint || car.color;
+  const paintM = paintMat(color, st.finish, FINISHES);
+  const trimM = paintMat(st.accent || color, st.finish, FINISHES);
+  return (
+    <group>
+      {S.outline && <mesh geometry={S.outline} material={OUTLINE_MAT} />}
+      <mesh geometry={S.paint} material={paintM} />
+      {S.trim && <mesh geometry={S.trim} material={trimM} />}
+      {S.kit && <mesh geometry={S.kit} material={KIT_MAT} />}
+      {S.head && <mesh geometry={S.head} material={dark ? HEAD_NIGHT : HEAD_DAY} />}
+      {S.tail && <mesh geometry={S.tail} material={TAIL_MAT} />}
+      {S.glass && <mesh geometry={S.glass} material={glassMat(st.tint)} />}
+      {name && <TextSprite text={name} size={0.34} y={1.2} color={team === 1 ? '#7ab8ff' : team === 0 ? '#ffb37a' : 'white'} />}
+    </group>
   );
-  switch (carId) {
-    case 'buggy':
-      return (
-        <group>
-          {shell}
-          <Driver mats={mats} y={0.11} z={-0.08} refGroup={driverRef} />
-          {/* roll cage */}
-          {[-0.16, 0.16].map((x) => (
-            <mesh key={x} castShadow material={mats.rim} position={[x, 0.2, -0.05]} rotation-x={0.2}>
-              <torusGeometry args={[0.16, 0.02, 6, 10, Math.PI]} />
-            </mesh>
-          ))}
-          {/* front skid plate */}
-          <mesh castShadow material={mats.dark} position={[0, -0.01, 0.42]} rotation-x={0.5}>
-            <boxGeometry args={[0.44, 0.02, 0.14]} />
-          </mesh>
-        </group>
-      );
-    case 'drift':
-      return (
-        <group>
-          {shell}
-          {/* raked windshield + rear glass */}
-          <mesh castShadow material={mats.glassDark} position={[0, 0.13, 0.12]} rotation-x={-0.6}>
-            <boxGeometry args={[0.44, 0.02, 0.16]} />
-          </mesh>
-          <mesh castShadow material={mats.glassDark} position={[0, 0.13, -0.23]} rotation-x={0.55}>
-            <boxGeometry args={[0.44, 0.02, 0.15]} />
-          </mesh>
-          {/* big spoiler */}
-          <mesh castShadow material={mats.trim} position={[0, 0.2, -0.44]}>
-            <boxGeometry args={[0.56, 0.025, 0.14]} />
-          </mesh>
-          {[-0.22, 0.22].map((x) => (
-            <mesh key={x} castShadow material={mats.dark} position={[x, 0.14, -0.44]}>
-              <boxGeometry args={[0.03, 0.1, 0.1]} />
-            </mesh>
-          ))}
-          {/* side exhaust */}
-          <mesh castShadow material={mats.rim} position={[0.24, -0.03, -0.42]} rotation-x={Math.PI / 2}>
-            <cylinderGeometry args={[0.025, 0.03, 0.1, 8]} />
-          </mesh>
-        </group>
-      );
-    case 'monster':
-      return (
-        <group position={[0, 0.06, 0]}>
-          {shell}
-          {/* windshield + bull bar + exhaust stacks */}
-          <mesh castShadow material={mats.glassDark} position={[0, 0.23, 0.17]} rotation-x={-0.7}>
-            <boxGeometry args={[0.4, 0.02, 0.17]} />
-          </mesh>
-          <mesh castShadow material={mats.rim} position={[0, 0.02, 0.42]}>
-            <boxGeometry args={[0.5, 0.08, 0.06]} />
-          </mesh>
-          {[-0.19, 0.19].map((x) => (
-            <mesh key={x} castShadow material={mats.rim} position={[x, 0.2, -0.12]}>
-              <cylinderGeometry args={[0.02, 0.025, 0.16, 8]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'formula':
-      return (
-        <group>
-          {shell}
-          <Driver mats={mats} y={0.06} z={-0.02} s={0.85} refGroup={driverRef} />
-          {/* airbox behind the driver */}
-          <mesh castShadow material={mats.dark} position={[0, 0.1, -0.2]}>
-            <sphereGeometry args={[0.08, 10, 8]} />
-          </mesh>
-          {/* wings */}
-          <mesh castShadow material={mats.accent} position={[0, 0.0, 0.5]}>
-            <boxGeometry args={[0.6, 0.02, 0.14]} />
-          </mesh>
-          <mesh castShadow material={mats.accent} position={[0, 0.14, -0.45]}>
-            <boxGeometry args={[0.56, 0.02, 0.16]} />
-          </mesh>
-          {[-0.26, 0.26].map((x) => (
-            <mesh key={x} castShadow material={mats.body} position={[x, 0.08, -0.45]}>
-              <boxGeometry args={[0.02, 0.12, 0.16]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    default: // balanced hatchback
-      return (
-        <group>
-          {shell}
-          <mesh castShadow material={mats.glassDark} position={[0, 0.17, 0.13]} rotation-x={-0.55}>
-            <boxGeometry args={[0.44, 0.02, 0.19]} />
-          </mesh>
-          <mesh castShadow material={mats.glassDark} position={[0, 0.17, -0.29]} rotation-x={0.5}>
-            <boxGeometry args={[0.44, 0.02, 0.17]} />
-          </mesh>
-          {/* roof rail accents */}
-          {[-0.2, 0.2].map((x) => (
-            <mesh key={x} castShadow material={mats.dark} position={[x, 0.23, -0.1]}>
-              <boxGeometry args={[0.02, 0.015, 0.34]} />
-            </mesh>
-          ))}
-        </group>
-      );
-  }
+}
+
+// Far-LOD stand-in: the shell in its paint plus a dark block for wheels and
+// chassis — two draws, and the silhouette matches so the switch is invisible.
+const PROXY_BASE = new THREE.BoxGeometry(1, 1, 1);
+const PROXY_DARK = new THREE.MeshBasicMaterial({ color: '#17181c' });
+export function CarProxy({ carId, paint }) {
+  const car = CARS[carId] || CARS.balanced;
+  const id = CARS[carId] ? carId : 'balanced';
+  const color = paint || car.color;
+  const mat = paintMat(color, 'matte', FINISHES);
+  // the dark block stands in for wheels and chassis: hub height, tyre tall
+  const r = id === 'monster' ? 0.18 : 0.13;
+  const y = -0.05 - SUSPENSION_SETTLE + r;
+  return (
+    <group>
+      <mesh geometry={shellGeos(id, false, true).paint} material={mat} />
+      <mesh position={[0, y, 0]} scale={[0.72, r * 1.9, 0.9]} geometry={PROXY_BASE} material={PROXY_DARK} />
+    </group>
+  );
 }
