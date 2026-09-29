@@ -392,8 +392,11 @@ const KOTH_SPOTS = [
   cp(-13.2, -6.4), // between the assistants' desks
 ];
 
-// the last circle is out on the terrace, in the wind; the first covers the floor
-const SUMO_ZONE = { x: u(14), z: u(7.5), r0: u(41), r1: u(1.5) };
+// The last circle is out on the terrace, in the wind. The first reaches
+// the lobby grid and most of the floor — not the far bullpen corner, which
+// stays outside the ring (scripts/smoke.mjs parks a car there to check the
+// out-timer on every floor).
+const SUMO_ZONE = { x: u(14), z: u(7.5), r0: u(19.5), r1: u(1.5) };
 
 const POWERUP_PADS = [
   cp(-3.5, -7.2), cp(4, -5.2), // lobby
@@ -450,7 +453,7 @@ export const TOWER = {
   // walnut boards, white marble
   LOOK: {
     wall: '#dcd5ca', skirt: '#3b2a1f',
-    floors: { carpet: '#8d8f97', carpet2: '#6e7fb3', wood: '#9c8272', tile: '#ece8e0', concrete: '#cfc7ba' },
+    floors: { marble: '#dcd8d2', carpet: '#8d8f97', carpet2: '#6e7fb3', wood: '#9c8272', tile: '#ece8e0', concrete: '#cfc7ba' },
   },
   // point lights (meters): one per room, 3000 K downlights
   CEILING_LIGHTS: [[0, -8], [-14, -8], [14, -7], [-14, -0.5], [-1, 7.5], [-15, 7.5], [14, 0.5]],
@@ -470,7 +473,7 @@ export const TOWER = {
       hemi: { intensity: 0.56, sky: '#d6e4ff', ground: '#5a5a58' },
       ceiling: 4,
       env: {
-        intensity: 0.8, bg: '#4a5c80',
+        intensity: 0.66, bg: '#4a5c80',
         window: { color: '#cfe0ff', intensity: 4.6 },
         ceil: { color: '#fff3e0', intensity: 1.6 },
         warm: { color: '#ffe0b8', intensity: 1.0 },
@@ -479,7 +482,7 @@ export const TOWER = {
       shaft: { opacity: 0.2, color: '#dbe8ff', tilt: 0.62, side: 'east', length: 34 },
       pool: 0.04,
       panel: 0.9,
-      bloom: { intensity: 0.5, threshold: 0.86 },
+      bloom: { intensity: 0.42, threshold: 0.9 },
       shadow: { bias: -0.0003, normalBias: 0.06, opacity: 0.85 },
       practical: 0.16,
       wet: false,
@@ -487,12 +490,12 @@ export const TOWER = {
     afternoon: {
       label: 'Afternoon',
       clock: '14:10',
-      sun: { pos: [40, 200, -70], color: '#fff6e8', intensity: 3.2 },
-      amb: { intensity: 0.4, color: '#e2e8f6' },
-      hemi: { intensity: 0.66, sky: '#eaf1ff', ground: '#6a6258' },
+      sun: { pos: [40, 200, -70], color: '#fff6e8', intensity: 2.5 },
+      amb: { intensity: 0.3, color: '#e2e8f6' },
+      hemi: { intensity: 0.5, sky: '#eaf1ff', ground: '#6a6258' },
       ceiling: 2,
       env: {
-        intensity: 1.0, bg: '#9ab4d8',
+        intensity: 0.72, bg: '#9ab4d8',
         window: { color: '#ffffff', intensity: 6.5 },
         ceil: { color: '#fff6e4', intensity: 2 },
         warm: { color: '#ffe6c4', intensity: 1.4 },
@@ -501,7 +504,7 @@ export const TOWER = {
       shaft: { opacity: 0.06, color: '#fff4dc', tilt: 1.2, side: 'west', length: 18 },
       pool: 0.02,
       panel: 0.8,
-      bloom: { intensity: 0.7, threshold: 0.8 },
+      bloom: { intensity: 0.45, threshold: 0.92 },
       shadow: { bias: -0.00015, normalBias: 0.03, opacity: 0.95 },
       practical: 0.06,
       wet: false,
