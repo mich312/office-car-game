@@ -24,6 +24,9 @@ const now = () => Date.now();
 const dist2d = (a, b) => Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]);
 const r2 = (n) => Math.round(n * 100) / 100;
 const clamp = (n, lo, hi) => (n < lo ? lo : n > hi ? hi : n);
+// Out of play: a Last Car Standing ghost, or a car knocked out of the
+// current sumo round (a mobile chicane — it drives, but it doesn't play)
+const isOut = (p) => p.eliminated || p.sumoDead;
 
 // Anything a client reports has to survive this before it touches room state.
 // A non-finite number is worse than a wrong one: NaN fails every comparison,
@@ -552,7 +555,7 @@ export class Room {
     for (const pad of this.pads) {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
-        if (p.eliminated || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
+        if (isOut(p) || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < PICKUP_RADIUS) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
@@ -563,6 +566,14 @@ export class Room {
         }
       }
     }
+  }
+
+  // A car leaving play (knocked out of a sumo round, eliminated) drops the
+  // item it was holding, and its HUD tray empties with it.
+  dropItem(p) {
+    if (!p.powerup) return;
+    p.powerup = null;
+    this.sendTo(p, { t: MSG.PICKUP, powerup: null });
   }
 
   // ------------------------------------------------------------- powerups
@@ -592,7 +603,7 @@ export class Room {
 
   usePowerup(player) {
     const pw = player.powerup;
-    if (!pw || player.eliminated) return; // ghosts don't meddle (yet)
+    if (!pw || isOut(player)) return; // ghosts and knocked-out cars don't meddle
     player.powerup = null;
     // tell the user's HUD the slot is empty — without this the item tray
     // shows the spent item for the rest of the match
@@ -600,7 +611,7 @@ export class Room {
     const t = now();
     // attacking forfeits spawn protection
     player.spawnProtectUntil = 0;
-    const others = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated);
+    const others = [...this.players.values()].filter((p) => p.id !== player.id && !isOut(p));
     switch (pw) {
       case 'turbo':
         this.broadcast({ t: MSG.EFFECT, type: 'turbo', id: player.id });
@@ -637,7 +648,7 @@ export class Room {
         break;
       }
       case 'shrink': {
-        const leader = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated)
+        const leader = [...this.players.values()].filter((p) => p.id !== player.id && !isOut(p))
           .sort((a, b) => b.score - a.score)[0];
         if (!leader) break;
         leader.shrinkUntil = t + FX.SHRINK_S * 1000;
@@ -838,7 +849,7 @@ export class Room {
     // (a free powerup for the rammer).
     if (t >= this.vendReadyAt) {
       for (const p of this.players.values()) {
-        if (p.eliminated) continue;
+        if (isOut(p)) continue;
         const speed = Math.hypot(p.v[0], p.v[2]);
         if (speed < this.map.VENDING.minSpeed) continue;
         if (Math.hypot(p.p[0] - this.map.VENDING.x, p.p[2] - this.map.VENDING.z) > this.map.VENDING.radius) continue;

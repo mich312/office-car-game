@@ -201,6 +201,29 @@ for (const mapId of MAP_IDS) {
   check(`${mapId} sumo: the podium is not a tie`, ties === 0);
 }
 
+// ------------------------------------------ knocked out means out of play
+{
+  // a car knocked out of a sumo round used to keep collecting and firing
+  // items — including a Swap that teleported a living car out of the ring
+  const sim = await createSim({ seed: 2, mode: 'sumo' });
+  sim.run(1);
+  const [a] = sim.bots;
+  a.powerup = 'rocket';
+  sim.room.mode.eliminate(a, 'test');
+  check('sumo: a knocked-out car drops the item it held', a.powerup === null);
+  const pad = sim.room.pads[0];
+  pad.readyAt = 0;
+  a.p = [pad.x, 0.24, pad.z];
+  const rnd = Math.random;
+  Math.random = () => 0.9;
+  sim.room.updatePads(sim.now());
+  Math.random = rnd;
+  check('sumo: a knocked-out car picks nothing up', a.powerup === null);
+  a.powerup = 'swap';
+  sim.room.usePowerup(a);
+  check('sumo: a knocked-out car cannot fire an item', !sim.events.some((e) => e.type === 'swap'));
+}
+
 // ------------------------------------------ every standup is reachable
 // Bots used to steer for the racing-line point nearest a goal in a straight
 // line, wall or no wall: the cellar's Boiler Room zone was reached by 0% of

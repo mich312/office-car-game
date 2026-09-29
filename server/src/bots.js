@@ -307,7 +307,7 @@ export class Bots {
 
   // A ready pad worth the detour, if the bot's hands are empty.
   padTarget(p, goal) {
-    if (!this.items || p.powerup || p.hasBattery) return null;
+    if (!this.items || p.powerup || p.hasBattery || p.sumoDead) return null;
     const t = now();
     const me = { x: p.p[0], z: p.p[2], heading: p.heading };
     let best = null, bd = Infinity;

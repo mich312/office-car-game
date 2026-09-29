@@ -107,6 +107,7 @@ class LastStandingMode {
     if (p.eliminated || this.over) return;
     p.eliminated = true;
     p.zapT = 0;
+    this.room.dropItem?.(p);
     p.allowTeleportUntil = now() + 2500; // ghost client parks its car off-map
     this.outCount++;
     p.score += LCS.PLACEMENT_SCORE * this.outCount; // dying later pays more
@@ -619,6 +620,7 @@ class SumoMode {
     if (p.sumoDead || this.restUntil) return;
     p.sumoDead = true;
     p.sumoOutT = 0;
+    this.room.dropItem?.(p);
     this.order.push(p.id);
     p.score += this.cfg.placeScore * (this.order.length - 1);
     this.room.feed(`💀 ${p.name} is out${why ? ` (${why})` : ''}`);
