@@ -1,3 +1,5 @@
+import { groundAt } from './ground.js';
+
 export const MODES = {
   desk_dash: {
     id: 'desk_dash',
@@ -124,6 +126,15 @@ export const LCS = {
 };
 
 export const MODE_IDS = Object.keys(MODES);
+
+// Up on the furniture: standing on something taller than a rug or a hump —
+// a desk, a sofa, a crate stack. Bots can't climb (they drive under it), and
+// a car parked on the garage desk row kept It / the battery for the whole
+// match with a bot beneath it 90 % of the time. So neither stays up there
+// for long: after PERCH_HOLD_S the battery slides off, It passes on.
+export const PERCH_MIN_Y = 1.0; // units (22 cm)
+export const PERCH_HOLD_S = 5;
+export const perched = (map, x, y, z) => groundAt(map, x, z, y + 0.1) > PERCH_MIN_Y;
 
 // The cup draws real objective modes — no meta-modes, no sandboxes.
 export const CUP_POOL = MODE_IDS.filter((m) => m !== 'office_cup' && m !== 'free_roam');

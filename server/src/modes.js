@@ -6,6 +6,7 @@ import {
   GRAVITY, M, LCS, COUNTDOWN_SECONDS, isDecor,
   raceCheckpoints, raceLaps, sumoTarget, sumoCenter, kothHopSeconds,
   groundAt, clearDropSpot, wallBetween, MUTATORS, soccerGoalHeight,
+  perched, PERCH_HOLD_S,
 } from '@rc/shared';
 import { sightBlocked, navOf, navTo, roomsConnected } from './nav.js';
 
@@ -491,6 +492,13 @@ class BatteryMode {
       const c = this.room.players.get(b.carrier);
       if (!c) { b.carrier = null; return; }
       b.x = c.p[0]; b.z = c.p[2];
+      c.perchT = perched(this.room.map, c.p[0], c.p[1], c.p[2]) ? (c.perchT || 0) + dt : 0;
+      if (c.perchT > PERCH_HOLD_S) {
+        c.perchT = 0;
+        this.drop(c, null, false, true);
+        this.room.feed(`🔋 The battery slid off the furniture under ${c.name}`);
+        return;
+      }
       c.score += MODES.battery.scorePerSecond * dt;
       this.scoreAcc += dt;
       if (this.scoreAcc > 2) { this.scoreAcc = 0; this.room.scoreChanged(); }
@@ -519,13 +527,23 @@ class BatteryMode {
   // under the victim, who picked it straight up again on the next tick.
   // `inPlace`: a respawn leaves it exactly where the car was — the car is
   // leaving anyway, so there's no grab-back to knock it clear of
-  drop(p, from = null, inPlace = false) {
+  // `floor`: off whatever the carrier is perched on, down onto the floor
+  // beside it, where anyone can reach it
+  drop(p, from = null, inPlace = false, floor = false) {
     const b = this.battery;
     if (b.carrier !== p.id) return;
     b.carrier = null;
     p.hasBattery = false;
     const map = this.room.map;
-    if (inPlace && p.p[1] >= -8) {
+    if (floor) {
+      let at = null;
+      for (let d = BATTERY_KNOCK; !at && d <= 4 * BATTERY_KNOCK; d += BATTERY_KNOCK) {
+        at = dropSpot(map, p.p[0], p.p[2], Math.random() * Math.PI * 2, d, d - BATTERY_KNOCK + 0.4, 0.5);
+      }
+      [b.x, b.z] = at || [map.BATTERY_SPAWN.x, map.BATTERY_SPAWN.z];
+      b.y = 0;
+      b.noPickup = { id: p.id, until: now() + BATTERY_NO_PICKUP_MS };
+    } else if (inPlace && p.p[1] >= -8) {
       b.x = p.p[0]; b.z = p.p[2]; b.y = r2(groundAt(map, b.x, b.z, standY(p)));
       b.noPickup = { id: p.id, until: now() + BATTERY_NO_PICKUP_MS };
     } else if (p.p[1] < -8) {
@@ -862,6 +880,16 @@ class TagMode {
       if (!all.length) return;
       it = all[Math.floor(Math.random() * all.length)];
       this.setIt(it);
+    }
+    it.perchT = perched(this.room.map, it.p[0], it.p[1], it.p[2]) ? (it.perchT || 0) + dt : 0;
+    if (it.perchT > PERCH_HOLD_S) {
+      const next = this.room.nearest(it, [...this.room.players.values()].filter((p) => p !== it && !p.eliminated));
+      it.perchT = 0;
+      if (next) {
+        this.room.feed(`🎯 ${it.name} can't keep It up on the furniture`);
+        this.setIt(next);
+        return;
+      }
     }
     it.score += this.cfg.scorePerSecond * dt;
     this.acc += dt;

@@ -2,7 +2,7 @@
 // harness (bot-sim.mjs) for whole races, a bare Room on the same virtual
 // clock for the cup flow and the respawn policy.
 import { createSim } from './bot-sim.mjs';
-import { MAPS, MODES, PHASE, MSG, SPAWN_Y, RESPAWN_PROTECT_COOLDOWN_MS, raceCheckpoints, raceSpawn } from '../shared/src/index.js';
+import { MAPS, MODES, PHASE, MSG, M as MU, SPAWN_Y, RESPAWN_PROTECT_COOLDOWN_MS, raceCheckpoints, raceSpawn, groundAt } from '../shared/src/index.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -192,6 +192,17 @@ for (const map of ['office', 'cellar']) {
     const r2 = h.respawn([spot.x + 4, spot.z, 1, 0.25]);
     check(`${map}: …and a pose the server saw is honoured`, dist(r2, { x: spot.x + 4, z: spot.z }) < 0.02);
   }
+  // Sumo: recovery on the spot, and no immunity from being shoved out
+  {
+    const sim = await createSim({ seed: 9, mode: 'sumo', map });
+    const h = human(sim);
+    sim.run(5); // into the first round
+    const z = sim.room.mode.zone;
+    h.at(z.x, z.z);
+    h.me.sumoDead = false;
+    const r = h.respawn(null);
+    check(`${map}: a sumo respawn carries no spawn protection`, r.protect === 0 && !(h.me.spawnProtectUntil > sim.now()));
+  }
   // Soccer: back to your own kickoff half
   {
     const sim = await createSim({ seed: 6, mode: 'soccer', map });
@@ -219,6 +230,13 @@ for (const map of ['office', 'cellar']) {
     let bad = 0;
     for (let k = 0; k < 8; k++) { h.at(refuge.x, refuge.z); if (closed(h.respawn(null))) bad++; }
     check(`${map}: an LCS respawn after the spawn room locks lands in an open room (${bad}/8 closed)`, room.mode.locked.includes(spawnRoom) && bad === 0);
+    // …but a car already in the closed room is not lifted out of it: R (or
+    // a client proposing no pose) was a free escape from the zap
+    const inside = M.SPAWNS[0];
+    h.at(inside.x, inside.z);
+    h.me.lastProtectAt = -Infinity;
+    const out = h.respawn(null);
+    check(`${map}: an LCS respawn inside a locked room recovers on the spot (${dist(out, inside).toFixed(1)} u away)`, dist(out, inside) < 0.5 && closed(out));
     const late = human(sim, 'Late');
     const lw = late.last(MSG.WELCOME);
     check(`${map}: a drop-in after the first closure spectates`, lw.spectating === true && late.me.eliminated && !lw.spawn);
@@ -232,6 +250,67 @@ for (const map of ['office', 'cellar']) {
     sim.room.removePlayer(h.me.id);
     const again = human(sim, 'Quitter');
     check(`${map}: an eliminated player who reloads comes back as a ghost`, again.me.eliminated && sim.room.mode.alive().every((p) => p !== again.me));
+  }
+}
+
+// ------------------------------------- a new floor, before the client says so
+// Quick play changes the map every round; a slow client reports its new spot
+// seconds after START, and the server judged it at the last map's
+// coordinates meanwhile (office -> cellar: out of the sumo ring before GO)
+{
+  const sim = await createSim({ seed: 2, mode: 'desk_dash', map: 'office' });
+  const room = sim.room;
+  const h = human(sim, 'Slow');
+  h.me.p = [-88, 0.24, -36]; // where it was driving on the office
+  room.setMap('cellar');
+  room.startCountdown('sumo', 'classic');
+  const s = room.startSpot(h.me);
+  check('new map: START puts a human on its start spot server-side too', Math.hypot(h.me.p[0] - s.x, h.me.p[2] - s.z) < 0.01);
+  while (room.phase !== PHASE.PLAYING) sim.step();
+  sim.run(6);
+  check('new map: …so a slow client is not knocked out of the sumo ring before it reports', !h.me.sumoDead);
+}
+
+// ---------------------------------------- what a drop-in has to be told
+{
+  const sim = await createSim({ seed: 4, mode: 'koth', map: 'office' });
+  const room = sim.room;
+  room.nextEventAt = sim.now(); // an event right now
+  sim.run(4);
+  const pad = room.pads[0];
+  pad.readyAt = sim.now() + 5000; // somebody just took this pad
+  const h = human(sim, 'Late');
+  const w = h.last(MSG.WELCOME);
+  check('drop-in: WELCOME carries the server clock', Math.abs(w.now - sim.now()) < 1);
+  check(`drop-in: …the office event already running (${w.event?.id}, ${w.event?.left} ms left)`,
+    !!room.event && w.event?.id === room.event.id && w.event.left > 0 && w.event.left <= w.event.duration * 1000 && !!w.event.name);
+  check('drop-in: …and the pads already taken', w.pads.some(([i, until]) => i === pad.i && until === pad.readyAt));
+}
+
+// ------------------------------- nobody keeps It or the battery on a desk
+// Bots can't climb: a human parked on the garage desk row (0.74 m up the
+// plank ramp) kept It / the battery for the whole minute, a bot under the
+// desk 90 % of the time
+for (const mode of ['tag', 'battery']) {
+  const sim = await createSim({ seed: 3, mode, map: 'garage' });
+  const room = sim.room;
+  const h = human(sim, 'Percher');
+  const x = -1.5 * MU, z = -3.5 * MU; // metres → units
+  const y = groundAt(room.map, x, z, 10) + 0.24;
+  const sit = () => { h.me.allowTeleportUntil = Infinity; room.onMessage(h.ws, { t: MSG.STATE, p: [x, y, z], q: [0, 0, 0, 1], v: [0, 0, 0], g: 1 }); };
+  sit();
+  if (mode === 'tag') room.mode.setIt(h.me);
+  else Object.assign(room.mode.battery, { carrier: h.me.id, grabbedAt: sim.now() }), h.me.hasBattery = true;
+  let kept = 0, fell = null;
+  sim.run(8, (s) => {
+    sit();
+    if (mode === 'tag' ? s.room.mode.it === h.me.id : s.room.mode.battery.carrier === h.me.id) kept++;
+    else if (!fell && mode === 'battery') fell = { ...s.room.mode.battery };
+  });
+  check(`garage ${mode}: held up on a desk, it doesn't stay (${(kept * sim.dt).toFixed(1)} s of 8)`, kept * sim.dt < 6);
+  if (mode === 'battery') {
+    check('garage battery: …it slides off onto the floor beside the desk', !!fell && !fell.carrier && fell.y === 0
+      && groundAt(room.map, fell.x, fell.z, 10) === 0 && Math.hypot(fell.x - x, fell.z - z) < 12);
   }
 }
 

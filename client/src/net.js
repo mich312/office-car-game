@@ -27,6 +27,26 @@ export const net = {
   joinSpawn: null, // { x, y, z, rotY } — where the server put us on a mid-match join
   racePlace: 0, // our Desk Dash finishing place, once we have one
 };
+// The server stamps deadlines with its own wall clock (endsAt, cooldowns);
+// this machine's can be off by seconds or minutes, and the HUD compares them
+// with Date.now() — a phone a minute fast showed a match clock stuck on 0:00
+// and every pad cooling down for a minute. Deadlines are moved into the local
+// clock as they arrive (clockOffset maps server time onto performance.now).
+export const toLocalTime = (ts) => (ts ? ts - (performance.now() + net.clockOffset - Date.now()) : ts);
+
+// An office event starting (or already running, for a drop-in) with this
+// many ms left
+function startEvent(msg, ms) {
+  const S = useStore;
+  S.setState({ event: { ...msg, until: Date.now() + ms }, eventWarn: null });
+  S.getState().pushFeed(`${msg.icon} ${msg.name} — ${msg.desc}`);
+  emit('office_event', msg);
+  setTimeout(() => {
+    const ev = S.getState().event;
+    if (ev && ev.id === msg.id) S.setState({ event: null });
+  }, ms);
+}
+
 // debug/tooling hook (mirrors window.__rcTelemetry in LocalCar)
 if (typeof window !== 'undefined') window.__rcNet = net;
 
@@ -104,6 +124,8 @@ function handleMessage(msg) {
   switch (msg.t) {
     case MSG.WELCOME: {
       net.myId = msg.id;
+      // server clock now, before any snapshot has set the offset
+      if (msg.now) net.clockOffset = msg.now - performance.now();
       // Remember the room for reconnects. A private room also goes in the
       // address bar (reload = back with your friends, and the bar IS the
       // invite link); quick play keeps the bar clean.
@@ -128,7 +150,7 @@ function handleMessage(msg) {
       net.rockets = [];
       S.setState({
         connected: true, connectError: null, myId: msg.id,
-        phase: msg.phase, modeId: msg.mode, endsAt: msg.endsAt, players,
+        phase: msg.phase, modeId: msg.mode, endsAt: toLocalTime(msg.endsAt), players,
         // mid-countdown joiners get the remaining time; everyone else gets 0
         countdownEnd: msg.countdownMs ? Date.now() + msg.countdownMs : 0,
         mutator: msg.mutator || null,
@@ -150,12 +172,17 @@ function handleMessage(msg) {
       if (msg.spawn) emit('respawn_at', { ...msg.spawn, freeze: 0, protect: 0 });
       // a drop-in never got START's team list: the players carry the teams
       net.teams = Object.fromEntries(msg.players.map((p) => [p.id, p.team || 0]));
+      // …nor the pads already taken, nor an office event already running
+      // (a drop-in during Sprinkler Test drove on dry floors)
+      net.padCooldowns.clear();
+      for (const [i, until] of msg.pads || []) net.padCooldowns.set(i, toLocalTime(until));
+      if (msg.event) startEvent(msg.event, msg.event.left);
       break;
     }
     case MSG.LOBBY: {
       const players = {};
       for (const p of msg.players) players[p.id] = p;
-      S.setState({ players, votes: msg.votes || {}, mapVotes: msg.mapVotes || {}, phase: msg.phase, endsAt: msg.endsAt || 0, ...(msg.map ? { mapId: msg.map } : {}) });
+      S.setState({ players, votes: msg.votes || {}, mapVotes: msg.mapVotes || {}, phase: msg.phase, endsAt: toLocalTime(msg.endsAt || 0), ...(msg.map ? { mapId: msg.map } : {}) });
       break;
     }
     case MSG.PLAYER_JOIN: {
@@ -184,7 +211,7 @@ function handleMessage(msg) {
       net.rockets = [];
       net.ball = null;
       S.setState({
-        phase: PHASE.COUNTDOWN, modeId: msg.mode, endsAt: msg.endsAt,
+        phase: PHASE.COUNTDOWN, modeId: msg.mode, endsAt: toLocalTime(msg.endsAt),
         countdownEnd: Date.now() + msg.countdown * 1000,
         players, scores: {}, teamScores: [0, 0], podium: null, powerup: null,
         raceProgress: {}, myBeans: 0, event: null,
@@ -239,7 +266,8 @@ function handleMessage(msg) {
         if (!cur || cur.alive !== msg.lcs.alive
           || (cur.locked?.length || 0) !== (msg.lcs.locked?.length || 0)
           || cur.warn?.room !== msg.lcs.warn?.room) {
-          S.setState({ lcs: msg.lcs });
+          const w = msg.lcs.warn;
+          S.setState({ lcs: w ? { ...msg.lcs, warn: { ...w, until: toLocalTime(w.until) } } : msg.lcs });
         }
       }
       if (msg.teamScores) {
@@ -275,10 +303,12 @@ function handleMessage(msg) {
       if (msg.powerup) emit('pickup', msg);
       break;
     case MSG.EFFECT:
-      if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, msg.until);
+      if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, toLocalTime(msg.until));
+      // shield / shrink deadlines are read against Date.now() too
+      if ((msg.type === 'shield' || msg.type === 'shrink') && msg.until) msg.until = toLocalTime(msg.until);
       if (msg.type === 'eliminated' && msg.id === net.myId) S.setState({ spectating: true });
       if (msg.type === 'race_finish' && msg.id === net.myId) net.racePlace = msg.place;
-      if (msg.type === 'ability' && msg.id === net.myId) S.setState({ abilityReadyAt: msg.readyAt || 0 });
+      if (msg.type === 'ability' && msg.id === net.myId) S.setState({ abilityReadyAt: toLocalTime(msg.readyAt || 0) });
       if (msg.type === 'printer' && msg.targets?.includes(net.myId)) {
         S.setState({ printerFlashUntil: Date.now() + (msg.blindMs || 1400) });
       }
@@ -295,13 +325,7 @@ function handleMessage(msg) {
         }, (msg.startsIn || 3) * 1000 + 500);
         break;
       }
-      S.setState({ event: { ...msg, until: Date.now() + msg.duration * 1000 }, eventWarn: null });
-      S.getState().pushFeed(`${msg.icon} ${msg.name} — ${msg.desc}`);
-      emit('office_event', msg);
-      setTimeout(() => {
-        const ev = S.getState().event;
-        if (ev && ev.id === msg.id) S.setState({ event: null });
-      }, msg.duration * 1000);
+      startEvent(msg, msg.duration * 1000);
       break;
     case MSG.FEED:
       S.getState().pushFeed(msg.text);

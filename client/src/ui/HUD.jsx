@@ -2,7 +2,7 @@
 // kill feed, minimap, scoreboard, event toasts, podium. Everything anchors
 // to the HUD safe-area frame and composes the shared chip/toast primitives.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODES, MODE_IDS, MAPS, MAP_IDS, raceLaps, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf } from '@rc/shared';
+import { MODES, MODE_IDS, MAPS, MAP_IDS, raceLaps, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf, perched } from '@rc/shared';
 import { useMap, currentMap } from '../game/activeMap.js';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
@@ -313,6 +313,9 @@ function MatchHUD() {
   const finale = modeId === 'last_standing' ? net.zone : null;
   const outsideRing = !!(finale && !spectating && Math.hypot(telemetry.x - finale.x, telemetry.z - finale.z) > finale.r);
   const inLockedRoom = !!(modeId === 'last_standing' && ((myRoom && lcs?.locked?.includes(myRoom.id)) || outsideRing));
+  // holding It or the battery up on the furniture: it won't stay there long
+  const holding = (modeId === 'tag' && itId === myId) || (modeId === 'battery' && ((net.flags.get(myId) || 0) & 32));
+  const perchWarn = !!holding && !spectating && perched(map, telemetry.x, telemetry.y, telemetry.z);
 
   return (
     <>
@@ -353,6 +356,11 @@ function MatchHUD() {
           {modeId === 'tag' && (
             <div className="chip"><Icon name="crown" size={15} />
               {itId === myId ? "YOU'RE IT — keep scoring!" : itId ? `${players[itId]?.name || '???'} is It — bump them!` : '…'}
+            </div>
+          )}
+          {perchWarn && (
+            <div className="chip mutator-chip"><Icon name="warning" size={15} />
+              up on the furniture — {modeId === 'tag' ? 'It passes on' : 'the battery slides off'} in a moment
             </div>
           )}
           {modeId === 'sumo' && (
@@ -432,6 +440,30 @@ function MatchHUD() {
   );
 }
 
+// The server's standup test (modes.js KothMode.inZone) counts nobody behind
+// a full-height wall — the ring is a circle, the meeting is a room. Without
+// it the chip said "IN THE STANDUP · +3/s" to a car scoring nothing next door.
+const fullWalls = new WeakMap();
+function fullWallBetween(map, x1, z1, x2, z2) {
+  let walls = fullWalls.get(map);
+  if (!walls) {
+    walls = map.WALLS.filter((w) => !w.low).map((w) => [w.x - w.w / 2, w.x + w.w / 2, w.z - w.d / 2, w.z + w.d / 2]);
+    fullWalls.set(map, walls);
+  }
+  const dx = x2 - x1, dz = z2 - z1;
+  for (const [x0, x1b, z0, z1b] of walls) {
+    let t0 = 0, t1 = 1;
+    for (const [p, d, lo, hi] of [[x1, dx, x0, x1b], [z1, dz, z0, z1b]]) {
+      if (Math.abs(d) < 1e-9) { if (p <= lo || p >= hi) { t0 = 2; break; } continue; }
+      let a = (lo - p) / d, b = (hi - p) / d;
+      if (a > b) [a, b] = [b, a];
+      t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+    }
+    if (t0 < t1) return true;
+  }
+  return false;
+}
+
 // ------------------------------------------------------- standup chip
 // Where the meeting is, when it moves, and whether you're scoring: the
 // server stamps the hop time and how many cars share the zone.
@@ -439,7 +471,8 @@ function StandupChip({ map, spectating }) {
   const z = net.zone;
   if (!z) return <div className="chip"><Icon name="target" size={15} /> hold the standup zone to score</div>;
   const hopIn = z.until ? Math.max(0, Math.ceil((z.until - net.clockOffset - performance.now()) / 1000)) : null;
-  const inZone = !spectating && Math.hypot(telemetry.x - z.x, telemetry.z - z.z) <= z.r;
+  const inZone = !spectating && Math.hypot(telemetry.x - z.x, telemetry.z - z.z) <= z.r
+    && Math.abs(telemetry.y) < 4 && !fullWallBetween(map, z.x, z.z, telemetry.x, telemetry.z);
   const n = z.n || 0;
   const rate = MODES.koth.scorePerSecond / Math.max(1, n);
   const room = map.roomAt(z.x, z.z)?.name;

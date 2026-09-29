@@ -646,6 +646,22 @@ check('variants: an unknown id falls back to classic', variantOf('sumo', 'nope')
 // every map plays every variant, so no blurb may name one floor
 check('variants: no variant blurb names the office', Object.values(MODE_VARIANTS).flat().every((v) => !/office/i.test(v.desc)));
 
+// Moving Meeting never closes on a room whose final ring holds something a
+// car can park on: bots can't climb, and the office meeting table in the
+// last ring was a seat nobody could be shoved off
+for (const id of MAP_IDS) {
+  const map = MAPS[id], Z = map.SUMO_ZONE;
+  const seen = new Set();
+  for (let i = 0; i < 300; i++) seen.add(sumoTarget(1, 'drift', map));
+  const perch = [...seen].filter((s) => map.FURNITURE.some((f) => {
+    if (isDecor(f) || f.h <= 1.0) return false;
+    const q = Math.abs(Math.sin(f.rotY || 0)) > 0.7;
+    const w = q ? f.d : f.w, d = q ? f.w : f.d;
+    return Math.hypot(Math.max(f.x - w / 2, Math.min(s.x, f.x + w / 2)) - s.x, Math.max(f.z - d / 2, Math.min(s.z, f.z + d / 2)) - s.z) < Z.r1;
+  }));
+  check(`${id} moving meeting: no final ring over a table a car can sit on (${perch.length} of ${seen.size} targets)`, perch.length === 0 && seen.size >= 2);
+}
+
 const rev = raceCheckpoints('reverse', MAPS.office);
 check('reverse: the same checkpoints, the other way round', rev.length === CHECKPOINTS.length
   && rev.every((c, i) => c === CHECKPOINTS[CHECKPOINTS.length - 1 - i]));
