@@ -17,10 +17,11 @@ import {
   FINISHES, FINISH_IDS, ACCENT_COLORS, DEFAULT_STYLE, randomStyle,
   PART_SLOTS, PLATE_MAX,
   TUNE_AXES, TUNE_MIN, TUNE_MAX, TUNE_PRESETS, TUNE_PRESET_IDS,
-  STOCK_TUNE, tunedStats, tuneMetrics, tuneLabel, matchingPreset,
+  STOCK_TUNE, tunedStats, tuneMetrics, tuneLabel, matchingPreset, normalizeRoomCode, ROOM_CODE_LEN,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { audio } from '../audio.js';
+import { setUrlRoom } from '../rooms.js';
 import CarModel from '../game/CarModel.jsx';
 import { woodTex } from '../game/textures.js';
 import Icon from './Icon.jsx';
@@ -33,6 +34,60 @@ const play = () => {
   useStore.setState({ name, screen: 'game' });
   store.save();
 };
+
+// What the big button says depends on where it'll take you.
+const playLabel = (req) => (req === 'new' ? 'OPEN PRIVATE ROOM' : req ? `JOIN ROOM ${req}` : 'ENTER THE OFFICE');
+
+// Where to play: quick play with whoever's around, a private room of your
+// own (you get a code and a link to send), or a friend's room by code. An
+// invite link arrives here already set to that room.
+function RoomRow() {
+  const req = useStore((s) => s.roomRequest);
+  const [typing, setTyping] = useState(false);
+  const [draft, setDraft] = useState('');
+  const pick = (r) => {
+    useStore.setState({ roomRequest: r });
+    setUrlRoom(r && r !== 'new' ? r : null);
+    audio.blip(660, 0.05);
+  };
+  const code = normalizeRoomCode(draft);
+  const join = () => { if (code) { pick(code); setTyping(false); setDraft(''); } };
+  const joining = req && req !== 'new';
+  return (
+    <div className="mu-room" role="radiogroup" aria-label="Where to play">
+      <span className="label">office</span>
+      <button role="radio" aria-checked={!req} className={`mu-room-opt ${!req ? 'sel' : ''}`} onClick={() => pick(null)}>
+        <Icon name="globe" size={13} /> Quick play
+      </button>
+      <button role="radio" aria-checked={req === 'new'} className={`mu-room-opt ${req === 'new' ? 'sel' : ''}`} onClick={() => pick('new')}>
+        <Icon name="lock" size={13} /> Private room
+      </button>
+      {joining && !typing ? (
+        <button role="radio" aria-checked className="mu-room-opt sel" onClick={() => setTyping(true)} title="Join a different room">
+          <Icon name="link" size={13} /> Room <b className="mu-room-code">{req}</b>
+        </button>
+      ) : typing ? (
+        <span className="mu-room-join">
+          <input
+            autoFocus
+            value={draft}
+            maxLength={ROOM_CODE_LEN}
+            placeholder="CODE"
+            aria-label="Room code"
+            spellCheck={false}
+            onChange={(e) => setDraft(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            onKeyDown={(e) => { if (e.key === 'Enter') join(); if (e.key === 'Escape') setTyping(false); }}
+          />
+          <button className="mu-room-opt" disabled={!code} onClick={join}>Join</button>
+        </span>
+      ) : (
+        <button role="radio" aria-checked={false} className="mu-room-opt" onClick={() => setTyping(true)}>
+          <Icon name="link" size={13} /> Join code
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function Menu() {
   const [focus, setFocus] = useState(null); // null | 'monitor' | 'clipboard'
@@ -680,6 +735,7 @@ function MonitorUI({ active, onFocus }) {
         </div>
       )}
 
+      <RoomRow />
       <footer>
         <div className={`mu-driver ${store.name.trim() ? '' : 'attn'}`}>
           <label className="label" htmlFor="mu-name">driver</label>
@@ -697,7 +753,7 @@ function MonitorUI({ active, onFocus }) {
             onChange={(e) => { useStore.setState({ autoGas: e.target.checked }); useStore.getState().save(); }} />
           auto-gas
         </label>
-        <button className="btn btn-primary mu-play" onClick={play}>ENTER THE OFFICE</button>
+        <button className="btn btn-primary mu-play" onClick={play}>{playLabel(store.roomRequest)}</button>
       </footer>
 
       {/* while the camera isn't docked, the whole screen is one big

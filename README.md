@@ -24,6 +24,15 @@ npm start
 # → open http://localhost:8080
 ```
 
+**Playing with friends:** in the garage, pick **Private room** and you get a
+four-letter code (e.g. `K7QX`) and a **Copy invite link** button in the
+lobby. The link is just `…/?room=K7QX`, and anyone who opens it lands on a
+*Join room* button. **Quick play** drops you into the busiest public office
+with a desk free; **Join code** takes a code by hand. Codes skip I/O/0/1 so
+they survive being read out loud, and a link still works after the room has
+emptied out (it's reopened). One server runs many rooms; empty ones are
+cleaned up after a minute.
+
 Playing solo works out of the box — the server fills the lobby with bots
 (Karen from HR sends her regards). They race properly: they grab items and
 fire them when it counts, boost down the straights and drift the corners.

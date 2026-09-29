@@ -12,7 +12,7 @@ export const MSG = {
   ABILITY: 'ab', // {} — use my car's special ability (server checks the cooldown)
 
   // server → client
-  WELCOME: 'welcome', // { id, room }
+  WELCOME: 'welcome', // { id, room: code, private, phase, … }
   LOBBY: 'lobby', // { players, votes, phase }
   START: 'start', // { mode, endsAt, spawnIndex, seed }
   SNAPSHOT: 'ss', // { t, players:{id:[...]}, ball, mode-specific }
@@ -47,3 +47,14 @@ export const PHASE = {
   PLAYING: 'playing',
   PODIUM: 'podium',
 };
+
+// Room codes (see server/src/rooms.js). No I/O/0/1: a code read out over
+// voice chat or off a screenshot must not be ambiguous. 32^4 ≈ 1M codes.
+export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const ROOM_CODE_LEN = 4;
+const ROOM_CODE_RE = new RegExp(`^[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LEN}}$`);
+export function normalizeRoomCode(raw) {
+  if (typeof raw !== 'string') return null;
+  const c = raw.trim().toUpperCase();
+  return ROOM_CODE_RE.test(c) ? c : null;
+}

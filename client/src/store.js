@@ -1,6 +1,7 @@
 // UI-level state (React re-renders). High-frequency net data lives in net.js.
 import { create } from 'zustand';
 import { UNLOCKS, sanitizeStyle, sanitizeTune, STOCK_TUNE, TUNE_PRESETS } from '@rc/shared';
+import { roomFromUrl } from './rooms.js';
 
 const saved = (() => {
   try { return JSON.parse(localStorage.getItem('rc-mayhem') || '{}'); } catch { return {}; }
@@ -14,6 +15,12 @@ export const useStore = create((set, get) => ({
   screen: 'menu', // 'menu' | 'game'
   connected: false,
   connectError: null,
+  // Which office to join: null = quick play, 'new' = open a private room,
+  // or a code (an invite link lands here via ?room=). roomCode/roomPrivate
+  // are where the server actually put us.
+  roomRequest: roomFromUrl(),
+  roomCode: null,
+  roomPrivate: false,
   myId: null,
   phase: 'lobby',
   modeId: null,
