@@ -61,7 +61,9 @@ export const MODES = {
     icon: '🥋',
     desc: 'The safe zone shrinks. Shove rivals out of it. Last car rolling wins the round.',
     roundSeconds: 45,
-    outSeconds: 6, // grace timer outside the zone before you're out
+    closeFrac: 0.75, // the ring reaches its final size this far into the round, then holds
+    outSeconds: 2.5, // grace outside the zone before you're out
+    refillRate: 0.5, // grace comes back at half the rate it drains (s per s inside)
     restSeconds: 4, // breather between rounds
     placeScore: 15, // per player you outlasted
     winBonus: 40,

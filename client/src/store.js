@@ -48,6 +48,7 @@ export const useStore = create((set, get) => ({
   sumoRound: 0,
   sumoOutLeft: null, // seconds until elimination while outside the sumo zone
   sumoDead: false, // eliminated for the current sumo round
+  sumoRest: 0, // seconds left in the break between sumo rounds (0 = a round is on)
   feed: [], // [{ key, text }]
   event: null, // { id, name, icon, desc, until }
   podium: null,

@@ -6,6 +6,8 @@
 // Everything here is shared: the server scores with it, the bots drive with
 // it and the client points you at the right checkpoint with it.
 
+import { M } from './constants.js';
+
 export const MODE_VARIANTS = {
   desk_dash: [
     { id: 'classic', name: 'Desk Dash', desc: '' },
@@ -56,9 +58,14 @@ export function raceSpawn(i, variant, map) {
 // Moving Meeting: the ring starts where it always does and slides toward a
 // room while it shrinks, landing on it as the round runs out. The targets
 // are the standup spots, which the map keeps clear of the big furniture.
-export function sumoTarget(round, variant, map, pick = Math.random) {
+// Never the ring's own centre (the ring wouldn't move) and never last
+// round's room again.
+export const SUMO_TARGET_MIN_DIST = 4 * M;
+export function sumoTarget(round, variant, map, pick = Math.random, prev = null) {
   if (variant !== 'drift') return null;
-  const spots = map.KOTH_SPOTS;
+  const Z = map.SUMO_ZONE;
+  let spots = map.KOTH_SPOTS.filter((s) => s !== prev && Math.hypot(s.x - Z.x, s.z - Z.z) > SUMO_TARGET_MIN_DIST);
+  if (!spots.length) spots = map.KOTH_SPOTS;
   return spots[Math.floor(pick() * spots.length) % spots.length];
 }
 // frac 0 → 1 over the round; ease-in so the slide starts gently

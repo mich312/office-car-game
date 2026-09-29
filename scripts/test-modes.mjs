@@ -4,6 +4,7 @@
 import {
   CHECKPOINTS, MODES, LCS, M, KOTH_SPOTS, KOTH_RADIUS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
   raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
+  MAP_IDS, sumoTarget, SUMO_TARGET_MIN_DIST,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
 
@@ -185,6 +186,65 @@ const N = CHECKPOINTS.length;
   }
   check('rush hour: the next spot is always in the nearer half', worst < 0.5 + 1e-9);
 }
+
+{
+  // A timeout is not an N-way win: the car holding the centre takes the
+  // bonus, everyone still in banks their places, and the feed says it once.
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob'), c = player('p3', 'Cass'), d = player('p4', 'Dee');
+  const room = stubRoom([a, b, c, d]);
+  const feed = [];
+  room.feed = (t) => feed.push(t);
+  room.modeId = 'sumo';
+  const mode = createMode('sumo', room);
+  mode.update(); // round 1
+  const Z = mode.zone;
+  a.p = [Z.x + 0.5, 0, Z.z]; b.p = [Z.x + 3, 0, Z.z]; c.p = [Z.x - 4, 0, Z.z]; d.p = [Z.x, 0, Z.z + 2];
+  mode.eliminate(d, 'test');
+  feed.length = 0;
+  mode.roundEndsAt = Date.now() - 1;
+  mode.update(0.05);
+  check('sumo: on a timeout the centre takes the win bonus', a.score === MODES.sumo.placeScore + MODES.sumo.winBonus);
+  check('sumo: the other survivors bank their places, no bonus', b.score === MODES.sumo.placeScore && c.score === MODES.sumo.placeScore);
+  check('sumo: one feed line for the round, not one per car', feed.length === 1);
+  check('sumo: the break between rounds shows no out-countdown, and says it is a break', mode.snapshot().sumo.out.length === 0 && mode.snapshot().sumo.rest > 0);
+}
+{
+  // grace: a one-tick touch back inside the ring no longer resets it
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob'), c = player('p3', 'Cass');
+  const room = stubRoom([a, b, c]);
+  room.modeId = 'sumo';
+  const mode = createMode('sumo', room);
+  mode.update();
+  const Z = mode.zone;
+  b.p = [Z.x, 0, Z.z]; c.p = [Z.x + 1, 0, Z.z];
+  const outside = () => { a.p = [Z.x + mode.zone.r + 5, 0, Z.z]; };
+  const tick = (sec, fn) => { for (let t = 0; t < sec; t += 0.05) { fn(); mode.update(0.05); } };
+  tick(MODES.sumo.outSeconds * 0.8, outside);
+  tick(0.1, () => { a.p = [mode.zone.x, 0, mode.zone.z]; });
+  check('sumo: out of the ring shows the grace left', !a.sumoDead && a.sumoOutT > 0);
+  tick(MODES.sumo.outSeconds * 0.4, outside);
+  check('sumo: dipping back in for a moment does not reset the grace', a.sumoDead);
+}
+{
+  // the ring closes early, then holds at its final size
+  const room = stubRoom([player('p1', 'A'), player('p2', 'B')]);
+  room.modeId = 'sumo';
+  const mode = createMode('sumo', room);
+  mode.update();
+  mode.roundEndsAt = Date.now() + mode.roundLen * (1 - MODES.sumo.closeFrac) - 10;
+  mode.update(0.05);
+  check('sumo: the ring is at its final size before the round runs out', Math.abs(mode.zone.r - room.map.SUMO_ZONE.r1) < 1e-6);
+}
+check('moving meeting: never the ring\'s own centre, never last round\'s room', MAP_IDS.every((id) => {
+  const map = MAPS[id];
+  let prev = null;
+  for (let i = 0; i < 300; i++) {
+    const t = sumoTarget(i, 'drift', map, Math.random, prev);
+    if (t === prev || Math.hypot(t.x - map.SUMO_ZONE.x, t.z - map.SUMO_ZONE.z) <= SUMO_TARGET_MIN_DIST) return false;
+    prev = t;
+  }
+  return true;
+}));
 
 // ------------------------------------------------- the match clock ends it
 {

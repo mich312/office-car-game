@@ -282,6 +282,7 @@ function MatchHUD() {
   const sumoRound = useStore((s) => s.sumoRound);
   const sumoOutLeft = useStore((s) => s.sumoOutLeft);
   const sumoDead = useStore((s) => s.sumoDead);
+  const sumoRest = useStore((s) => s.sumoRest);
   const lcs = useStore((s) => s.lcs);
   const spectating = useStore((s) => s.spectating);
   const spectateTarget = useStore((s) => s.spectateTarget);
@@ -339,13 +340,15 @@ function MatchHUD() {
             </div>
           )}
           {modeId === 'sumo' && (
-            <div className={`chip ${sumoOutLeft != null && !sumoDead ? 'mutator-chip' : ''}`}>
-              <Icon name={sumoDead ? 'skull' : sumoOutLeft != null ? 'warning' : 'target'} size={15} />
-              {sumoDead
-                ? 'out — next round soon'
-                : sumoOutLeft != null
-                  ? `GET BACK IN! ${sumoOutLeft.toFixed(1)}s`
-                  : `round ${sumoRound || 1} — stay inside the ring`}
+            <div className={`chip ${sumoOutLeft != null && !sumoDead && !sumoRest ? 'mutator-chip' : ''}`}>
+              <Icon name={sumoRest ? 'flag' : sumoDead ? 'skull' : sumoOutLeft != null ? 'warning' : 'target'} size={15} />
+              {sumoRest
+                ? `round ${sumoRound} over — next round in ${sumoRest}s`
+                : sumoDead
+                  ? 'out — next round soon'
+                  : sumoOutLeft != null
+                    ? `GET BACK IN! ${sumoOutLeft.toFixed(1)}s`
+                    : `round ${sumoRound || 1} — stay inside the ring`}
             </div>
           )}
           {modeId === 'last_standing' && (

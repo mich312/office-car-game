@@ -33,6 +33,12 @@ function build(def) {
       return null;
     },
   };
+  // The sumo ring starts over the whole floor: never smaller than the
+  // farthest room corner (plus half a metre), whatever the map says.
+  const Z = def.SUMO_ZONE;
+  const far = Math.max(...rooms.flatMap((r) => [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+    .map(([sx, sz]) => Math.hypot(r.x + (sx * r.w) / 2 - Z.x, r.z + (sz * r.d) / 2 - Z.z))));
+  map.SUMO_ZONE = { ...Z, r0: Math.max(Z.r0, far + 0.5 * M) };
   // Desk Dash reverse: the checkpoints backwards, the finish still on the
   // start straight (the forward lap starts at 0, the reverse lap at the last).
   map.REVERSE_CHECKPOINTS = [...def.CHECKPOINTS].reverse();

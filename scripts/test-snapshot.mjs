@@ -21,7 +21,7 @@ const snap = {
   teamScores: [3, 5],
   zone: { x: -13.3, z: -13.3, r: 44.4, until: t + 20000, n: 3, next: { x: 21.5, z: -7.25 } },
   it: 'bot2',
-  sumo: { round: 2, out: [['p1', 43]] },
+  sumo: { round: 2, out: [['p1', 43]], rest: 3.2 },
   lcs: { locked: ['reception', 'storage'], warn: { room: 'games', until: t + 5000 }, alive: 4 },
 };
 
@@ -56,6 +56,7 @@ check('zone', approx(d.zone.r, 44.4, 0.011) && approx(d.zone.until, t + 20000, 1
 check('zone: holders and the next spot', d.zone.n === 3 && approx(d.zone.next.x, 21.5, 0.011) && approx(d.zone.next.z, -7.25, 0.011));
 check('it', d.it === 'bot2');
 check('sumo', d.sumo.round === 2 && d.sumo.out.length === 1 && d.sumo.out[0][0] === 'p1' && d.sumo.out[0][1] === 43);
+check('sumo: the break between rounds', approx(d.sumo.rest, 3.2, 0.051));
 check('lcs locked', d.lcs.locked.length === 2 && d.lcs.locked[0] === 'reception' && d.lcs.locked[1] === 'storage');
 check('lcs warn', d.lcs.warn.room === 'games' && approx(d.lcs.warn.until, t + 5000, 1));
 check('lcs alive', d.lcs.alive === 4);

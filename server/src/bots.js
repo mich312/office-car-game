@@ -21,6 +21,7 @@ const BOT_TURBO_S = 1.5; // how long a turbo item surges a bot
 const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
+const SUMO_HUNT_RANGE = 10; // a sumo bot goes after rivals this close (units)
 const NAV_MODES = new Set(['koth', 'sumo', 'last_standing']); // goals routed over the door graph (nav.js)
 
 function nearestWp(x, z, path) {
@@ -227,10 +228,7 @@ export class Bots {
       if (p.sumoDead) {
         goal = null; // cruise the racing line as a mobile chicane
       } else {
-        const z = mode.zone;
-        const a = this.botAngle(p);
-        const r = Math.min(z.r * 0.5, 6);
-        goal = { x: z.x + Math.cos(a) * r, z: z.z + Math.sin(a) * r };
+        goal = this.sumoGoal(p, mode);
       }
     } else if (modeId === 'desk_dash' && !p.finished) {
       // The race line is a driving line, not the checkpoint list: bots swap
@@ -320,6 +318,32 @@ export class Bots {
       if (d < bd && !lineBlocked(wallBoxesOf(this.room.map), me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
     }
     return best;
+  }
+
+  // Sumo is a shoving match: stay well inside the ring, and when a rival is
+  // close, drive through it toward the ring's edge — away from the centre —
+  // so contact knocks it outward. A bot near the edge heads back in first.
+  sumoGoal(p, mode) {
+    const z = mode.zone;
+    const a = this.botAngle(p);
+    const mine = Math.hypot(p.p[0] - z.x, p.p[2] - z.z);
+    if (mine > z.r * 0.75) return { x: z.x + Math.cos(a) * z.r * 0.3, z: z.z + Math.sin(a) * z.r * 0.3 };
+    let prey = null, bd = Math.max(SUMO_HUNT_RANGE, z.r * 0.6);
+    for (const o of this.room.players.values()) {
+      if (o === p || o.sumoDead) continue;
+      const d = Math.hypot(o.p[0] - p.p[0], o.p[2] - p.p[2]);
+      if (d < bd) { bd = d; prey = o; }
+    }
+    if (prey) {
+      let ox = prey.p[0] - z.x, oz = prey.p[2] - z.z;
+      const ol = Math.hypot(ox, oz);
+      // prey dead centre: push it along our own line of attack instead
+      if (ol < 0.5) { ox = prey.p[0] - p.p[0]; oz = prey.p[2] - p.p[2]; }
+      const l = Math.hypot(ox, oz) || 1;
+      return { x: prey.p[0] + (ox / l) * 3, z: prey.p[2] + (oz / l) * 3 };
+    }
+    const r = Math.min(z.r * 0.5, 6);
+    return { x: z.x + Math.cos(a) * r, z: z.z + Math.sin(a) * r };
   }
 
   // stable per-bot angle so zone-seeking bots spread out instead of stacking

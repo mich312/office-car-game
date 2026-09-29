@@ -413,9 +413,10 @@ export const KOTH_SPOTS = [
   cp(-17.5, 5.5), // balcony terrace (bring a towel)
 ];
 
-// Meeting Room Sumo — the ring starts covering the whole office and shrinks
-// toward the open-office centre over the round.
-export const SUMO_ZONE = { x: u(-1), z: u(1.5), r0: u(22), r1: u(1.5) };
+// Meeting Room Sumo — the ring starts covering the whole office (r0 reaches
+// the farthest corner, the Games Corner's) and shrinks toward the
+// open-office centre over the round.
+export const SUMO_ZONE = { x: u(-1), z: u(1.5), r0: u(26.3), r1: u(0.6) };
 
 // Powerup pads — one per room-ish, off the racing line's door thresholds.
 export const POWERUP_PADS = [

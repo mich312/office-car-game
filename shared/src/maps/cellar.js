@@ -267,7 +267,8 @@ const KOTH_SPOTS = [
   cp(12.1, -3.2), // archive — 2.2 m in from the corridor wall
 ];
 
-const SUMO_ZONE = { x: u(1.5), z: u(1), r0: u(21), r1: u(1.5) };
+// the ring starts over every room (r0 reaches the loading dock's far corner)
+const SUMO_ZONE = { x: u(1.5), z: u(1), r0: u(23.4), r1: u(0.6) };
 
 const POWERUP_PADS = [
   cp(-9.8, 2.3), cp(4.5, 0), cp(13, 0.2),

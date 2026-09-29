@@ -591,6 +591,7 @@ class SumoMode {
     this.roundEndsAt = 0;
     this.restUntil = 0;
     this.order = [];
+    this.target = null;
     this.zone = { x: this.room.map.SUMO_ZONE.x, z: this.room.map.SUMO_ZONE.z, r: this.room.map.SUMO_ZONE.r0 };
   }
   startRound() {
@@ -605,10 +606,11 @@ class SumoMode {
     this.roundEndsAt = t + this.roundLen;
     this.order = [];
     this.zone.r = this.room.map.SUMO_ZONE.r0;
-    // Moving Meeting: this round's ring slides toward a room as it shrinks
-    this.target = sumoTarget(this.round, this.room.variant, this.room.map);
+    // Moving Meeting: this round's ring slides toward a room as it shrinks —
+    // a different one from last round's
+    this.target = sumoTarget(this.round, this.room.variant, this.room.map, Math.random, this.target);
     this.zone.x = this.room.map.SUMO_ZONE.x; this.zone.z = this.room.map.SUMO_ZONE.z;
-    for (const p of this.room.players.values()) { p.sumoDead = false; p.sumoOutAt = 0; }
+    for (const p of this.room.players.values()) { p.sumoDead = false; p.sumoOutT = 0; }
     this.room.broadcast({ t: MSG.EFFECT, type: 'sumo_round', round: this.round });
     this.room.feed(`🥋 Round ${this.round} — stay inside the circle!`);
   }
@@ -616,7 +618,7 @@ class SumoMode {
   eliminate(p, why) {
     if (p.sumoDead || this.restUntil) return;
     p.sumoDead = true;
-    p.sumoOutAt = 0;
+    p.sumoOutT = 0;
     this.order.push(p.id);
     p.score += this.cfg.placeScore * (this.order.length - 1);
     this.room.feed(`💀 ${p.name} is out${why ? ` (${why})` : ''}`);
@@ -625,37 +627,57 @@ class SumoMode {
     const alive = this.alive();
     if (alive.length <= 1) this.endRound(alive);
   }
+  // Every survivor banks a place for each car it outlasted. The win bonus
+  // goes to the last car rolling — or, when the bell goes with several
+  // still in, to whoever holds the centre of the ring: a timeout is not a
+  // six-way win.
   endRound(survivors) {
     const nOut = this.order.length;
-    for (const p of survivors) {
-      p.score += this.cfg.placeScore * nOut + this.cfg.winBonus;
-      this.room.feed(`🏆 ${p.name} wins round ${this.round}!`);
+    let winners = survivors;
+    if (survivors.length > 1) {
+      const d = (p) => Math.hypot(p.p[0] - this.zone.x, p.p[2] - this.zone.z) + (p.p[1] < -2 ? 1e6 : 0);
+      const best = Math.min(...survivors.map(d));
+      winners = survivors.filter((p) => d(p) <= best + 0.05);
     }
+    for (const p of survivors) p.score += this.cfg.placeScore * nOut;
+    for (const p of winners) p.score += this.cfg.winBonus / winners.length;
+    // one line for the round, not one per car
+    const names = winners.map((p) => p.name);
+    if (winners.length === 1 && survivors.length === 1) this.room.feed(`🏆 ${names[0]} wins round ${this.round}!`);
+    else if (winners.length === 1) this.room.feed(`🏆 Time! ${names[0]} holds the centre and takes round ${this.round} (${survivors.length} cars still in)`);
+    else if (winners.length > 1) this.room.feed(`🤝 Round ${this.round}: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} share it`);
+    for (const p of this.room.players.values()) p.sumoOutT = 0; // no countdown carries into the break
     this.room.scoreChanged();
     this.restUntil = now() + this.cfg.restSeconds * 1000;
   }
-  update() {
+  update(dt = 0) {
     const t = now();
     if (!this.round) { this.startRound(); return; }
     if (this.restUntil) {
       if (t >= this.restUntil) { this.restUntil = 0; this.startRound(); }
       return;
     }
-    // round timeout: everyone still alive shares the win
+    // round timeout: the centre takes it (endRound)
     if (t >= this.roundEndsAt) { this.endRound(this.alive()); return; }
-    // linear shrink over the round
-    const frac = 1 - Math.max(0, (this.roundEndsAt - t) / this.roundLen);
+    // The ring closes over the first part of the round, then holds at its
+    // final size: the last stretch is a shoving match in a small ring, not a
+    // ring that only gets small as the bell goes.
+    const frac = Math.min(1, (1 - Math.max(0, (this.roundEndsAt - t) / this.roundLen)) / this.cfg.closeFrac);
     this.zone.r = this.room.map.SUMO_ZONE.r0 + (this.room.map.SUMO_ZONE.r1 - this.room.map.SUMO_ZONE.r0) * frac;
     const c = sumoCenter(this.room.map.SUMO_ZONE, this.target, frac);
     this.zone.x = c.x; this.zone.z = c.z;
+    // Out of the ring drains the grace; back in refills it, slowly — a car
+    // shoved out and nudging one wheel back in for a tick no longer resets
+    // the whole countdown.
     for (const p of this.room.players.values()) {
       if (p.sumoDead) continue;
       if (Math.hypot(p.p[0] - this.zone.x, p.p[2] - this.zone.z) <= this.zone.r) {
-        p.sumoOutAt = 0;
-      } else if (!p.sumoOutAt) {
-        p.sumoOutAt = t;
-      } else if (t - p.sumoOutAt > this.cfg.outSeconds * 1000) {
-        this.eliminate(p, 'left the ring');
+        p.sumoIn = true;
+        p.sumoOutT = Math.max(0, (p.sumoOutT || 0) - dt * this.cfg.refillRate);
+      } else {
+        p.sumoIn = false;
+        p.sumoOutT = (p.sumoOutT || 0) + dt;
+        if (p.sumoOutT > this.cfg.outSeconds) this.eliminate(p, 'left the ring');
       }
     }
   }
@@ -677,13 +699,16 @@ class SumoMode {
     return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
   }
   snapshot() {
-    const t = now();
     const out = [];
-    for (const p of this.room.players.values()) {
-      if (!p.sumoDead && p.sumoOutAt) {
-        out.push([p.id, Math.max(0, Math.round((this.cfg.outSeconds * 1000 - (t - p.sumoOutAt)) / 100))]);
+    // outside the ring, the grace left; nothing during the break
+    if (!this.restUntil) {
+      for (const p of this.room.players.values()) {
+        if (!p.sumoDead && !p.sumoIn && p.sumoOutT > 0) {
+          out.push([p.id, Math.max(0, Math.round((this.cfg.outSeconds - p.sumoOutT) * 10))]);
+        }
       }
     }
-    return { zone: { x: this.zone.x, z: this.zone.z, r: this.zone.r }, sumo: { round: this.round, out } };
+    const rest = this.restUntil && this.restUntil < this.room.endsAt ? Math.max(0, (this.restUntil - now()) / 1000) : 0;
+    return { zone: { x: this.zone.x, z: this.zone.z, r: this.zone.r }, sumo: { round: this.round, out, rest } };
   }
 }

@@ -167,6 +167,7 @@ export function encodeSnapshot(snap) {
     const out = snap.sumo.out || [];
     w.u8(out.length);
     for (const [id, tenths] of out) { w.str(id); w.u8(tenths); }
+    w.u8((snap.sumo.rest || 0) * 10); // the break between rounds, tenths left
   }
   if (sections & S_LCS) {
     const roomIdx = (id) => Math.max(0, ALL_ROOM_IDS.indexOf(id));
@@ -256,6 +257,8 @@ export function decodeSnapshot(data) {
     snap.sumo = { round: r.u8(), out: [] };
     const c = r.u8();
     for (let i = 0; i < c; i++) snap.sumo.out.push([r.str(), r.u8()]);
+    const rest = r.u8();
+    if (rest) snap.sumo.rest = rest / 10;
   }
   if (sections & S_LCS) {
     const locked = [];

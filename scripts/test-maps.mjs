@@ -137,6 +137,14 @@ for (const id of MAP_IDS) {
     });
     check(`${tag} no standup disc reaches behind a wall${behind.length ? ` — ${behind.join(', ')}` : ''}`, !behind.length);
   }
+  // the sumo ring starts over the whole floor: a car in a far corner must not
+  // begin a round already outside it
+  {
+    const Z = map.SUMO_ZONE;
+    const far = Math.max(...map.ROOMS.flatMap((r) => [[-1, -1], [-1, 1], [1, -1], [1, 1]]
+      .map(([sx, sz]) => Math.hypot(r.x + sx * r.w / 2 - Z.x, r.z + sz * r.d / 2 - Z.z))));
+    check(`${tag} the sumo ring starts over every room (r0 ${(Z.r0 / M).toFixed(1)} m, farthest corner ${(far / M).toFixed(1)} m)`, Z.r0 > far);
+  }
 
 }
 check('modes: a mode list exists to run on these maps', MODE_IDS.length > 0);

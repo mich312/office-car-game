@@ -181,6 +181,26 @@ for (const mode of ['coffee_run', 'battery', 'soccer', 'koth', 'tag', 'sumo', 'l
   check(`podium: the robot and the event end with the match (robot seen ${hadRobot})`, hadRobot && sim.room.phase === 'podium' && !sim.room.robot && !sim.room.event);
 }
 
+// ------------------------------------------- sumo is a shoving match
+// Rounds used to time out with every car still in (0 ring-outs in 48
+// rounds, every podium a six-way tie): the ring stayed big until the bell,
+// one tick back inside reset the grace, and bots orbited instead of shoving.
+for (const mapId of MAP_IDS) {
+  let rounds = 0, outs = 0, ties = 0;
+  for (const seed of [1, 2]) {
+    const sim = await createSim({ seed, mode: 'sumo', map: mapId });
+    sim.room.bots.items = false;
+    sim.run(250);
+    const feed = sim.events.filter((e) => e.t === 'feed').map((e) => e.text);
+    rounds += feed.filter((t) => t.startsWith('🥋 Round')).length;
+    outs += feed.filter((t) => t.includes(' is out')).length;
+    const pod = sim.events.find((e) => e.t === 'end')?.podium || [];
+    if (pod.length && pod[0].score === pod[pod.length - 1].score) ties++;
+  }
+  check(`${mapId} sumo: cars get knocked out (${(outs / rounds).toFixed(1)} per round over ${rounds} rounds)`, outs / rounds >= 1.5);
+  check(`${mapId} sumo: the podium is not a tie`, ties === 0);
+}
+
 // ------------------------------------------ every standup is reachable
 // Bots used to steer for the racing-line point nearest a goal in a straight
 // line, wall or no wall: the cellar's Boiler Room zone was reached by 0% of
