@@ -610,7 +610,7 @@ function roof(P, S, o, out) {
   // box and the trays); the stacks keep to the roof itself
   out.anchors.hatY = y + (ROOF_TOP[o.roof] || 0);
 }
-const ROOF_TOP = { rack: 0.14, tray: 0.093 };
+const ROOF_TOP = { rack: 0.14, tray: 0.093, lightbar: 0.063 };
 
 function sills(P, S, o) {
   const [z0, z1] = S.A.sill;
