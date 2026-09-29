@@ -26,8 +26,9 @@
 // Furniture and prop type names are global across themes — prefix a new one
 // if it could clash.
 import * as cellar from './cellar.jsx';
+import * as garage from './garage.jsx';
 
-export const THEMES = { cellar };
+export const THEMES = { cellar, garage };
 
 export const PIECES = Object.assign({}, ...Object.values(THEMES).map((t) => t.PIECES || {}));
 export const PROP_PIECES = Object.assign({}, ...Object.values(THEMES).map((t) => t.PROPS || {}));
