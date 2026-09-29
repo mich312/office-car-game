@@ -8,6 +8,7 @@ import {
   DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
+import { wallBoxesOf, lineBlocked, navTo } from './nav.js';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -20,33 +21,7 @@ const BOT_TURBO_S = 1.5; // how long a turbo item surges a bot
 const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
-
-// Wall AABBs (padded by a car's half-width) per map, built once.
-const boxCache = new WeakMap();
-function wallBoxesOf(map) {
-  let b = boxCache.get(map);
-  if (!b) {
-    b = map.WALLS.filter((w) => !w.low).map((w) => ({
-      minX: w.x - w.w / 2 - 0.35, maxX: w.x + w.w / 2 + 0.35,
-      minZ: w.z - w.d / 2 - 0.35, maxZ: w.z + w.d / 2 + 0.35,
-    }));
-    boxCache.set(map, b);
-  }
-  return b;
-}
-
-function lineBlocked(wallBoxes, x1, z1, x2, z2) {
-  // sampled 2D segment vs wall AABBs — cheap and good enough for nav
-  const steps = Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 1.5) + 1;
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const x = x1 + (x2 - x1) * t, z = z1 + (z2 - z1) * t;
-    for (const b of wallBoxes) {
-      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
-    }
-  }
-  return false;
-}
+const NAV_MODES = new Set(['koth', 'sumo', 'last_standing']); // goals routed over the door graph (nav.js)
 
 function nearestWp(x, z, path) {
   let best = 0, bd = Infinity;
@@ -274,6 +249,9 @@ export class Bots {
     const pad = this.padTarget(p, goal);
     if (pad) return pad;
     if (!goal) return this.followRaceLine(p);
+    // the zone modes route through doors: a zone behind a wall is reached
+    // round it, not by jamming against it at the nearest racing-line point
+    if (NAV_MODES.has(modeId)) return navTo(this.room.map, { x: p.p[0], z: p.p[2] }, goal);
     // Navigate: direct if clear, else route along the path loop
     if (!lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], goal.x, goal.z)) return goal;
     const wpB = nearestWp(goal.x, goal.z, PATH);

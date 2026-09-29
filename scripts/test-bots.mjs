@@ -9,7 +9,7 @@ import { createSim } from './bot-sim.mjs';
 import {
   shouldUseItem, padWorthDetour, ITEM_REACT_S, ITEM_FALLBACK_S, SHIELD_ROCKET_RANGE,
 } from '../server/src/botbrain.js';
-import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT } from '../shared/src/index.js';
+import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, KOTH_RADIUS } from '../shared/src/index.js';
 import { MAPS, MAP_IDS } from '../shared/src/index.js';
 
 let fails = 0;
@@ -179,6 +179,29 @@ for (const mode of ['coffee_run', 'battery', 'soccer', 'koth', 'tag', 'sumo', 'l
   const hadRobot = !!sim.room.robot;
   sim.run(5);
   check(`podium: the robot and the event end with the match (robot seen ${hadRobot})`, hadRobot && sim.room.phase === 'podium' && !sim.room.robot && !sim.room.event);
+}
+
+// ------------------------------------------ every standup is reachable
+// Bots used to steer for the racing-line point nearest a goal in a straight
+// line, wall or no wall: the cellar's Boiler Room zone was reached by 0% of
+// them, the Archive by 17%. Park the zone elsewhere, move it, count arrivals.
+for (const mapId of MAP_IDS) {
+  const sim = await createSim({ seed: 3, mode: 'koth', map: mapId });
+  const mode = sim.room.mode;
+  sim.room.bots.items = false; // pads are detours; this is about the route
+  sim.room.endsAt = Infinity;
+  mode.hopAt = Infinity;
+  const spots = sim.room.map.KOTH_SPOTS;
+  const bad = [];
+  for (let i = 0; i < spots.length; i++) {
+    mode.spot = (i + 1) % spots.length;
+    sim.run(15);
+    mode.spot = i;
+    const got = new Set();
+    sim.run(15, (s) => { for (const b of s.bots) if (Math.hypot(b.p[0] - spots[i].x, b.p[2] - spots[i].z) <= KOTH_RADIUS) got.add(b.id); });
+    if (got.size < sim.bots.length * 0.9) bad.push(`#${i} ${got.size}/${sim.bots.length}`);
+  }
+  check(`${mapId}: bots reach every standup spot within 15 s${bad.length ? ` — short: ${bad.join(', ')}` : ''}`, !bad.length);
 }
 
 // ------------------------------------------------------ every other map
