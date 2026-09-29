@@ -48,6 +48,10 @@ export const MAP_IDS = Object.keys(MAPS);
 export const DEFAULT_MAP = 'office';
 export const mapById = (id) => MAPS[id] || MAPS[DEFAULT_MAP];
 
+// Desk Dash laps on a map: a short floor runs more of them (map.RACE_LAPS)
+// so every race lasts about the same.
+export const raceLaps = (map, base = 2) => map?.RACE_LAPS || base;
+
 // Room ids across every map, in a fixed order — what the snapshot sends for
 // Last Car Standing's locked rooms. Room ids are unique across maps.
 export const ALL_ROOM_IDS = MAP_IDS.flatMap((id) => MAPS[id].ROOMS.map((r) => r.id));

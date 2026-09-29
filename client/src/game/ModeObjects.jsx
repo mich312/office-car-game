@@ -11,6 +11,7 @@ import {
   raceCheckpoints,
 } from '@rc/shared';
 import { useMap } from './activeMap.js';
+import { THEMES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { net, on, sampleRemote } from '../net.js';
 import { burst } from './particles.jsx';
@@ -438,6 +439,8 @@ function Rockets() {
 
 function Robot() {
   const group = useRef();
+  // a floor can dress the event its own way (themes/*.jsx Robot)
+  const Skin = THEMES[useMap().theme]?.Robot;
   useFrame(({ clock }) => {
     const r = net.robot;
     if (!group.current) return;
@@ -449,6 +452,13 @@ function Robot() {
     cur.y = 0;
     group.current.rotation.y = clock.elapsedTime * 0.7;
   });
+  if (Skin) {
+    return (
+      <group ref={group} visible={false}>
+        <Skin />
+      </group>
+    );
+  }
   return (
     <group ref={group} visible={false}>
       <mesh position={[0, 0.35, 0]} castShadow>

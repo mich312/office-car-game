@@ -289,6 +289,8 @@ export const CELLAR = {
   blurb: 'Basement B-1. Buzzing tubes, humming racks, and one light that never quite decides.',
   theme: 'cellar',
   MAP_BOUNDS, WALL_HEIGHT, ROOMS, WALLS, FURNITURE, RAMPS, PROPS,
+  // a 76 m figure-8 against the office's 112 m: three laps make the same race
+  RACE_LAPS: 3,
   SPAWNS, REVERSE_SPAWN_ROTY: Math.PI, // the reverse lap leaves south, through the loading dock
   CHECKPOINTS, BOT_PATH, BEAN_SPAWNS, COFFEE_MACHINE, BATTERY_SPAWN, SOCCER,
   KOTH_SPOTS, SUMO_ZONE, POWERUP_PADS, VENDING, PRINTER, ROBOT_PATH,

@@ -71,6 +71,21 @@ export const concreteTex = (repeat = [8, 8]) =>
     }
   }, repeat);
 
+// Access-floor panels: 60 cm tiles in a steel trim grid (server rooms).
+export const raisedTex = (repeat = [8, 8]) =>
+  canvasTex('raised', 128, 128, (g, w, h) => {
+    g.fillStyle = '#8e949a';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 900; i++) {
+      const v = 125 + Math.random() * 40;
+      g.fillStyle = `rgba(${v},${v + 3},${v + 8},0.18)`;
+      g.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5);
+    }
+    g.strokeStyle = '#2a2d31';
+    g.lineWidth = 4;
+    g.strokeRect(0, 0, w, h);
+  }, repeat);
+
 // Polished stone: large slabs, grey veins wandering across them. Slab joints
 // line up with the marble surface's seams (shared/src/surfaces.js, grid 8).
 export const marbleTex = (repeat = [8, 8]) =>
@@ -580,6 +595,14 @@ export const concreteNormal = (repeat = [8, 8]) =>
       g.fill();
     }
   }, 1.7, repeat);
+
+// Access floor: each panel sits a hair proud of its trim.
+export const raisedNormal = (repeat = [8, 8]) =>
+  normalTex('raised', 128, 128, (g, w, h) => {
+    fill(g, w, h, 60);
+    g.fillStyle = 'rgb(200,200,200)';
+    g.fillRect(3, 3, w - 6, h - 6);
+  }, 1.6, repeat);
 
 // Marble: the stone is glassy — only the slab joints have relief.
 export const marbleNormal = (repeat = [8, 8]) =>

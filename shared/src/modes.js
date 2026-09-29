@@ -3,7 +3,7 @@ export const MODES = {
     id: 'desk_dash',
     name: 'Desk Dash',
     icon: '🏁',
-    desc: 'Race 2 laps through the whole floor. Shortcuts everywhere.',
+    desc: 'A race round the whole floor, lap after lap. Shortcuts everywhere.',
     laps: 2, // the v2 office lap is nearly twice as long
     seconds: 210,
   },

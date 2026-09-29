@@ -4,7 +4,7 @@ import {
   MSG, MODES, CHECKPOINT_RADIUS, PICKUP_RADIUS,
   KOTH_RADIUS,
   GRAVITY, M, LCS, COUNTDOWN_SECONDS, isDecor,
-  raceCheckpoints, sumoTarget, sumoCenter, kothHopSeconds,
+  raceCheckpoints, raceLaps, sumoTarget, sumoCenter, kothHopSeconds,
 } from '@rc/shared';
 
 const now = () => Date.now();
@@ -148,7 +148,7 @@ class RaceMode {
   constructor(room) {
     this.room = room;
     this.cps = raceCheckpoints(room.variant, room.map); // reverse runs them backwards
-    this.laps = MODES.desk_dash.laps;
+    this.laps = raceLaps(room.map, MODES.desk_dash.laps);
     this.finished = [];
   }
   update() {

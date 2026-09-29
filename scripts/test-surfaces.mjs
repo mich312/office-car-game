@@ -2,7 +2,7 @@
 // surface is a trade and not an upgrade, the bumps sit on the lines you can
 // see, and the antenna behaves like a whip rather than a stick.
 import {
-  ROOMS, FURNITURE, SURFACES, surfaceAt, floorHeight, seamCell, antennaStep, newAntenna, ANTENNA,
+  ROOMS, FURNITURE, SURFACES, M, surfaceAt, floorHeight, seamCell, antennaStep, newAntenna, ANTENNA,
 } from '../shared/src/index.js';
 
 let fails = 0;
@@ -25,23 +25,25 @@ check('surfaces: carpet stops a coasting car sooner than hardwood', SURFACES.car
 check('surfaces: effects stay modest (±15%) — a floor, not a power-up', S.every(([, s]) => Math.abs(s.top - 1) <= 0.15 && Math.abs(s.grip - 1) <= 0.15));
 
 // --------------------------------------------------------------- bumps
+// seams sit on the floor texture's world grid (cell metres, origin 0)
 {
   const r = room('cafeteria');
   const surf = surfaceAt(r.x, r.z);
-  const period = r.w / SURFACES.tile.seams.grid;
-  const x0 = r.x - r.w / 2;
-  const onGrout = floorHeight(surf, x0 + 4 * period, r.z + period * 0.37);
-  const midTile = floorHeight(surf, x0 + 4.5 * period, r.z + period * 0.5 - (r.d / SURFACES.tile.seams.grid) * 0);
+  const period = SURFACES.tile.cell * M;
+  const k = Math.ceil((r.x - r.w / 2) / period) + 2; // a grout line inside the room
+  const onGrout = floorHeight(surf, k * period, r.z + period * 0.37);
+  const midTile = floorHeight(surf, (k + 0.5) * period, (Math.round(r.z / period) + 0.5) * period);
   check(`bumps: tile grout is a groove on the texture's own grid (${onGrout.toFixed(4)})`, onGrout < -0.007);
   check(`bumps: the middle of a tile is flat (${midTile.toFixed(4)})`, Math.abs(midTile) < 0.002);
-  check('bumps: crossing a grout line changes the seam cell', seamCell(surf, x0 + 3.9 * period, r.z) !== seamCell(surf, x0 + 4.1 * period, r.z));
+  check('bumps: crossing a grout line changes the seam cell', seamCell(surf, (k - 0.1) * period, r.z) !== seamCell(surf, (k + 0.1) * period, r.z));
+  check('bumps: tiles are real tiles — 60 cm, not stretched to the room', Math.abs(period / M - 0.6) < 1e-9);
 }
 {
   const r = room('lounge');
   const surf = { id: 'wood', room: r };
-  const period = r.d / SURFACES.wood.seams.per;
-  const z0 = r.z - r.d / 2;
-  check('bumps: plank joints are grooves along the planks', floorHeight(surf, r.x, z0 + 10 * period) < -0.004 && Math.abs(floorHeight(surf, r.x, z0 + 10.5 * period)) < 0.002);
+  const period = SURFACES.wood.seams.plank * M;
+  const k = Math.ceil((r.z - r.d / 2) / period) + 3;
+  check('bumps: plank joints are grooves along the planks', floorHeight(surf, r.x, k * period) < -0.004 && Math.abs(floorHeight(surf, r.x, (k + 0.5) * period)) < 0.002);
 }
 check('bumps: carpet has pile but no seams', seamCell(surfaceAt(room('open_office').x, room('open_office').z), 0, 0) === null);
 check('bumps: every surface stays within a centimetre of flat at 1:20', (() => {

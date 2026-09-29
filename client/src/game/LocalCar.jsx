@@ -30,6 +30,8 @@ import { audio } from '../audio.js';
 import { rumble } from './rumble.js';
 import { currentMap } from './activeMap.js';
 
+const NO_ZONES = [];
+
 const BASE_MASS = 14;
 // Camera motion (shake, landing dip, hit punch, slide swing) is scaled way
 // down for players who've asked their OS for less motion.
@@ -605,6 +607,23 @@ export default function LocalCar() {
       if (d < POWERUP_EFFECT.PUDDLE_RADIUS) {
         if (pu.kind === 'oil') gripMul = Math.min(gripMul, 0.1);
         else speedMul = Math.min(speedMul, 0.55);
+      }
+    }
+    // the map's own zones (map.ZONES, world units): a patch of oil or a
+    // puddle (grip), a conveyor belt that carries you (push, units/s), a
+    // terrace gust on a cycle everyone shares (gust + period/dur seconds).
+    // Each only acts between its y0..y1 (default: at floor level).
+    for (const zn of map.ZONES || NO_ZONES) {
+      if (Math.abs(pos.x - zn.x) > zn.w / 2 || Math.abs(pos.z - zn.z) > zn.d / 2) continue;
+      if (pos.y < (zn.y0 ?? -1) || pos.y > (zn.y1 ?? 0.9)) continue;
+      if (zn.grip != null && grounded) gripMul *= zn.grip;
+      if (zn.top != null && grounded) speedMul *= zn.top;
+      if (zn.push && grounded) {
+        const tr = body.translation();
+        body.setTranslation({ x: tr.x + zn.push[0] * dt, y: tr.y, z: tr.z + zn.push[1] * dt }, true);
+      }
+      if (zn.gust && (Date.now() / 1000) % (zn.period || 15) < (zn.dur || 3)) {
+        body.applyImpulse({ x: zn.gust[0] * dt * mass * 0.12, y: 0, z: zn.gust[1] * dt * mass * 0.12 }, true);
       }
     }
     if (shrunk) speedMul *= 0.85;

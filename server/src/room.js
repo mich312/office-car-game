@@ -870,7 +870,10 @@ export class Room {
     // you play around, not something that just happens to you.
     if (!this.event && !this.pendingEvent && t >= this.nextEventAt - 3000) {
       const pool = OFFICE_EVENTS.filter((e) => e.id !== this.lastEventId);
-      this.pendingEvent = pool[Math.floor(Math.random() * pool.length)];
+      // a map can rename an event for its floor (map.EVENTS): the factory's
+      // server overload is a line stop, its cleaning robot an AGV
+      const base = pool[Math.floor(Math.random() * pool.length)];
+      this.pendingEvent = { ...base, ...(this.map.EVENTS?.[base.id] || {}) };
       const ev = this.pendingEvent;
       this.broadcast({ t: MSG.OFFICE_EVENT, id: ev.id, duration: ev.duration, name: ev.name, icon: ev.icon, desc: ev.desc, warn: true, startsIn: 3 });
     }

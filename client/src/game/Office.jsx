@@ -6,13 +6,13 @@ import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { Sparkles, RoundedBox } from '@react-three/drei';
 import { roundedBox } from './roundedGeo.js';
 import * as THREE from 'three';
-import { M } from '@rc/shared';
+import { M, SURFACES } from '@rc/shared';
 import { useMap } from './activeMap.js';
-import { THEMES, PIECES } from './themes/index.js';
+import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
-import { marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, fabricNormal, orangePeel, wearRough } from './textures.js';
+import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, fabricNormal, orangePeel, wearRough } from './textures.js';
 
 // Every floor gets three maps, not one. Albedo alone reads as coloured
 // plastic under a directional light; the normal gives the surface something
@@ -40,7 +40,8 @@ const FLOOR_MATS = {
     roughnessMap: wearRough('wood', 120, 22, [10, 10]), roughness: 1, envMapIntensity: 0.6,
   }),
   dark: () => new THREE.MeshStandardMaterial({
-    color: '#23262e', normalMap: orangePeel('dark', 0.5), roughness: 0.4, metalness: 0.2,
+    map: raisedTex(), normalMap: raisedNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    roughnessMap: wearRough('raised', 110, 20, [8, 8]), roughness: 1, metalness: 0.15,
   }),
   concrete: () => new THREE.MeshStandardMaterial({
     map: concreteTex(), normalMap: concreteNormal(), normalScale: new THREE.Vector2(0.6, 0.6),
@@ -64,6 +65,25 @@ const FLOOR_MATS = {
 // is the map's theme — the office has its windows, skyline and daylight,
 // every other floor its own dressing (themes/*.jsx). Keyed on the map, so a new map
 // mounts fresh colliders instead of patching the old ones.
+// How many texture cells each floor material's maps tile per UV unit (the
+// repeat baked into its textures above). Floors are laid in world space: a
+// room's UVs come from its world position divided by the floor's real cell
+// size (SURFACES[floor].cell, metres), so a tile is 60 cm in every room,
+// the pattern runs on through doorways, and the seam bumps in
+// shared/src/surfaces.js sit exactly on the grout you see.
+const FLOOR_REPEAT = { carpet: 18, carpet2: 18, tile: 14, wood: 10, dark: 8, concrete: 8, marble: 8, epoxy: 10, rubber: 16 };
+
+function floorGeometry(r) {
+  const g = new THREE.PlaneGeometry(r.w, r.d);
+  const cellU = (SURFACES[r.floor]?.cell || 1) * M * (FLOOR_REPEAT[r.floor] || 1);
+  const pos = g.attributes.position, uv = g.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    // the plane lies rotated −90° about x: local y runs to world −z
+    uv.setXY(i, (r.x + pos.getX(i)) / cellU, -(r.z - pos.getY(i)) / cellU);
+  }
+  return g;
+}
+
 export default function Office() {
   const map = useMap();
   const Dressing = THEMES[map.theme]?.Dressing;
@@ -182,16 +202,16 @@ function Floors({ map }) {
   })), [tints]);
   const stain = useMemo(() => new THREE.MeshBasicMaterial({ map: stainTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }), []);
   const stains = map.STAINS || [];
+  const floorGeos = useMemo(() => ROOMS.map(floorGeometry), [ROOMS]);
   return (
     <>
       {/* one big physics slab under the whole building + balcony */}
       <RigidBody type="fixed" colliders={false} friction={1.1}>
         <CuboidCollider args={[(MAP_BOUNDS.maxX - MAP_BOUNDS.minX) / 2 + 1, 2, (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ) / 2 + 1]} position={[0, -2, 0]} />
       </RigidBody>
-      {ROOMS.map((r) => (
-        <mesh key={r.id} rotation-x={-Math.PI / 2} position={[r.x, r.floor === 'concrete' ? -0.02 : 0, r.z]} receiveShadow material={mats[r.floor]}>
-          <planeGeometry args={[r.w, r.d]} />
-        </mesh>
+      {ROOMS.map((r, i) => (
+        <mesh key={r.id} rotation-x={-Math.PI / 2} position={[r.x, r.floor === 'concrete' ? -0.02 : 0, r.z]} receiveShadow
+          material={mats[r.floor]} geometry={floorGeos[i]} />
       ))}
       {/* coffee stains */}
       {stains.map(([x, z, s], i) => (
@@ -239,9 +259,16 @@ function Walls({ map }) {
     roughness: 0.7,
   }), []);
   const skirt = useRef();
-  const solid = useMemo(() => WALLS.filter((w) => !w.glass && !w.low), [WALLS]);
-  const glass = useMemo(() => WALLS.filter((w) => w.glass), [WALLS]);
-  const rails = useMemo(() => WALLS.filter((w) => w.low), [WALLS]);
+  // walls with a { style } are drawn by their theme (WALL_STYLES), grouped
+  const styled = useMemo(() => {
+    const by = {};
+    for (const w of WALLS) if (w.style && WALL_STYLES[w.style]) (by[w.style] ||= []).push(w);
+    return by;
+  }, [WALLS]);
+  const plain = useMemo(() => WALLS.filter((w) => !(w.style && WALL_STYLES[w.style])), [WALLS]);
+  const solid = useMemo(() => plain.filter((w) => !w.glass && !w.low), [plain]);
+  const glass = useMemo(() => plain.filter((w) => w.glass), [plain]);
+  const rails = useMemo(() => plain.filter((w) => w.low), [plain]);
   const inst = useRef();
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D();
@@ -273,6 +300,10 @@ function Walls({ map }) {
       <instancedMesh ref={inst} args={[null, null, solid.length]} material={paint} castShadow receiveShadow frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
       </instancedMesh>
+      {Object.entries(styled).map(([style, walls]) => {
+        const Style = WALL_STYLES[style];
+        return <Style key={style} walls={walls} />;
+      })}
       {rails.map((w, i) => (
         <mesh key={i} position={[w.x, w.h / 2, w.z]} material={railMat}>
           <boxGeometry args={[w.w, w.h, w.d]} />
@@ -836,22 +867,63 @@ function ServerLights({ w, h, d }) {
 }
 
 // ------------------------------------------------------------------- ramps
+// A ramp is a deck on a solid wedge, not a plank in mid-air. The collider
+// is the deck; what it looks like is its skin — a theme's (RAMP_SKINS), or
+// the built-in plank on a wedge.
+function wedgeGeometry(l, w, rise) {
+  // a right-angled prism: foot at z = −l/2, top edge at z = +l/2, y = rise
+  const x0 = -w / 2, x1 = w / 2, z0 = -l / 2, z1 = l / 2;
+  const v = [
+    x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z1, // floor
+    x0, rise, z1, x1, rise, z1, // top edge
+  ];
+  const idx = [
+    0, 5, 1, 0, 4, 5, // slope
+    3, 2, 5, 3, 5, 4, // back face
+    0, 1, 2, 0, 2, 3, // underside
+    0, 3, 4, // left side
+    1, 5, 2, // right side
+  ];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.setIndex(idx);
+  const ng = g.toNonIndexed();
+  ng.computeVertexNormals();
+  return ng;
+}
+
+function PlankRamp({ r, len, angle, mats }) {
+  const wedge = useMemo(() => wedgeGeometry(r.l, r.w * 0.94, r.rise - 0.02), [r.l, r.w, r.rise]);
+  return (
+    <group>
+      <mesh geometry={wedge} castShadow receiveShadow material={mats.body} />
+      <group rotation-x={-angle} position={[0, r.rise / 2, 0]}>
+        <mesh castShadow receiveShadow material={mats.deck}>
+          <boxGeometry args={[r.w, 0.08, len]} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 function Ramps({ map }) {
   const { RAMPS } = map;
-  const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#c8b28a', roughness: 0.7 }), []);
+  const mats = useMemo(() => ({
+    deck: new THREE.MeshStandardMaterial({ color: '#c8b28a', roughness: 0.7 }),
+    body: new THREE.MeshStandardMaterial({ color: '#8f7a5a', roughness: 0.85, side: THREE.DoubleSide }),
+  }), []);
   return (
     <group>
       {RAMPS.map((r, i) => {
         const angle = Math.atan2(r.rise, r.l);
         const len = Math.hypot(r.l, r.rise);
+        const Skin = RAMP_SKINS[r.skin] || PlankRamp;
         return (
           <RigidBody key={i} type="fixed" colliders={false} position={[r.x, 0, r.z]} rotation-y={r.rotY} friction={1.2}>
             <group rotation-x={-angle} position={[0, r.rise / 2, 0]}>
               <CuboidCollider args={[r.w / 2, 0.04, len / 2]} />
-              <mesh castShadow receiveShadow material={mat}>
-                <boxGeometry args={[r.w, 0.08, len]} />
-              </mesh>
             </group>
+            <Skin r={r} len={len} angle={angle} mats={mats} />
           </RigidBody>
         );
       })}

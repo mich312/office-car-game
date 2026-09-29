@@ -2,7 +2,7 @@
 // kill feed, minimap, scoreboard, event toasts, podium. Everything anchors
 // to the HUD safe-area frame and composes the shared chip/toast primitives.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODES, MODE_IDS, MAPS, MAP_IDS, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf } from '@rc/shared';
+import { MODES, MODE_IDS, MAPS, MAP_IDS, raceLaps, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf } from '@rc/shared';
 import { useMap, currentMap } from '../game/activeMap.js';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
@@ -316,7 +316,7 @@ function MatchHUD() {
         <div className="hud-top-row">
           {modeId === 'desk_dash' && prog && (
             <div className="chip"><Icon name="flag" size={15} />
-              LAP {Math.min(prog[0] + 1, MODES.desk_dash.laps)}/{MODES.desk_dash.laps} · CP {prog[1]}/{map.CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
+              LAP {Math.min(prog[0] + 1, raceLaps(map, MODES.desk_dash.laps))}/{raceLaps(map, MODES.desk_dash.laps)} · CP {prog[1]}/{map.CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
             </div>
           )}
           {modeId === 'coffee_run' && (
