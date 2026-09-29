@@ -2,9 +2,8 @@
 // contributes to the per-tick snapshot.
 import {
   MSG, MODES, CHECKPOINT_RADIUS, PICKUP_RADIUS,
-  BEAN_SPAWNS, COFFEE_MACHINE, BATTERY_SPAWN, SOCCER, WALLS, FURNITURE,
-  KOTH_SPOTS, KOTH_RADIUS, SUMO_ZONE,
-  GRAVITY, M, LCS, ROOMS, roomAt, COUNTDOWN_SECONDS, DECOR_TYPES,
+  KOTH_RADIUS,
+  GRAVITY, M, LCS, COUNTDOWN_SECONDS, DECOR_TYPES,
   raceCheckpoints, sumoTarget, sumoCenter, kothHopSeconds,
 } from '@rc/shared';
 
@@ -59,7 +58,7 @@ class LastStandingMode {
   constructor(room) {
     this.room = room;
     // Shuffled closure order — the final entry is the refuge, never locked.
-    this.order = ROOMS.map((r) => r.id);
+    this.order = this.room.map.ROOMS.map((r) => r.id);
     for (let i = this.order.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [this.order[i], this.order[j]] = [this.order[j], this.order[i]];
@@ -77,10 +76,10 @@ class LastStandingMode {
     const alive = this.alive();
     for (const p of alive) p.score += LCS.SURVIVAL_SCORE_PER_S * dt;
     // telegraph the next closure…
-    if (!this.warn && this.locked.length < ROOMS.length - 1 && t >= this.nextLockAt - LCS.WARN_S * 1000) {
+    if (!this.warn && this.locked.length < this.room.map.ROOMS.length - 1 && t >= this.nextLockAt - LCS.WARN_S * 1000) {
       const roomId = this.order.shift();
       this.warn = { room: roomId, until: this.nextLockAt };
-      const r = ROOMS.find((rm) => rm.id === roomId);
+      const r = this.room.map.ROOMS.find((rm) => rm.id === roomId);
       this.room.feed(`🚧 Facilities is closing the ${r?.name ?? roomId} — clear out!`);
     }
     // …then lock it
@@ -91,7 +90,7 @@ class LastStandingMode {
     }
     // zap loiterers (short grace so a near-miss is escapable)
     for (const p of alive) {
-      const rm = roomAt(p.p[0], p.p[2]);
+      const rm = this.room.map.roomAt(p.p[0], p.p[2]);
       if (rm && this.locked.includes(rm.id)) {
         p.zapT = (p.zapT || 0) + dt;
         if (p.zapT > LCS.ZAP_GRACE_S) this.eliminate(p, `lingered in the ${rm.name}`);
@@ -148,7 +147,7 @@ const PLACE_SCORE = [500, 350, 250, 180, 130, 100];
 class RaceMode {
   constructor(room) {
     this.room = room;
-    this.cps = raceCheckpoints(room.variant); // reverse runs them backwards
+    this.cps = raceCheckpoints(room.variant, room.map); // reverse runs them backwards
     this.laps = MODES.desk_dash.laps;
     this.finished = [];
   }
@@ -199,7 +198,7 @@ class CoffeeMode {
   constructor(room) {
     this.room = room;
     this.max = MODES.coffee_run.maxCarry;
-    this.beans = BEAN_SPAWNS.map((b, i) => ({ id: i, x: b.x, z: b.z, alive: true, respawnAt: 0 }));
+    this.beans = this.room.map.BEAN_SPAWNS.map((b, i) => ({ id: i, x: b.x, z: b.z, alive: true, respawnAt: 0 }));
     this.dropId = 1000;
   }
   update() {
@@ -226,7 +225,7 @@ class CoffeeMode {
         }
       }
       // deliver
-      if (p.beans > 0 && Math.hypot(p.p[0] - COFFEE_MACHINE.deliverX, p.p[2] - COFFEE_MACHINE.deliverZ) < COFFEE_MACHINE.radius * 2) {
+      if (p.beans > 0 && Math.hypot(p.p[0] - this.room.map.COFFEE_MACHINE.deliverX, p.p[2] - this.room.map.COFFEE_MACHINE.deliverZ) < this.room.map.COFFEE_MACHINE.radius * 2) {
         p.score += p.beans * MODES.coffee_run.beanScore;
         this.room.feed(`☕ ${p.name} delivered ${p.beans} bean${p.beans > 1 ? 's' : ''}`);
         this.room.broadcast({ t: MSG.EFFECT, type: 'deliver', id: p.id, count: p.beans });
@@ -270,7 +269,7 @@ class CoffeeMode {
 class BatteryMode {
   constructor(room) {
     this.room = room;
-    this.battery = { x: BATTERY_SPAWN.x, z: BATTERY_SPAWN.z, carrier: null };
+    this.battery = { x: this.room.map.BATTERY_SPAWN.x, z: this.room.map.BATTERY_SPAWN.z, carrier: null };
     this.scoreAcc = 0;
   }
   update(dt) {
@@ -302,7 +301,7 @@ class BatteryMode {
     p.hasBattery = false;
     this.battery.x = p.p[0]; this.battery.z = p.p[2];
     // If it fell out of the world, respawn it home
-    if (p.p[1] < -8) { this.battery.x = BATTERY_SPAWN.x; this.battery.z = BATTERY_SPAWN.z; }
+    if (p.p[1] < -8) { this.battery.x = this.room.map.BATTERY_SPAWN.x; this.battery.z = this.room.map.BATTERY_SPAWN.z; }
     this.room.broadcast({ t: MSG.EFFECT, type: 'battery_drop', id: p.id });
   }
   onHit(attacker, victim) {
@@ -330,7 +329,7 @@ class SoccerMode {
   constructor(room) {
     this.room = room;
     // Giant Ball mutator inflates the ball server-side; clients scale to match
-    this.R = SOCCER.ballRadius * (room.mutator?.id === 'giant_ball' ? 1.8 : 1);
+    this.R = this.room.map.SOCCER.ballRadius * (room.mutator?.id === 'giant_ball' ? 1.8 : 1);
     this.resetBall();
     this.teamScores = [0, 0];
     this.freezeUntil = 0;
@@ -338,13 +337,13 @@ class SoccerMode {
     let i = 0;
     for (const p of room.players.values()) p.team = i++ % 2;
     // decor (rugs, art, TVs) has no client collider — the ball skips it too
-    this.boxes = [...WALLS, ...FURNITURE.filter((f) => !DECOR_TYPES.includes(f.type))].map((w) => ({
+    this.boxes = [...room.map.WALLS, ...room.map.FURNITURE.filter((f) => !DECOR_TYPES.includes(f.type))].map((w) => ({
       minX: w.x - w.w / 2, maxX: w.x + w.w / 2,
       minZ: w.z - w.d / 2, maxZ: w.z + w.d / 2, h: w.h,
     }));
   }
   resetBall() {
-    const s = SOCCER.ballSpawn;
+    const s = this.room.map.SOCCER.ballSpawn;
     this.ball = { p: [s.x, s.y + 2, s.z], v: [0, 0, 0] };
   }
   onJoin(p) { p.team = [...this.room.players.values()].filter((q) => q.team === 0).length <= this.room.players.size / 2 ? 0 : 1; }
@@ -393,10 +392,10 @@ class SoccerMode {
     // speed cap + gentle pull back to arena if it escapes through a far door
     const sp = Math.hypot(b.v[0], b.v[2]);
     if (sp > 70) { b.v[0] *= 70 / sp; b.v[2] *= 70 / sp; }
-    const A = SOCCER.arena;
+    const A = this.room.map.SOCCER.arena;
     if (b.p[0] < A.minX - 12 || b.p[0] > A.maxX + 12 || b.p[2] < A.minZ - 3 || b.p[2] > A.maxZ + 12) this.resetBall();
     // goals — ball fully crossing a doorway goal line
-    for (const g of SOCCER.goals) {
+    for (const g of this.room.map.SOCCER.goals) {
       if (Math.abs(b.p[2] - g.z) < g.width / 2 && (g.dir === 1 ? b.p[0] < g.x - R : b.p[0] > g.x + R) && b.p[1] < 3) {
         const scoringTeam = 1 - g.team;
         this.teamScores[scoringTeam] += 1;
@@ -445,18 +444,18 @@ class KothMode {
   constructor(room) {
     this.room = room;
     this.cfg = MODES.koth;
-    this.spot = Math.floor(Math.random() * KOTH_SPOTS.length);
+    this.spot = Math.floor(Math.random() * this.room.map.KOTH_SPOTS.length);
     this.hopAt = 0; // armed on the first playing tick, after the countdown
     this.acc = 0;
   }
-  zonePos() { return KOTH_SPOTS[this.spot]; }
+  zonePos() { return this.room.map.KOTH_SPOTS[this.spot]; }
   update(dt) {
     const t = now();
     const hop = kothHopSeconds(this.cfg.hopSeconds, this.room.variant); // Rush Hour halves it
     if (!this.hopAt) this.hopAt = t + hop * 1000;
     if (t >= this.hopAt) {
       let next;
-      do { next = Math.floor(Math.random() * KOTH_SPOTS.length); } while (next === this.spot);
+      do { next = Math.floor(Math.random() * this.room.map.KOTH_SPOTS.length); } while (next === this.spot);
       this.spot = next;
       this.hopAt = t + hop * 1000;
       this.room.broadcast({ t: MSG.EFFECT, type: 'zone_hop' });
@@ -550,17 +549,17 @@ class SumoMode {
     this.roundEndsAt = 0;
     this.restUntil = 0;
     this.order = [];
-    this.zone = { x: SUMO_ZONE.x, z: SUMO_ZONE.z, r: SUMO_ZONE.r0 };
+    this.zone = { x: this.room.map.SUMO_ZONE.x, z: this.room.map.SUMO_ZONE.z, r: this.room.map.SUMO_ZONE.r0 };
   }
   startRound() {
     const t = now();
     this.round++;
     this.roundEndsAt = t + this.cfg.roundSeconds * 1000;
     this.order = [];
-    this.zone.r = SUMO_ZONE.r0;
+    this.zone.r = this.room.map.SUMO_ZONE.r0;
     // Moving Meeting: this round's ring slides toward a room as it shrinks
-    this.target = sumoTarget(this.round, this.room.variant);
-    this.zone.x = SUMO_ZONE.x; this.zone.z = SUMO_ZONE.z;
+    this.target = sumoTarget(this.round, this.room.variant, this.room.map);
+    this.zone.x = this.room.map.SUMO_ZONE.x; this.zone.z = this.room.map.SUMO_ZONE.z;
     for (const p of this.room.players.values()) { p.sumoDead = false; p.sumoOutAt = 0; }
     this.room.broadcast({ t: MSG.EFFECT, type: 'sumo_round', round: this.round });
     this.room.feed(`🥋 Round ${this.round} — stay inside the circle!`);
@@ -598,8 +597,8 @@ class SumoMode {
     if (t >= this.roundEndsAt) { this.endRound(this.alive()); return; }
     // linear shrink over the round
     const frac = 1 - Math.max(0, (this.roundEndsAt - t) / (this.cfg.roundSeconds * 1000));
-    this.zone.r = SUMO_ZONE.r0 + (SUMO_ZONE.r1 - SUMO_ZONE.r0) * frac;
-    const c = sumoCenter(SUMO_ZONE, this.target, frac);
+    this.zone.r = this.room.map.SUMO_ZONE.r0 + (this.room.map.SUMO_ZONE.r1 - this.room.map.SUMO_ZONE.r0) * frac;
+    const c = sumoCenter(this.room.map.SUMO_ZONE, this.target, frac);
     this.zone.x = c.x; this.zone.z = c.z;
     for (const p of this.room.players.values()) {
       if (p.sumoDead) continue;

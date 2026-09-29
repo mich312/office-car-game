@@ -9,7 +9,7 @@
 // Bumps line up with what you SEE: a floor texture is stretched once across
 // each room's plane (Office.jsx), so a room's tile grid and plank seams sit
 // at its own width / repeat — the same numbers here.
-import { ROOMS, FURNITURE } from './map.js';
+import { MAPS, DEFAULT_MAP } from './map.js';
 
 export const SURFACES = {
   carpet: { name: 'Carpet', grip: 1.1, drag: 1.45, top: 0.93, rough: 0.0022 },
@@ -22,17 +22,15 @@ export const SURFACES = {
 // carpet2 is the same pile in another colour
 SURFACES.carpet2 = SURFACES.carpet;
 
-const RUGS = FURNITURE.filter((f) => f.type === 'rug');
-
-// Which surface is under (x, z): a rug wins over the room's floor.
-export function surfaceAt(x, z) {
-  for (const r of RUGS) {
+// Which surface is under (x, z) on a map: a rug wins over the room's floor.
+export function surfaceAt(x, z, map = MAPS[DEFAULT_MAP]) {
+  for (const r of map.RUGS) {
     const c = Math.cos(-r.rotY), s = Math.sin(-r.rotY);
     const dx = x - r.x, dz = z - r.z;
     const lx = dx * c - dz * s, lz = dx * s + dz * c;
     if (Math.abs(lx) <= r.w / 2 && Math.abs(lz) <= r.d / 2) return { id: 'rug', room: null };
   }
-  for (const room of ROOMS) {
+  for (const room of map.ROOMS) {
     if (Math.abs(x - room.x) <= room.w / 2 && Math.abs(z - room.z) <= room.d / 2) return { id: room.floor, room };
   }
   return { id: 'concrete', room: null };

@@ -3,7 +3,7 @@
 // way to its win condition pays out what it says it does.
 import {
   CHECKPOINTS, MODES, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
-  raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH,
+  raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
 
@@ -21,6 +21,7 @@ function player(id, name) {
 function stubRoom(players) {
   return {
     players: new Map(players.map((p) => [p.id, p])),
+    map: MAPS.office,
     modeId: 'desk_dash',
     endsAt: Date.now() + 1e6,
     feed() {}, broadcast() {}, scoreChanged() {},
@@ -143,12 +144,12 @@ check('variants: a variant mode rolls classic about half the time', (() => {
 })());
 check('variants: an unknown id falls back to classic', variantOf('sumo', 'nope').id === 'classic');
 
-const rev = raceCheckpoints('reverse');
+const rev = raceCheckpoints('reverse', MAPS.office);
 check('reverse: the same checkpoints, the other way round', rev.length === CHECKPOINTS.length
   && rev.every((c, i) => c === CHECKPOINTS[CHECKPOINTS.length - 1 - i]));
 check('reverse: the finish stays on the start straight (checkpoint 0 closes the lap)', rev[rev.length - 1] === CHECKPOINTS[0]);
 check('reverse: the bots\' line is the classic loop reversed', (() => {
-  const r = raceBotPath('reverse');
+  const r = raceBotPath('reverse', MAPS.office);
   return r.length === BOT_PATH.length && r[0] === BOT_PATH[0] && r[1] === BOT_PATH[BOT_PATH.length - 1] && r[r.length - 1] === BOT_PATH[1];
 })());
 // The grid lines up in parallel like a real one, beside checkpoint 0 rather
@@ -157,9 +158,9 @@ check('reverse: the bots\' line is the classic loop reversed', (() => {
 // at least as well — pointing it east like the classic grid would send
 // every car the wrong way off the line.
 const worstOff = (variant) => {
-  const first = raceCheckpoints(variant)[0];
+  const first = raceCheckpoints(variant, MAPS.office)[0];
   return Math.max(...SPAWNS.map((_, i) => {
-    const s = raceSpawn(i, variant);
+    const s = raceSpawn(i, variant, MAPS.office);
     let d = Math.atan2(first.x - s.x, first.z - s.z) - s.rotY;
     while (d > Math.PI) d -= 2 * Math.PI;
     while (d < -Math.PI) d += 2 * Math.PI;
@@ -170,7 +171,7 @@ const deg = (r) => (r * 180 / Math.PI).toFixed(0);
 check(`reverse: the grid faces its first checkpoint at least as well as classic does (${deg(worstOff('reverse'))}° vs ${deg(worstOff('classic'))}°)`,
   worstOff('reverse') <= worstOff('classic'));
 check('reverse: the classic grid heading would point the reverse race the wrong way', (() => {
-  const first = raceCheckpoints('reverse')[0];
+  const first = raceCheckpoints('reverse', MAPS.office)[0];
   const s = SPAWNS[0];
   let d = Math.atan2(first.x - s.x, first.z - s.z) - s.rotY;
   while (d < -Math.PI) d += 2 * Math.PI;

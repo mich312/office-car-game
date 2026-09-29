@@ -539,6 +539,37 @@
 .ballot-tally .bar { width: 2.6rem; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
 .ballot-tally .bar i { display: block; height: 100%; background: var(--amber); border-radius: 2px; transition: width var(--t-slow) var(--ease); }
 
+.map-ballots { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
+.map-ballot {
+  position: relative;
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--r-ctl);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text-1);
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.map-ballot:hover { border-color: var(--text-3); }
+.map-ballot b { font-size: 0.82rem; line-height: 1.15; flex: 1; }
+.map-ballot .icon { color: var(--text-2); flex: none; }
+.map-ballot .count { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; color: var(--text-2); }
+.map-ballot .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--amber); transition: width var(--t-slow) var(--ease); }
+/* the floor you're on wears a small green "here" dot */
+.map-ballot.here::after {
+  content: ''; position: absolute; top: 0.35rem; right: 0.35rem;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--good);
+}
+.map-ballot.sel { border-color: var(--amber); background: var(--amber-tint); }
+.map-ballot.sel .icon { color: var(--amber); }
+/* the cellar's ballot carries a little of its light: cold tube green */
+.map-ballot.map-cellar .icon { color: #8ff0c4; }
+.map-ballot.map-cellar.sel { border-color: #6fdcaa; background: rgba(111, 220, 170, 0.1); }
+.map-ballot.map-cellar .bar { background: #6fdcaa; }
+
 .ready-btn { width: 100%; padding: 0.85rem; font-size: 1.05rem; margin-top: auto; }
 .ready-btn.is-ready {
   background: transparent;

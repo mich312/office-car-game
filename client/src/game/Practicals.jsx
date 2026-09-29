@@ -17,7 +17,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { PROPS, M } from '@rc/shared';
+import { M } from '@rc/shared';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import { glowTex } from './textures.js';
@@ -47,15 +47,16 @@ function useAdditive(color, opacity = 0) {
   }), [tex, color]);
 }
 
-export default function Practicals() {
+export default function Practicals({ map }) {
+  const { PROPS } = map;
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
-  const level = lightingFor(hour, lightsOut).practical;
+  const level = lightingFor(hour, lightsOut, map.theme).practical;
 
-  const lamps = useMemo(() => PROPS.filter((p) => p.type === 'lamp'), []);
-  const monitors = useMemo(() => PROPS.filter((p) => p.type === 'monitor'), []);
-  const keyboards = useMemo(() => PROPS.filter((p) => p.type === 'keyboard'), []);
+  const lamps = useMemo(() => PROPS.filter((p) => p.type === 'lamp'), [PROPS]);
+  const monitors = useMemo(() => PROPS.filter((p) => p.type === 'monitor'), [PROPS]);
+  const keyboards = useMemo(() => PROPS.filter((p) => p.type === 'keyboard'), [PROPS]);
 
   const lampMat = useAdditive('#ffc266');
   const lampFloorMat = useAdditive('#ffb655');

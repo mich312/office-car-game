@@ -3,7 +3,7 @@ export const MODES = {
     id: 'desk_dash',
     name: 'Desk Dash',
     icon: '🏁',
-    desc: 'Race 2 laps through all thirteen rooms of the office. Shortcuts everywhere.',
+    desc: 'Race 2 laps through the whole floor. Shortcuts everywhere.',
     laps: 2, // the v2 office lap is nearly twice as long
     seconds: 210,
   },
@@ -11,7 +11,7 @@ export const MODES = {
     id: 'coffee_run',
     name: 'Coffee Run',
     icon: '☕',
-    desc: 'Collect beans, deliver to the kitchen machine. Bump rivals to make them spill.',
+    desc: 'Collect beans, deliver to the coffee machine. Bump rivals to make them spill.',
     maxCarry: 5,
     beanScore: 10,
     // Spilled beans sweep themselves up if nobody grabs them: long enough to
@@ -71,7 +71,7 @@ export const MODES = {
     id: 'last_standing',
     name: 'Last Car Standing',
     icon: '👑',
-    desc: 'Facilities locks the office down room by room. Escape closing rooms, dodge the robot, outlive everyone.',
+    desc: 'Facilities locks the floor down room by room. Escape closing rooms, dodge the robot, outlive everyone.',
   },
   free_roam: {
     id: 'free_roam',

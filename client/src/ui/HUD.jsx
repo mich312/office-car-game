@@ -2,7 +2,8 @@
 // kill feed, minimap, scoreboard, event toasts, podium. Everything anchors
 // to the HUD safe-area frame and composes the shared chip/toast primitives.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE, MSG, M, roomAt, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf } from '@rc/shared';
+import { MODES, MODE_IDS, MAPS, MAP_IDS, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf } from '@rc/shared';
+import { useMap, currentMap } from '../game/activeMap.js';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
 import { telemetry } from '../game/LocalCar.jsx';
@@ -146,6 +147,7 @@ function Lobby() {
           </span>
         ))}
       </div>
+      <MapBallots humans={humans.length} />
       <span className="label">vote the next meeting</span>
       <div className="ballots">
         {MODE_IDS.map((m) => {
@@ -179,6 +181,40 @@ function Lobby() {
   );
 }
 
+// Where the next round is played. The floor you're on is marked; a private
+// room stays on it unless you vote to move, quick play moves on by itself.
+function MapBallots({ humans }) {
+  const mapVotes = useStore((s) => s.mapVotes);
+  const mapId = useStore((s) => s.mapId);
+  const roomPrivate = useStore((s) => s.roomPrivate);
+  const [vote, setVote] = useState(null);
+  const cast = (m) => {
+    setVote(m);
+    send({ t: MSG.VOTE_MAP, map: m });
+    audio.blip(560, 0.06);
+  };
+  return (
+    <>
+      <span className="label">choose the floor{roomPrivate ? '' : ' · or quick play moves on'}</span>
+      <div className="map-ballots">
+        {MAP_IDS.map((m) => {
+          const count = Object.values(mapVotes || {}).filter((v) => v === m).length;
+          const pct = Math.round((count / Math.max(1, humans)) * 100);
+          return (
+            <button key={m} className={`map-ballot map-${MAPS[m].theme} ${vote === m ? 'sel' : ''} ${m === mapId ? 'here' : ''}`}
+              onClick={() => cast(m)} title={MAPS[m].blurb}>
+              <Icon name={MAPS[m].theme === 'cellar' ? 'tube' : 'building'} size={16} />
+              <b>{MAPS[m].name.replace(/^The /, '')}</b>
+              {count > 0 && <span className="count">{count}</span>}
+              <i className="bar" style={{ width: `${pct}%` }} />
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 // -------------------------------------------------------------- countdown
 function Countdown() {
   const countdownEnd = useStore((s) => s.countdownEnd);
@@ -186,6 +222,7 @@ function Countdown() {
   const mutator = useStore((s) => s.mutator);
   const cup = useStore((s) => s.cup);
   const variant = variantOf(modeId, useStore((s) => s.variant));
+  const mapName = useMap().name;
   const [n, setN] = useState(3);
   useEffect(() => {
     // beep once per second-change, not once per 120 ms poll — without the
@@ -212,7 +249,7 @@ function Countdown() {
       <div className="toast toast-warn invite">
         <span className="toast-icon"><Icon name={MODE_ICON[modeId] || 'flag'} /></span>
         <div>
-          <span className="label">next meeting</span>
+          <span className="label">next meeting · {mapName}</span>
           <b>
             {MODES[modeId]?.name}
             {variant && variant.id !== 'classic' && <span className="variant-tag"> · {variant.name}</span>}
@@ -266,9 +303,10 @@ function MatchHUD() {
   const speedCms = Math.round(telemetry.speed * (100 / M)); // real-world cm/s at toy scale
   const boostFrac = Math.min(1, Math.max(0, telemetry.boost / 100));
   // Last Car Standing: closing-room countdown + get-out alarm
-  const warnRoom = lcs?.warn ? ROOMS.find((r) => r.id === lcs.warn.room) : null;
+  const map = useMap();
+  const warnRoom = lcs?.warn ? map.ROOMS.find((r) => r.id === lcs.warn.room) : null;
   const warnLeft = lcs?.warn ? Math.max(0, Math.ceil((lcs.warn.until - Date.now()) / 1000)) : 0;
-  const myRoom = !spectating ? roomAt(telemetry.x, telemetry.z) : null;
+  const myRoom = !spectating ? map.roomAt(telemetry.x, telemetry.z) : null;
   const inLockedRoom = !!(modeId === 'last_standing' && myRoom && lcs?.locked?.includes(myRoom.id));
 
   return (
@@ -278,7 +316,7 @@ function MatchHUD() {
         <div className="hud-top-row">
           {modeId === 'desk_dash' && prog && (
             <div className="chip"><Icon name="flag" size={15} />
-              LAP {Math.min(prog[0] + 1, MODES.desk_dash.laps)}/{MODES.desk_dash.laps} · CP {prog[1]}/{CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
+              LAP {Math.min(prog[0] + 1, MODES.desk_dash.laps)}/{MODES.desk_dash.laps} · CP {prog[1]}/{map.CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
             </div>
           )}
           {modeId === 'coffee_run' && (
@@ -432,13 +470,18 @@ function Minimap() {
     const cv = canvasRef.current;
     const g = cv.getContext('2d');
     const W = 210, H = 140;
-    const sx = W / (MAP_BOUNDS.maxX - MAP_BOUNDS.minX);
-    const sz = H / (MAP_BOUNDS.maxZ - MAP_BOUNDS.minZ);
-    const px = (x) => (x - MAP_BOUNDS.minX) * sx;
-    const pz = (z) => H - (z - MAP_BOUNDS.minZ) * sz;
+    let sx, sz, px, pz;
     let run = true;
     function draw() {
       if (!run) return;
+      // fit the map's floor plan, centred (maps differ in shape)
+      const map = currentMap();
+      const B = map.MAP_BOUNDS;
+      const sc = Math.min(W / (B.maxX - B.minX), H / (B.maxZ - B.minZ));
+      const ox = (W - (B.maxX - B.minX) * sc) / 2, oz = (H - (B.maxZ - B.minZ) * sc) / 2;
+      sx = sz = sc;
+      px = (x) => ox + (x - B.minX) * sc;
+      pz = (z) => H - oz - (z - B.minZ) * sc;
       const t = performance.now() / 1000;
       const pulse = 0.55 + 0.45 * Math.sin(t * 5);
       g.clearRect(0, 0, W, H);
@@ -446,7 +489,7 @@ function Minimap() {
       g.fillRect(0, 0, W, H);
       // rooms (Last Car Standing tints closed red / closing amber)
       const st0 = useStore.getState();
-      for (const r of ROOMS) {
+      for (const r of map.ROOMS) {
         const locked = st0.modeId === 'last_standing' && st0.lcs?.locked?.includes(r.id);
         const closing = st0.modeId === 'last_standing' && st0.lcs?.warn?.room === r.id;
         const rx = px(r.x - r.w / 2), rz = pz(r.z + r.d / 2), rw = r.w * sx, rd = r.d * sz;
@@ -460,7 +503,7 @@ function Minimap() {
       }
       // walls as hairlines
       g.fillStyle = 'rgba(154, 167, 192, 0.4)';
-      for (const w of WALLS) {
+      for (const w of map.WALLS) {
         if (w.low) continue;
         g.fillRect(px(w.x - w.w / 2), pz(w.z + w.d / 2), Math.max(1, w.w * sx), Math.max(1, w.d * sz));
       }
@@ -480,7 +523,7 @@ function Minimap() {
       }
       if (st.modeId === 'desk_dash') {
         const prog = st.raceProgress[st.myId];
-        const cps = raceCheckpoints(st.variant);
+        const cps = raceCheckpoints(st.variant, map);
         const cp = cps[(prog?.[1] ?? 0) % cps.length];
         g.strokeStyle = `rgba(92, 200, 255, ${0.5 + 0.5 * pulse})`;
         g.lineWidth = 2;

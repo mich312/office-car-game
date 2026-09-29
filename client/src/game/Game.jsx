@@ -57,6 +57,7 @@ function RivalAudio() {
 export default function Game() {
   const muted = useStore((s) => s.muted);
   const mutator = useStore((s) => s.mutator);
+  const mapId = useStore((s) => s.mapId);
   // Moon Gravity mutator: the whole physics world floats
   const gravity = mutator === 'moon_gravity' ? GRAVITY * MUTATORS.moon_gravity.gravity : GRAVITY;
 
@@ -83,10 +84,10 @@ export default function Game() {
         <Lighting />
         <Physics gravity={[0, gravity, 0]} timeStep={1 / 60} maxCcdSubsteps={2}>
           <Office />
-          <Props />
+          <Props key={`props-${mapId}`} />
           <LocalCar />
           <RemoteCars />
-          <ModeObjects />
+          <ModeObjects key={`mode-${mapId}`} />
         </Physics>
         <OfficeEvents />
         <OfficeBoard />

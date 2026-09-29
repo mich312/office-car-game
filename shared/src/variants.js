@@ -5,7 +5,6 @@
 //
 // Everything here is shared: the server scores with it, the bots drive with
 // it and the client points you at the right checkpoint with it.
-import { CHECKPOINTS, BOT_PATH, KOTH_SPOTS, SPAWNS } from './map.js';
 
 export const MODE_VARIANTS = {
   desk_dash: [
@@ -40,28 +39,27 @@ export function rollVariant(modeId, rand = Math.random) {
 
 // ---------------------------------------------------------- Desk Dash
 // Reverse runs the checkpoints backwards but keeps the finish where it
-// belongs, on the start straight by the grid: the forward lap starts at
-// checkpoint 0 and closes on 17; the reverse lap starts at 17 and closes on 0.
-const REVERSE_CHECKPOINTS = [...CHECKPOINTS].reverse();
-const REVERSE_BOT_PATH = [BOT_PATH[0], ...BOT_PATH.slice(1).reverse()];
+// belongs, on the start straight by the grid: the forward lap starts at the
+// first checkpoint and closes on the last; the reverse lap the other way.
+// Each map carries both lists (map.js).
+export const raceCheckpoints = (variant, map) => (variant === 'reverse' ? map.REVERSE_CHECKPOINTS : map.CHECKPOINTS);
+export const raceBotPath = (variant, map) => (variant === 'reverse' ? map.REVERSE_BOT_PATH : map.BOT_PATH);
 
-export const raceCheckpoints = (variant) => (variant === 'reverse' ? REVERSE_CHECKPOINTS : CHECKPOINTS);
-export const raceBotPath = (variant) => (variant === 'reverse' ? REVERSE_BOT_PATH : BOT_PATH);
-
-// The grid faces the first checkpoint of the lap: east for the classic run
-// (as SPAWNS already do), north for reverse.
-export function raceSpawn(i, variant) {
-  const s = SPAWNS[i % SPAWNS.length];
-  return variant === 'reverse' ? { ...s, rotY: 0 } : s;
+// The grid faces the first checkpoint of the lap: SPAWNS face the classic
+// run, and each map says which way the reverse lap leaves.
+export function raceSpawn(i, variant, map) {
+  const s = map.SPAWNS[i % map.SPAWNS.length];
+  return variant === 'reverse' ? { ...s, rotY: map.REVERSE_SPAWN_ROTY } : s;
 }
 
 // --------------------------------------------------------------- Sumo
 // Moving Meeting: the ring starts where it always does and slides toward a
 // room while it shrinks, landing on it as the round runs out. The targets
 // are the standup spots, which the map keeps clear of the big furniture.
-export function sumoTarget(round, variant, pick = Math.random) {
+export function sumoTarget(round, variant, map, pick = Math.random) {
   if (variant !== 'drift') return null;
-  return KOTH_SPOTS[Math.floor(pick() * KOTH_SPOTS.length) % KOTH_SPOTS.length];
+  const spots = map.KOTH_SPOTS;
+  return spots[Math.floor(pick() * spots.length) % spots.length];
 }
 // frac 0 → 1 over the round; ease-in so the slide starts gently
 export function sumoCenter(start, target, frac) {

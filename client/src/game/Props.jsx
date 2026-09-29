@@ -12,7 +12,8 @@ import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { PROPS, M, MSG, VENDING, NUDGE_RATE_MS } from '@rc/shared';
+import { M, MSG, NUDGE_RATE_MS } from '@rc/shared';
+import { useMap, currentMap } from './activeMap.js';
 import { makeScreen, keysTex, fabricNormal, orangePeel } from './textures.js';
 import { burst } from './particles.jsx';
 import { roundedBox } from './roundedGeo.js';
@@ -26,10 +27,14 @@ const propRefs = new Map(); // PROPS index → rigid body ref
 const pendingHits = new Map(); // index → ref; latest hit wins until flushed
 let lastFlush = 0;
 
-// PROPS entries + their index, memoised once so the identity stays stable
-// across renders (the prop components are memo'd on it).
-const indexedProps = PROPS.map((base, i) => ({ ...base, i }));
-const propWithIndex = (base, i) => indexedProps[i] ?? { ...base, i };
+// A map's PROPS entries + their index, built once per map so the identity
+// stays stable across renders (the prop components are memo'd on it).
+const indexedCache = new WeakMap();
+const indexedProps = (map) => {
+  let l = indexedCache.get(map);
+  if (!l) { l = map.PROPS.map((base, i) => ({ ...base, i })); indexedCache.set(map, l); }
+  return l;
+};
 
 function flushPropHits() {
   const nowMs = performance.now();
@@ -51,6 +56,7 @@ function flushPropHits() {
 }
 
 export default function Props() {
+  const map = useMap();
   const screens = useMemo(() => [makeScreen('code'), makeScreen('chart'), makeScreen('code')], []);
   useEffect(() => {
     const iv = setInterval(() => screens.forEach((s) => Math.random() > 0.4 && s.tick()), 300);
@@ -69,11 +75,10 @@ export default function Props() {
   return (
     <group>
       <SpawnedProps />
-      {PROPS.map((base, i) => {
+      {indexedProps(map).map((p, i) => {
         // The index rides along so a whacked prop knows which slot to relay,
         // but it's attached to a copy — PROPS is shared module state that the
         // server imports too, and render is no place to mutate it.
-        const p = propWithIndex(base, i);
         const key = `${p.type}${i}`;
         switch (p.type) {
           case 'mug': return <Mug key={key} p={p} />;
@@ -110,7 +115,8 @@ function SpawnedProps() {
       setItems((l) => [...l.slice(-17), { kind: 'mug', at: fx.at, key: Math.random() }]);
     } else if (fx.type === 'vending') {
       audio.blip(fx.golden ? 990 : 520, 0.12, 0.16);
-      burst([VENDING.x, 2.5, VENDING.z + 1], { count: fx.golden ? 26 : 10, color: fx.golden ? ['#ffd700', '#fff2b0'] : ['#e8332a', '#dfe4ea'], speed: 6, size: 0.09, ttl: 0.8 });
+      const V = currentMap().VENDING;
+      burst([V.x, 2.5, V.z + 1], { count: fx.golden ? 26 : 10, color: fx.golden ? ['#ffd700', '#fff2b0'] : ['#e8332a', '#dfe4ea'], speed: 6, size: 0.09, ttl: 0.8 });
       setItems((l) => [...l.slice(-17), { kind: 'can', golden: fx.golden, key: Math.random() }]);
     } else if (fx.type === 'printer' && Array.isArray(fx.at)) {
       burst([fx.at[0], 3.2, fx.at[2]], { count: 46, color: ['#f7f5ef', '#ffffff', '#e8e4da'], speed: 11, size: 0.16, ttl: 1.4, up: 3 });
@@ -127,7 +133,7 @@ const goldCanMat = new THREE.MeshStandardMaterial({ color: '#ffd700', metalness:
 function Can({ golden }) {
   const R = 0.033 * m2u, H = 0.115 * m2u;
   const spawn = useMemo(() => ({
-    x: VENDING.x + (Math.random() - 0.5) * 0.6, y: 1.4, z: VENDING.z + 1.1,
+    x: currentMap().VENDING.x + (Math.random() - 0.5) * 0.6, y: 1.4, z: currentMap().VENDING.z + 1.1,
     rotY: Math.random() * Math.PI,
   }), []);
   return (

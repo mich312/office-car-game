@@ -6,7 +6,7 @@
 // (lobby, effects, feed) stays JSON. decodeSnapshot returns the exact object
 // shape the old JSON snapshot had, so the client's handler is unchanged.
 import { MSG } from './protocol.js';
-import { ROOMS } from './map.js';
+import { ALL_ROOM_IDS } from './map.js';
 
 // Section bits
 const S_PUDDLES = 1;
@@ -166,7 +166,7 @@ export function encodeSnapshot(snap) {
     for (const [id, tenths] of out) { w.str(id); w.u8(tenths); }
   }
   if (sections & S_LCS) {
-    const roomIdx = (id) => Math.max(0, ROOMS.findIndex((r) => r.id === id));
+    const roomIdx = (id) => Math.max(0, ALL_ROOM_IDS.indexOf(id));
     w.u8(snap.lcs.locked.length);
     for (const id of snap.lcs.locked) w.u8(roomIdx(id));
     if (snap.lcs.warn) {
@@ -255,9 +255,9 @@ export function decodeSnapshot(data) {
   if (sections & S_LCS) {
     const locked = [];
     const c = r.u8();
-    for (let i = 0; i < c; i++) locked.push(ROOMS[r.u8()]?.id);
+    for (let i = 0; i < c; i++) locked.push(ALL_ROOM_IDS[r.u8()]);
     let warn = null;
-    if (r.u8()) warn = { room: ROOMS[r.u8()]?.id, until: time + r.u32() };
+    if (r.u8()) warn = { room: ALL_ROOM_IDS[r.u8()], until: time + r.u32() };
     snap.lcs = { locked, warn, alive: r.u8() };
   }
   return snap;

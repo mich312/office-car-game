@@ -4,6 +4,7 @@ export const MSG = {
   HELLO: 'hello', // { name, car, paint }
   READY: 'ready', // { ready }
   VOTE_MODE: 'vote', // { mode }
+  VOTE_MAP: 'vmap', // { map }
   STATE: 's', // { p:[x,y,z], q:[x,y,z,w], v:[x,y,z], b:boost, d:drifting, g:grounded }
   USE_POWERUP: 'use', // {}
   BUMP: 'bump', // { target } — client-detected car↔car hit, server validates by distance

@@ -11,8 +11,8 @@ import {
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER,
   MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS, sanitizeStyle, sanitizeTune, tunedStats,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
-  SPAWNS, POWERUP_PADS, ROBOT_PATH, MAP_BOUNDS, M, EMOTES, COSMETIC_IDS,
-  PROPS, VENDING, PRINTER, ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
+  M, EMOTES, COSMETIC_IDS, MAP_IDS, DEFAULT_MAP, mapById,
+  ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
   MUTATORS, MUTATOR_CHANCE, CUP_POOL,
   encodeSnapshot,
   rollVariant, variantOf, MODE_VARIANTS,
@@ -67,11 +67,12 @@ export class Room {
     this.mode = null; // active mode controller
     this.modeId = null;
     this.votes = new Map();
+    this.mapVotes = new Map();
     this.endsAt = 0;
     this.phaseUntil = 0;
     this.puddles = []; // { id, kind, x, z, until }
     this.rockets = []; // { id, owner, target, p:[x,y,z] }
-    this.pads = POWERUP_PADS.map((pad, i) => ({ ...pad, i, readyAt: 0 }));
+    this.setMap(process.env.RC_MAP && MAP_IDS.includes(process.env.RC_MAP) ? process.env.RC_MAP : DEFAULT_MAP);
     this.event = null; // { id, until }
     this.nextEventAt = 0;
     this.robot = null; // { x, z, wp } cleaning robot when active
@@ -144,6 +145,7 @@ export class Room {
           countdownMs: this.phase === PHASE.COUNTDOWN ? Math.max(0, this.phaseUntil - now()) : 0,
           mutator: this.mutator?.id || null,
           variant: this.variant || 'classic',
+          map: this.mapId,
         }));
         this.broadcast({ t: MSG.PLAYER_JOIN, player: this.publicPlayer(p) }, id);
         this.sendLobby();
@@ -160,13 +162,18 @@ export class Room {
         this.votes.set(player.id, msg.mode);
         this.sendLobby();
         break;
+      case MSG.VOTE_MAP:
+        if (!player || !MAP_IDS.includes(msg.map)) return;
+        this.mapVotes.set(player.id, msg.map);
+        this.sendLobby();
+        break;
       case MSG.STATE: {
         if (!player) return;
         const p = finiteVec(msg.p, 3);
         if (!p) return; // malformed reports never reach room state
-        p[0] = clamp(p[0], MAP_BOUNDS.minX - POS_SLACK, MAP_BOUNDS.maxX + POS_SLACK);
+        p[0] = clamp(p[0], this.map.MAP_BOUNDS.minX - POS_SLACK, this.map.MAP_BOUNDS.maxX + POS_SLACK);
         p[1] = clamp(p[1], -200, 200);
-        p[2] = clamp(p[2], MAP_BOUNDS.minZ - POS_SLACK, MAP_BOUNDS.maxZ + POS_SLACK);
+        p[2] = clamp(p[2], this.map.MAP_BOUNDS.minZ - POS_SLACK, this.map.MAP_BOUNDS.maxZ + POS_SLACK);
         const t = now();
         // Anti-teleport: a move has to fit inside the top plausible speed over
         // the time we've actually waited, plus a fixed slack for packet
@@ -254,7 +261,7 @@ export class Room {
         // because props settle.
         if (!player || player.eliminated) return;
         const i = msg.i | 0;
-        if (i < 0 || i >= PROPS.length) return;
+        if (i < 0 || i >= this.map.PROPS.length) return;
         const t = now();
         if (t - (player.propWindowAt || 0) > 1000) { player.propWindowAt = t; player.propCount = 0; }
         if (++player.propCount > 10) return;
@@ -286,7 +293,7 @@ export class Room {
   }
 
   makePlayer(id, ws, msg = {}) {
-    const spawn = SPAWNS[this.players.size % SPAWNS.length];
+    const spawn = this.map.SPAWNS[this.players.size % this.map.SPAWNS.length];
     // cosmetics: validated per slot so only known ids travel to other clients
     const cos = {};
     for (const slot of Object.keys(COSMETIC_IDS)) {
@@ -318,6 +325,7 @@ export class Room {
     if (!p) return;
     this.players.delete(id);
     this.votes.delete(id);
+    this.mapVotes.delete(id);
     this.mode?.onLeave?.(p);
     this.broadcast({ t: MSG.PLAYER_LEAVE, id });
     this.sendLobby();
@@ -349,6 +357,7 @@ export class Room {
       // silently re-picks the mode unless somebody happens to vote again.
       this.votes.clear();
       this.cup = null;
+      this.pickMap();
       // Office Cup: three random distinct modes back-to-back
       if (this.modeId === 'office_cup') {
         const pool = [...CUP_POOL];
@@ -400,7 +409,7 @@ export class Room {
       for (const p of this.players.values()) p.shrinkUntil = this.endsAt;
     }
     this.lastAbility = null;
-    this.printerAt = now() + (COUNTDOWN_SECONDS + PRINTER.minIntervalS) * 1000;
+    this.printerAt = now() + (COUNTDOWN_SECONDS + this.map.PRINTER.minIntervalS) * 1000;
     this.vendReadyAt = 0;
     this.mugAt = now() + (COUNTDOWN_SECONDS + 6) * 1000;
     this.puddles = [];
@@ -422,6 +431,7 @@ export class Room {
       teams: Object.fromEntries([...this.players.values()].map((p) => [p.id, p.team])),
       mutator: this.mutator?.id || null,
       variant: this.variant,
+      map: this.mapId,
       cup: this.cup ? { round: this.cup.round + 1, total: MODES.office_cup.rounds } : null,
     });
   }
@@ -763,8 +773,8 @@ export class Room {
     // proposal against our own record of where we watched this car drive.
     if (this.modeId === 'desk_dash') {
       const s = finiteVec(safe, 3);
-      if (s && s[0] > MAP_BOUNDS.minX && s[0] < MAP_BOUNDS.maxX
-          && s[1] > MAP_BOUNDS.minZ && s[1] < MAP_BOUNDS.maxZ
+      if (s && s[0] > this.map.MAP_BOUNDS.minX && s[0] < this.map.MAP_BOUNDS.maxX
+          && s[1] > this.map.MAP_BOUNDS.minZ && s[1] < this.map.MAP_BOUNDS.maxZ
           && player.poseRing.some((q) => Math.hypot(s[0] - q[0], s[1] - q[1]) < SAFE_POSE_MATCH_DIST)) {
         spot = { x: s[0], z: s[1], rotY: s[2] };
       }
@@ -791,7 +801,7 @@ export class Room {
     const t = now();
     const others = [...this.players.values()].filter((p) => p.id !== player.id);
     let best = null, bestScore = -Infinity;
-    SPAWNS.forEach((sp, i) => {
+    this.map.SPAWNS.forEach((sp, i) => {
       let nearest = Infinity;
       for (const o of others) nearest = Math.min(nearest, Math.hypot(o.p[0] - sp.x, o.p[2] - sp.z));
       let score = Math.min(nearest, 25);
@@ -809,11 +819,11 @@ export class Room {
     // The copier periodically "prints": a paper blast that blinds whoever is
     // driving past the printer room.
     if (t >= this.printerAt) {
-      this.printerAt = t + (PRINTER.minIntervalS + Math.random() * (PRINTER.maxIntervalS - PRINTER.minIntervalS)) * 1000;
+      this.printerAt = t + (this.map.PRINTER.minIntervalS + Math.random() * (this.map.PRINTER.maxIntervalS - this.map.PRINTER.minIntervalS)) * 1000;
       const targets = [...this.players.values()]
-        .filter((p) => !p.eliminated && Math.hypot(p.p[0] - PRINTER.x, p.p[2] - PRINTER.z) < PRINTER.radius)
+        .filter((p) => !p.eliminated && Math.hypot(p.p[0] - this.map.PRINTER.x, p.p[2] - this.map.PRINTER.z) < this.map.PRINTER.radius)
         .map((p) => p.id);
-      this.broadcast({ t: MSG.EFFECT, type: 'printer', at: [r2(PRINTER.x), 0, r2(PRINTER.z)], targets, blindMs: PRINTER.blindS * 1000 });
+      this.broadcast({ t: MSG.EFFECT, type: 'printer', at: [r2(this.map.PRINTER.x), 0, r2(this.map.PRINTER.z)], targets, blindMs: this.map.PRINTER.blindS * 1000 });
       if (targets.length) this.feed('🖨️ The printer has opinions again');
     }
     // Ram the vending machine at speed → a can drops; sometimes it's golden
@@ -822,10 +832,10 @@ export class Room {
       for (const p of this.players.values()) {
         if (p.eliminated) continue;
         const speed = Math.hypot(p.v[0], p.v[2]);
-        if (speed < VENDING.minSpeed) continue;
-        if (Math.hypot(p.p[0] - VENDING.x, p.p[2] - VENDING.z) > VENDING.radius) continue;
-        this.vendReadyAt = t + VENDING.cooldownS * 1000;
-        const golden = Math.random() < VENDING.goldenChance;
+        if (speed < this.map.VENDING.minSpeed) continue;
+        if (Math.hypot(p.p[0] - this.map.VENDING.x, p.p[2] - this.map.VENDING.z) > this.map.VENDING.radius) continue;
+        this.vendReadyAt = t + this.map.VENDING.cooldownS * 1000;
+        const golden = Math.random() < this.map.VENDING.goldenChance;
         if (golden && !p.powerup && (!p.bot || this.bots.items)) {
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup });
@@ -872,11 +882,11 @@ export class Room {
       // Last Car Standing doubles the chaos cadence — the office fights back
       const interval = this.modeId === 'last_standing' ? OFFICE_EVENT_INTERVAL / 2 : OFFICE_EVENT_INTERVAL;
       this.nextEventAt = t + interval * 1000;
-      if (ev.id === 'cleaning_robot') this.robot = { x: ROBOT_PATH[0].x, z: ROBOT_PATH[0].z, wp: 1 };
+      if (ev.id === 'cleaning_robot') this.robot = { x: this.map.ROBOT_PATH[0].x, z: this.map.ROBOT_PATH[0].z, wp: 1 };
       this.broadcast({ t: MSG.OFFICE_EVENT, id: ev.id, duration: ev.duration, name: ev.name, icon: ev.icon, desc: ev.desc });
     }
     if (this.robot) {
-      const wp = ROBOT_PATH[this.robot.wp % ROBOT_PATH.length];
+      const wp = this.map.ROBOT_PATH[this.robot.wp % this.map.ROBOT_PATH.length];
       const dx = wp.x - this.robot.x, dz = wp.z - this.robot.z;
       const len = Math.hypot(dx, dz);
       const speed = 3.2 * M * dt;
@@ -920,7 +930,35 @@ export class Room {
     this.broadcast({
       t: MSG.LOBBY, phase: this.phase, players: this.publicPlayers(),
       votes: Object.fromEntries(this.votes), endsAt: this.endsAt,
+      mapVotes: Object.fromEntries(this.mapVotes), map: this.mapId,
     });
+  }
+
+  // ---------------------------------------------------------------- maps
+  // A room lives on one map at a time; the pads, spawns, machines and every
+  // mode's layout come from it.
+  setMap(id) {
+    this.mapId = id;
+    this.map = mapById(id);
+    this.pads = this.map.POWERUP_PADS.map((pad, i) => ({ ...pad, i, readyAt: 0 }));
+    this.lastSpawnUse = {};
+  }
+
+  // Next round's map: the most-voted one; with no votes a private room stays
+  // put (the host's crew chose it) and quick play moves on to another map.
+  // RC_MAP pins one for playtesting. Office Cup rounds keep their map.
+  pickMap() {
+    const pinned = MAP_IDS.includes(process.env.RC_MAP) ? process.env.RC_MAP : null;
+    const tally = {};
+    for (const m of this.mapVotes.values()) tally[m] = (tally[m] || 0) + 1;
+    const top = Object.entries(tally).sort((a, b) => b[1] - a[1]);
+    this.mapVotes.clear();
+    let next = pinned || (top.length ? top[0][0] : null);
+    if (!next) {
+      const others = MAP_IDS.filter((m) => m !== this.mapId);
+      next = this.isPrivate || !others.length ? this.mapId : others[Math.floor(Math.random() * others.length)];
+    }
+    if (next !== this.mapId) this.setMap(next);
   }
 
   // The snapshot is the hot path: it goes out as a quantized binary frame

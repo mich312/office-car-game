@@ -2,8 +2,8 @@
 // chase beans/batteries/balls with a poor-man's navmesh (the racing line
 // doubles as a corridor graph), grab powerups and generally cause trouble.
 import {
-  BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER, CHECKPOINTS, CHECKPOINT_RADIUS,
-  ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
+  CARS, CAR_IDS, CHECKPOINT_RADIUS,
+  COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
   POWERUP_EFFECT as FX, BATTERY_SPEED_PENALTY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN, BOOST_TOP_MULT,
   DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
 } from '@rc/shared';
@@ -21,12 +21,21 @@ const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
 
-const wallBoxes = WALLS.filter((w) => !w.low).map((w) => ({
-  minX: w.x - w.w / 2 - 0.35, maxX: w.x + w.w / 2 + 0.35,
-  minZ: w.z - w.d / 2 - 0.35, maxZ: w.z + w.d / 2 + 0.35,
-}));
+// Wall AABBs (padded by a car's half-width) per map, built once.
+const boxCache = new WeakMap();
+function wallBoxesOf(map) {
+  let b = boxCache.get(map);
+  if (!b) {
+    b = map.WALLS.filter((w) => !w.low).map((w) => ({
+      minX: w.x - w.w / 2 - 0.35, maxX: w.x + w.w / 2 + 0.35,
+      minZ: w.z - w.d / 2 - 0.35, maxZ: w.z + w.d / 2 + 0.35,
+    }));
+    boxCache.set(map, b);
+  }
+  return b;
+}
 
-function lineBlocked(x1, z1, x2, z2) {
+function lineBlocked(wallBoxes, x1, z1, x2, z2) {
   // sampled 2D segment vs wall AABBs — cheap and good enough for nav
   const steps = Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 1.5) + 1;
   for (let i = 1; i < steps; i++) {
@@ -39,7 +48,7 @@ function lineBlocked(x1, z1, x2, z2) {
   return false;
 }
 
-function nearestWp(x, z, path = BOT_PATH) {
+function nearestWp(x, z, path) {
   let best = 0, bd = Infinity;
   for (let i = 0; i < path.length; i++) {
     const d = Math.hypot(path[i].x - x, path[i].z - z);
@@ -96,7 +105,7 @@ export class Bots {
     const k = p.kick;
     if (!k || (Math.abs(k.x) < 0.05 && Math.abs(k.z) < 0.05)) return;
     let px = p.p[0] + k.x * dt, pz = p.p[2] + k.z * dt;
-    for (const b of wallBoxes) {
+    for (const b of wallBoxesOf(this.room.map)) {
       if (px > b.minX && px < b.maxX && pz > b.minZ && pz < b.maxZ) {
         const dl = px - b.minX, drr = b.maxX - px, dtp = pz - b.minZ, dbt = b.maxZ - pz;
         const m = Math.min(dl, drr, dtp, dbt);
@@ -145,7 +154,7 @@ export class Bots {
         if (d < 1e-4) { b.p[0] += 0.1; continue; }
         const push = (minD - d) * (o.bot ? 0.5 : 1);
         let px = b.p[0] + (dx / d) * push, pz = b.p[2] + (dz / d) * push;
-        for (const w of wallBoxes) {
+        for (const w of wallBoxesOf(this.room.map)) {
           if (px > w.minX && px < w.maxX && pz > w.minZ && pz < w.maxZ) {
             const dl = px - w.minX, drr = w.maxX - px, dtp = pz - w.minZ, dbt = w.maxZ - pz;
             const m = Math.min(dl, drr, dtp, dbt);
@@ -174,7 +183,7 @@ export class Bots {
   // The racing line this round: reversed for a Reverse Desk Dash, the
   // classic loop otherwise (it doubles as the corridor graph for every mode).
   path() {
-    return raceBotPath(this.room.modeId === 'desk_dash' ? this.room.variant : 'classic');
+    return raceBotPath(this.room.modeId === 'desk_dash' ? this.room.variant : 'classic', this.room.map);
   }
 
   // Where does this bot want to go, given the mode?
@@ -185,7 +194,7 @@ export class Bots {
     let goal = null;
     if (modeId === 'coffee_run' && mode) {
       if (p.beans >= 4) {
-        goal = { x: COFFEE_MACHINE.deliverX, z: COFFEE_MACHINE.deliverZ };
+        goal = { x: this.room.map.COFFEE_MACHINE.deliverX, z: this.room.map.COFFEE_MACHINE.deliverZ };
       } else {
         let bd = Infinity;
         for (const b of mode.beans) {
@@ -200,11 +209,11 @@ export class Bots {
       else goal = { x: b.x, z: b.z };
     } else if (modeId === 'last_standing' && mode) {
       const bad = (id) => mode.locked.includes(id) || mode.warn?.room === id;
-      const myRoom = roomAt(p.p[0], p.p[2]);
+      const myRoom = this.room.map.roomAt(p.p[0], p.p[2]);
       if (myRoom && bad(myRoom.id)) {
         // flee to the nearest room that's still open
         let best = null, bd = Infinity;
-        for (const r of ROOMS) {
+        for (const r of this.room.map.ROOMS) {
           if (bad(r.id)) continue;
           const d = Math.hypot(r.x - p.p[0], r.z - p.p[2]);
           if (d < bd) { bd = d; best = r; }
@@ -214,7 +223,7 @@ export class Bots {
         // cruise the racing line, skipping waypoints inside closed rooms
         for (let k = 0; k < PATH.length; k++) {
           const wp = PATH[p.wp % PATH.length];
-          const rm = roomAt(wp.x, wp.z);
+          const rm = this.room.map.roomAt(wp.x, wp.z);
           if (!rm || !bad(rm.id)) break;
           p.wp = (p.wp + 1) % PATH.length;
         }
@@ -222,7 +231,7 @@ export class Bots {
     } else if (modeId === 'soccer' && mode) {
       const ball = mode.ball;
       // Aim slightly behind the ball relative to the opposing goal
-      const opp = SOCCER.goals[1 - p.team];
+      const opp = this.room.map.SOCCER.goals[1 - p.team];
       const gx = opp.x, gz = opp.z;
       const dx = ball.p[0] - gx, dz = ball.p[2] - gz;
       const len = Math.hypot(dx, dz) || 1;
@@ -254,10 +263,10 @@ export class Bots {
       // inside a checkpoint and miss it — the balcony corner (#15) cost every
       // bot every lap, and races ended with the bots still on lap one.
       // Once the next checkpoint is close and in sight, drive through it.
-      const cps = mode?.cps || CHECKPOINTS;
+      const cps = mode?.cps || this.room.map.CHECKPOINTS;
       const cp = cps[p.nextCp % cps.length];
       if (Math.hypot(cp.x - p.p[0], cp.z - p.p[2]) < CHECKPOINT_RADIUS + 6
-          && !lineBlocked(p.p[0], p.p[2], cp.x, cp.z)) goal = cp;
+          && !lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], cp.x, cp.z)) goal = cp;
     }
     // Every item pad sits 2-29 units off the race line and the pickup radius
     // is 1.6, so a bot that only follows the line never holds an item.
@@ -266,7 +275,7 @@ export class Bots {
     if (pad) return pad;
     if (!goal) return this.followRaceLine(p);
     // Navigate: direct if clear, else route along the path loop
-    if (!lineBlocked(p.p[0], p.p[2], goal.x, goal.z)) return goal;
+    if (!lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], goal.x, goal.z)) return goal;
     const wpB = nearestWp(goal.x, goal.z, PATH);
     let wpA = nearestWp(p.p[0], p.p[2], PATH);
     const N = PATH.length;
@@ -277,7 +286,7 @@ export class Bots {
     for (let k = 0; k < 3; k++) {
       const peek = (next + dir + N) % N;
       if (peek === wpB) break;
-      if (!lineBlocked(p.p[0], p.p[2], PATH[peek].x, PATH[peek].z)) next = peek;
+      if (!lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], PATH[peek].x, PATH[peek].z)) next = peek;
       else break;
     }
     return PATH[next];
@@ -330,7 +339,7 @@ export class Bots {
       if (t < pad.readyAt) continue;
       if (!padWorthDetour(me, pad, goal)) continue;
       const d = Math.hypot(pad.x - me.x, pad.z - me.z);
-      if (d < bd && !lineBlocked(me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
+      if (d < bd && !lineBlocked(wallBoxesOf(this.room.map), me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
     }
     return best;
   }
@@ -375,7 +384,7 @@ export class Bots {
     let speedMul = p.hasBattery ? BATTERY_SPEED_PENALTY : 1;
     if (p.shrinkUntil > t) speedMul *= 0.85;
     // the same floors the players drive on: carpet is slower, hardwood quicker
-    speedMul *= (SURFACES[surfaceAt(p.p[0], p.p[2]).id] || SURFACES.concrete).top;
+    speedMul *= (SURFACES[surfaceAt(p.p[0], p.p[2], this.room.map).id] || SURFACES.concrete).top;
     for (const pu of this.room.puddles) {
       if (Math.hypot(p.p[0] - pu.x, p.p[2] - pu.z) >= FX.PUDDLE_RADIUS) continue;
       if (pu.kind === 'oil') p.oilUntil = t + OIL_SLIDE_S * 1000;
@@ -427,7 +436,7 @@ export class Bots {
     const nz = p.p[2] + Math.cos(p.heading) * p.speed * dt;
     // wall pushout so they never clip through
     let px = nx, pz = nz;
-    for (const b of wallBoxes) {
+    for (const b of wallBoxesOf(this.room.map)) {
       if (px > b.minX && px < b.maxX && pz > b.minZ && pz < b.maxZ) {
         const dl = px - b.minX, drr = b.maxX - px, dtp = pz - b.minZ, dbt = b.maxZ - pz;
         const m = Math.min(dl, drr, dtp, dbt);

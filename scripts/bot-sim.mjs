@@ -29,9 +29,10 @@ function seeded(seed) {
   };
 }
 
-export async function createSim({ seed = 1, mode = 'desk_dash', bots = 6, variant = 'classic' } = {}) {
+export async function createSim({ seed = 1, mode = 'desk_dash', bots = 6, variant = 'classic', map = 'office' } = {}) {
   Math.random = seeded(seed);
   const room = new Room();
+  room.setMap(map);
   const events = [];
   room.broadcast = (msg) => { events.push({ ...msg, at: clock }); };
   room.sendTo = () => {};

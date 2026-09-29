@@ -1,7 +1,7 @@
 // WebSocket client: connection, snapshot interpolation buffers, event bus.
 // Everything a useFrame loop reads lives on the mutable `net` object —
 // zustand only gets things React actually renders.
-import { MSG, INTERP_DELAY_MS, PHASE, decodeSnapshot } from '@rc/shared';
+import { MSG, INTERP_DELAY_MS, PHASE, DEFAULT_MAP, decodeSnapshot } from '@rc/shared';
 import { setUrlRoom } from './rooms.js';
 import { useStore } from './store.js';
 
@@ -131,6 +131,7 @@ function handleMessage(msg) {
         countdownEnd: msg.countdownMs ? Date.now() + msg.countdownMs : 0,
         mutator: msg.mutator || null,
         variant: msg.variant || 'classic',
+        mapId: msg.map || DEFAULT_MAP,
         powerup: null, spectating: false, spectateTarget: null,
         event: null, eventWarn: null, podium: null,
         scores: {}, raceProgress: {}, myBeans: 0,
@@ -141,7 +142,7 @@ function handleMessage(msg) {
     case MSG.LOBBY: {
       const players = {};
       for (const p of msg.players) players[p.id] = p;
-      S.setState({ players, votes: msg.votes || {}, phase: msg.phase, endsAt: msg.endsAt || 0 });
+      S.setState({ players, votes: msg.votes || {}, mapVotes: msg.mapVotes || {}, phase: msg.phase, endsAt: msg.endsAt || 0, ...(msg.map ? { mapId: msg.map } : {}) });
       break;
     }
     case MSG.PLAYER_JOIN: {
@@ -175,6 +176,7 @@ function handleMessage(msg) {
         itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false,
         spectating: false, spectateTarget: null, lcs: null, rivalry: null, nemesis: null,
         mutator: msg.mutator || null, cup: msg.cup || null, variant: msg.variant || 'classic',
+        mapId: msg.map || S.getState().mapId,
         abilityReadyAt: 0, printerFlashUntil: 0,
       });
       emit('match_start', msg);

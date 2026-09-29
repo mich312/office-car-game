@@ -10,6 +10,7 @@ import { RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 import { M, MODES, MODE_IDS } from '@rc/shared';
 import { useStore } from '../store.js';
+import { useMap } from './activeMap.js';
 
 const W = 1024, H = 640;
 const INK = '#23272c';        // black marker
@@ -425,6 +426,8 @@ function Memos({ position, rotationY = 0 }) {
 }
 
 export default function OfficeBoard() {
+  const map = useMap();
+  const spots = map.BOARDS;
   const lastHash = useRef('');
   const acc = useRef(1);
   const { texture, material, canvas } = useMemo(() => {
@@ -461,14 +464,13 @@ export default function OfficeBoard() {
 
   return (
     <>
-      {/* meeting room, east wall beside the TV (tops aligned), facing in */}
-      <Board position={[20.86 * M, 1.41 * M, 3.65 * M]} rotationY={-Math.PI / 2} material={material} shadow={shadow} />
-      {/* reception, south wall above the big desk, centered in the band
-          between desk and ceiling */}
-      <Board position={[-17.5 * M, 2.0 * M, -11.87 * M]} rotationY={0} material={material} shadow={shadow} />
-      {/* reception wall dressing so the board hangs in company */}
-      <WallClock position={[-19.15 * M, 2.32 * M, -11.87 * M]} />
-      <Memos position={[-16.05 * M, 1.95 * M, -11.88 * M]} />
+      {/* where the boards hang comes from the map (BOARDS, meters) */}
+      {spots.boards.map((b, i) => (
+        <Board key={`${map.id}${i}`} position={b.at.map((v) => v * M)} rotationY={b.rotY} material={material} shadow={shadow} />
+      ))}
+      {/* wall dressing so a board hangs in company */}
+      {spots.clock && <WallClock position={spots.clock.at.map((v) => v * M)} rotationY={spots.clock.rotY} />}
+      {spots.memos && <Memos position={spots.memos.at.map((v) => v * M)} rotationY={spots.memos.rotY} />}
     </>
   );
 }

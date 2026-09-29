@@ -13,7 +13,7 @@ import {
   SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
   DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS, SLIPSTREAM,
-  SPAWNS, SOCCER, POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX, roomAt,
+  POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX,
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
@@ -28,6 +28,7 @@ import Particles, { burst, puff } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
 import { audio } from '../audio.js';
 import { rumble } from './rumble.js';
+import { currentMap } from './activeMap.js';
 
 const BASE_MASS = 14;
 // Camera motion (shake, landing dip, hit punch, slide swing) is scaled way
@@ -164,6 +165,13 @@ export default function LocalCar() {
     S.postHSpeed = -1; // a teleport's speed change is not a crash
     S.drift = newDriftState(); // nor does a drift survive one
   };
+  // headless testing / screenshots, alongside window.__rcTelemetry: park the
+  // car at (x, z) meters facing rotY
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    window.__rcTeleport = (x, z, rotY = 0) => teleport(x * M, SPAWN_Y, z * M, rotY);
+    return () => { delete window.__rcTeleport; };
+  });
 
   // Ask the server for a respawn. It scores the spawn slots (races get our
   // safe-pose proposal instead) and answers with RESPAWN_AT → we teleport,
@@ -176,7 +184,8 @@ export default function LocalCar() {
       S.pendingRespawnAt = nowMs;
       send({ t: MSG.RESPAWN, safe: S.safePoses.length ? S.safePoses[0] : null });
     } else {
-      const sp = SPAWNS[net.spawnIndex % SPAWNS.length];
+      const SP = currentMap().SPAWNS;
+      const sp = SP[net.spawnIndex % SP.length];
       teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
       S.boost = Math.max(S.boost, 40);
     }
@@ -189,7 +198,8 @@ export default function LocalCar() {
         const st = useStore.getState();
         if (st.modeId === 'soccer') {
           const team = net.teams[net.myId] || 0;
-          const spots = SOCCER.kickoff.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
+          const kick = currentMap().SOCCER.kickoff;
+          const spots = kick.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
           // spawnIndex is GLOBAL join order and teams alternate by it, so a
           // team's members hold every other index — indexing the 6 team spots
           // by it repeats once a team has 4+ members, teleporting teammates
@@ -198,11 +208,11 @@ export default function LocalCar() {
           // and identical on every client since msg.teams arrives in the
           // same order everywhere.
           const ord = Object.keys(net.teams).filter((id) => (net.teams[id] || 0) === team).indexOf(net.myId);
-          const sp = spots[(ord >= 0 ? ord : net.spawnIndex) % spots.length] || SOCCER.kickoff[0];
+          const sp = spots[(ord >= 0 ? ord : net.spawnIndex) % spots.length] || kick[0];
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         } else {
           // the grid faces the lap's first checkpoint: north for a reverse race
-          const sp = raceSpawn(net.spawnIndex, st.modeId === 'desk_dash' ? st.variant : 'classic');
+          const sp = raceSpawn(net.spawnIndex, st.modeId === 'desk_dash' ? st.variant : 'classic', currentMap());
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         }
         S.boost = BOOST_MAX;
@@ -419,6 +429,7 @@ export default function LocalCar() {
 
   // Forces run per PHYSICS STEP (fixed dt) so handling is framerate-independent.
   useBeforePhysicsStep(() => {
+    const map = currentMap();
     const body = rb.current;
     if (!body) return;
     const dt = PHYS_TIMESTEP;
@@ -466,7 +477,7 @@ export default function LocalCar() {
         const hitY = _p.y + ray.dir.y * len;
         if (Math.abs(hitY) < 0.08) {
           const wx = _p.x + ray.dir.x * len, wz = _p.z + ray.dir.z * len;
-          const surf = surfaceAt(wx, wz);
+          const surf = surfaceAt(wx, wz, map);
           len -= floorHeight(surf, wx, wz);
           if (wi === 0) S.wheelSurf = surf; // front-left wheel: seam clicks
         } else if (wi === 0) S.wheelSurf = null;
@@ -584,7 +595,7 @@ export default function LocalCar() {
 
     // ---------------- the floor: carpet grips but drags, hardwood is quick
     // but slides (shared/src/surfaces.js) — only while actually on it
-    const floorSurf = grounded && pos.y < 0.9 ? SURFACES[surfaceAt(pos.x, pos.z).id] || SURFACES.concrete : null;
+    const floorSurf = grounded && pos.y < 0.9 ? SURFACES[surfaceAt(pos.x, pos.z, map).id] || SURFACES.concrete : null;
     telemetry.surface = floorSurf ? floorSurf.name : null;
 
     // ---------------- puddles & event modifiers
@@ -907,6 +918,7 @@ export default function LocalCar() {
 
   // Camera, audio, telemetry & network run per RENDER frame.
   useFrame((state, rawDt) => {
+    const map = currentMap();
     const body = rb.current;
     if (!body) return;
     const dt = Math.min(rawDt, 1 / 20);
@@ -1021,7 +1033,10 @@ export default function LocalCar() {
         audio.seam(S.wheelSurf?.id, S.speed / car.topSpeed);
       }
     }
-    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
+    // upstairs it rains on the glass; downstairs there is only the hum
+    const cellar = map.theme === 'cellar';
+    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : cellar ? 0 : map.roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
+    audio.setHum(cellar && st.event?.id !== 'lights_out' ? 1 : 0);
 
     // ---------------- network send
     if (nowMs - S.lastSend > 1000 / INPUT_SEND_RATE) {
@@ -1044,7 +1059,7 @@ export default function LocalCar() {
       | (nowMs < S.protectUntil ? 64 : 0);
   });
 
-  const startSpawn = SPAWNS[0];
+  const startSpawn = currentMap().SPAWNS[0];
   return (
     <>
       <RigidBody

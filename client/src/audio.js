@@ -19,6 +19,7 @@ let engine = null;
 let skid = null;
 let roll = null; // tyre-on-floor noise, voiced by the surface
 let rain = null;
+let hum = null;
 let muted = false;
 const MASTER_LEVEL = 0.5; // headroom under the limiter at full fader
 let vol = { master: 1, music: 0.7, effects: 1 };
@@ -50,6 +51,7 @@ function ensure() {
   buildSkid();
   buildRoll();
   buildRain();
+  buildHum();
   return true;
 }
 
@@ -180,6 +182,25 @@ function buildRain() {
   rain = { g };
 }
 
+// The cellar's room tone: mains hum from the tube ballasts (100 Hz and its
+// harmonics — the rectified 50 Hz you hear in every basement) under a thin
+// high whine. Silent upstairs; a map with tubes turns it up.
+function buildHum() {
+  const g = ctx.createGain(); g.gain.value = 0;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520;
+  for (const [f, a, type] of [[100, 0.5, 'sawtooth'], [50, 0.35, 'sine'], [200, 0.12, 'triangle']]) {
+    const o = ctx.createOscillator(); o.type = type; o.frequency.value = f;
+    const og = ctx.createGain(); og.gain.value = a;
+    o.connect(og); og.connect(lp); o.start();
+  }
+  lp.connect(g);
+  const whine = ctx.createOscillator(); whine.type = 'sine'; whine.frequency.value = 7800;
+  const wg = ctx.createGain(); wg.gain.value = 0.015;
+  whine.connect(wg); wg.connect(g); whine.start();
+  g.connect(bus.amb);
+  hum = { g };
+}
+
 export const audio = {
   start() { if (ensure() && ctx.state === 'suspended') ctx.resume(); },
   setMuted(m) {
@@ -289,6 +310,24 @@ export const audio = {
   },
   setRain(amount) {
     if (rain) rain.g.gain.setTargetAtTime(amount * 0.12, ctx.currentTime, 0.4);
+  },
+  setHum(amount) {
+    if (hum) hum.g.gain.setTargetAtTime(amount * 0.05, ctx.currentTime, 0.6);
+  },
+  // A dying fluorescent tube striking: a short, dirty 100 Hz buzz with a
+  // click on the front, from where the tube is.
+  tubeBuzz(at = null, strength = 1) {
+    if (!ensure()) return;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = 100;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1100; bp.Q.value = 0.8;
+    const g = ctx.createGain();
+    const len = 0.06 + Math.random() * 0.12;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.05 * strength, t + 0.004);
+    g.gain.setTargetAtTime(0, t + len, 0.03);
+    o.connect(bp); bp.connect(g); g.connect(sfxOut(at));
+    o.start(t); o.stop(t + len + 0.2);
   },
   impact(strength = 1, at = null) {
     if (!ensure()) return;

@@ -7,10 +7,10 @@ import { RigidBody, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import TextSprite from './TextSprite.jsx';
 import {
-  POWERUP_PADS, COFFEE_MACHINE, SOCCER, POWERUP_EFFECT, M,
-  ROOMS, WALL_HEIGHT,
+  POWERUP_EFFECT, M,
   raceCheckpoints,
 } from '@rc/shared';
+import { useMap } from './activeMap.js';
 import { useStore } from '../store.js';
 import { net, on, sampleRemote } from '../net.js';
 import { burst } from './particles.jsx';
@@ -117,6 +117,7 @@ function ItCrown() {
 // Locked rooms fill with a red haze, the next victim pulses amber.
 // The zone is a zap field, not a wall — you can drive through, briefly.
 function LockedRooms() {
+  const { ROOMS, WALL_HEIGHT } = useMap();
   const lcs = useStore((s) => s.lcs);
   const warnRef = useRef();
   useFrame(({ clock }) => {
@@ -158,7 +159,7 @@ function LockedRooms() {
 function RaceCheckpoints() {
   const myId = useStore((s) => s.myId);
   const prog = useStore((s) => s.raceProgress[myId]);
-  const cps = raceCheckpoints(useStore((s) => s.variant));
+  const cps = raceCheckpoints(useStore((s) => s.variant), useMap());
   const next = (prog?.[1] ?? 0) % cps.length;
   const cp = cps[next];
   const ring = useRef();
@@ -222,6 +223,7 @@ function Beans() {
 }
 
 function CoffeeMachine() {
+  const { COFFEE_MACHINE } = useMap();
   const glow = useRef();
   useFrame(({ clock }) => {
     if (glow.current) glow.current.material.opacity = 0.25 + Math.sin(clock.elapsedTime * 2.5) * 0.12;
@@ -281,6 +283,7 @@ function Battery() {
 
 // ------------------------------------------------------------- soccer
 function SoccerBall() {
+  const { SOCCER } = useMap();
   const rb = useRef();
   // Giant Ball mutator: the server dictates the radius via snapshots
   const [radius, setRadius] = useState(SOCCER.ballRadius);
@@ -319,6 +322,7 @@ function SoccerBall() {
 }
 
 function Goals() {
+  const { SOCCER } = useMap();
   return (
     <group>
       {SOCCER.goals.map((g, i) => (
@@ -342,6 +346,7 @@ function Goals() {
 
 // ------------------------------------------------------------- powerups
 function PowerupPads() {
+  const { POWERUP_PADS } = useMap();
   const refs = useRef([]);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;

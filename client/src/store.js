@@ -38,6 +38,8 @@ export const useStore = create((set, get) => ({
   countdownEnd: 0,
   players: {}, // id → { name, car, paint, ready, bot, team }
   votes: {},
+  mapVotes: {},
+  mapId: 'office', // which map the room is on (shared/src/map.js)
   scores: {},
   teamScores: [0, 0],
   raceProgress: {}, // id → [lap, cp]

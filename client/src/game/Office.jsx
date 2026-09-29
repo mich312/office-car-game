@@ -6,7 +6,9 @@ import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { Sparkles, RoundedBox } from '@react-three/drei';
 import { roundedBox } from './roundedGeo.js';
 import * as THREE from 'three';
-import { ROOMS, WALLS, FURNITURE, RAMPS, WALL_HEIGHT, M, MAP_BOUNDS, roomAt } from '@rc/shared';
+import { M } from '@rc/shared';
+import { useMap } from './activeMap.js';
+import CellarDressing, { CellarPiece, CELLAR_TYPES } from './Cellar.jsx';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
@@ -46,19 +48,29 @@ const FLOOR_MATS = {
   }),
 };
 
+// The floor, walls, furniture and ramps come from the map's data; the rest
+// is the map's theme — the office has its windows, skyline and daylight, the
+// cellar its tubes and pipes (Cellar.jsx). Keyed on the map, so a new map
+// mounts fresh colliders instead of patching the old ones.
 export default function Office() {
+  const map = useMap();
+  const cellar = map.theme === 'cellar';
   return (
-    <group>
-      <Floors />
-      <Walls />
-      <Ceiling />
-      <BigFurniture />
-      <Ramps />
-      <Outside />
-      <Ambience />
-      <LightPools />
-      <LightShafts />
-      <Practicals />
+    <group key={map.id}>
+      <Floors map={map} />
+      <Walls map={map} />
+      <BigFurniture map={map} />
+      <Ramps map={map} />
+      <Practicals map={map} />
+      {cellar ? <CellarDressing map={map} /> : (
+        <>
+          <Ceiling map={map} />
+          <Outside />
+          <Ambience />
+          <LightPools />
+          <LightShafts />
+        </>
+      )}
     </group>
   );
 }
@@ -146,13 +158,18 @@ function LightShafts() {
 }
 
 // ------------------------------------------------------------------ floors
-function Floors() {
-  const mats = useMemo(() => Object.fromEntries(Object.entries(FLOOR_MATS).map(([k, fn]) => [k, fn()])), []);
+function Floors({ map }) {
+  const { ROOMS, MAP_BOUNDS } = map;
+  // a map can tint a floor type (the cellar's lino and concrete are older and
+  // greyer than upstairs): the tint multiplies the albedo map
+  const tints = map.LOOK?.floors;
+  const mats = useMemo(() => Object.fromEntries(Object.entries(FLOOR_MATS).map(([k, fn]) => {
+    const m = fn();
+    if (tints?.[k]) m.color.set(tints[k]);
+    return [k, m];
+  })), [tints]);
   const stain = useMemo(() => new THREE.MeshBasicMaterial({ map: stainTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }), []);
-  const stains = useMemo(() => [
-    [-17.5, -4, 2.4], [-1, 0.5, 2], [2.5, -8.8, 3], [9.5, -1, 1.6], [0, 9.7, 2.2],
-    [17, 8, 1.7], [-11, -1, 1.8], [16.5, -7, 2], [-6, -6.2, 1.5],
-  ], []);
+  const stains = map.STAINS || [];
   return (
     <>
       {/* one big physics slab under the whole building + balcony */}
@@ -180,12 +197,14 @@ function Floors() {
 const SKIRT_H = 0.12 * M;   // 12 cm — two thirds of a car
 const SKIRT_OUT = 0.06;     // proud of the wall face, so it catches a rim of light
 
-function Walls() {
+function Walls({ map }) {
+  const { WALLS } = map;
+  const look = map.LOOK || {};
   // Matt emulsion. The orange-peel normal is deliberately almost invisible —
   // its job is to break the perfectly flat specular that made every wall read
   // as an untextured box, especially where a low sun grazes along one.
   const paint = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#e8e4da',
+    color: look.wall || '#e8e4da',
     normalMap: orangePeel('paint', 0.55, [3, 3]),
     normalScale: new THREE.Vector2(0.35, 0.35),
     roughnessMap: wearRough('paint', 218, 16, [3, 3]),
@@ -202,15 +221,15 @@ function Walls() {
   // drive alongside, and it is most of what turns a flat white plane into a
   // room. One extra instanced draw call for the whole building.
   const skirtMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#d8d2c6',
+    color: look.skirt || '#d8d2c6',
     normalMap: orangePeel('paint', 0.55, [3, 3]),
     normalScale: new THREE.Vector2(0.3, 0.3),
     roughness: 0.7,
   }), []);
   const skirt = useRef();
-  const solid = useMemo(() => WALLS.filter((w) => !w.glass && !w.low), []);
-  const glass = useMemo(() => WALLS.filter((w) => w.glass), []);
-  const rails = useMemo(() => WALLS.filter((w) => w.low), []);
+  const solid = useMemo(() => WALLS.filter((w) => !w.glass && !w.low), [WALLS]);
+  const glass = useMemo(() => WALLS.filter((w) => w.glass), [WALLS]);
+  const rails = useMemo(() => WALLS.filter((w) => w.low), [WALLS]);
   const inst = useRef();
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D();
@@ -265,7 +284,8 @@ function Walls() {
 }
 
 // ----------------------------------------------------------------- ceiling
-function Ceiling() {
+function Ceiling({ map }) {
+  const { WALL_HEIGHT } = map;
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
@@ -281,7 +301,7 @@ function Ceiling() {
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {
       for (let z = -10.4; z <= 10.4; z += 3.2) {
-        if (roomAt(x * M, z * M)?.outdoor) continue; // balcony is open sky
+        if (map.roomAt(x * M, z * M)?.outdoor) continue; // balcony is open sky
         out.push([x * M, z * M]);
       }
     }
@@ -346,7 +366,8 @@ const PLASTIC = (c = '#e8e8e8') => new THREE.MeshStandardMaterial({
   roughnessMap: wearRough('plastic', 155, 24, [2, 2]), roughness: 1,
 });
 
-function BigFurniture() {
+function BigFurniture({ map }) {
+  const { FURNITURE } = map;
   const mats = useMemo(() => ({
     wood: WOOD(), metal: METAL(), fabric: FABRIC(), fabric2: FABRIC('#c0573f'),
     white: PLASTIC(), dark: PLASTIC('#2f333b'), grey: PLASTIC('#b9bfc7'),
@@ -370,6 +391,7 @@ const chamfer = (w, h, d) => Math.min(0.22, Math.min(w, h, d) * 0.45);
 
 function Furniture({ f, mats }) {
   const { type, x, z, w, d, h, rotY } = f;
+  if (CELLAR_TYPES.includes(type)) return <CellarPiece f={f} mats={mats} />;
   const legIn = 0.28;
   switch (type) {
     case 'desk':
@@ -801,7 +823,8 @@ function ServerLights({ w, h, d }) {
 }
 
 // ------------------------------------------------------------------- ramps
-function Ramps() {
+function Ramps({ map }) {
+  const { RAMPS } = map;
   const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#c8b28a', roughness: 0.7 }), []);
   return (
     <group>

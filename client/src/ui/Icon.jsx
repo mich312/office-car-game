@@ -101,6 +101,8 @@ const GLYPHS = {
     <path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8z" />
   ),
   bolt: <path d="M13 2 4.5 13.5H11L9.5 22 18 10.5h-6.5z" />,
+  building: <><path d="M4 21V5l8-3v19M12 8l8 3v10M2 21h20" /><path d="M7 8h2M7 12h2M7 16h2M15 13h2M15 17h2" /></>,
+  tube: <><rect x="2" y="9" width="20" height="4" rx="2" /><path d="M4 17l1-2M8 18v-3M12 18v-3M16 18v-3M20 17l-1-2" /></>,
   check: <path d="M4.5 12.5l5 5L19.5 6.5" />,
   'chevron-left': <path d="M14.5 5.5 8 12l6.5 6.5" />,
   'chevron-right': <path d="M9.5 5.5 16 12l-6.5 6.5" />,

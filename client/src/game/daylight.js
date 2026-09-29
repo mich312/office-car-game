@@ -165,8 +165,37 @@ export const LIGHTS_OUT = {
   wet: true,
 };
 
+// The IT Cellar has no windows, so it has no time of day: one state, lit by
+// banks of fluorescent tubes. Cold, a little green, and flat — the light that
+// makes a basement a basement. The key light stands almost straight overhead
+// (where the tubes are) so shadows pool under things instead of raking across.
+export const CELLAR = {
+  label: 'Basement B-1',
+  clock: '--:--',
+  sun: { pos: [22, 210, 30], color: '#e6fff4', intensity: 1.05 },
+  amb: { intensity: 0.2, color: '#b8d0c6' },
+  hemi: { intensity: 0.36, sky: '#dff5ec', ground: '#2c2a24' },
+  ceiling: 16,
+  env: {
+    intensity: 0.42,
+    bg: '#0d1214',
+    window: { color: '#1a2226', intensity: 0.2 },
+    ceil: { color: '#e4fff3', intensity: 2.6 },
+    warm: { color: '#ffb46a', intensity: 0.35 },
+    key: { color: '#cfeee2', intensity: 1.1 },
+  },
+  shaft: { opacity: 0, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
+  pool: 0.12,
+  panel: 1.6,
+  bloom: { intensity: 0.85, threshold: 0.72 },
+  shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.7 },
+  practical: 0.8,
+  wet: false,
+};
+
 export const hourAfter = (id) => HOURS[(HOURS.indexOf(id) + 1) % HOURS.length];
 
-// What the renderers actually ask for: the blackout wins over the clock.
-export const lightingFor = (hour, lightsOut) =>
-  (lightsOut ? LIGHTS_OUT : DAYLIGHT[hour] || DAYLIGHT.golden);
+// What the renderers actually ask for: the blackout wins over the clock, and
+// a windowless map ignores the clock altogether.
+export const lightingFor = (hour, lightsOut, theme = 'office') =>
+  (lightsOut ? LIGHTS_OUT : theme === 'cellar' ? CELLAR : DAYLIGHT[hour] || DAYLIGHT.golden);
