@@ -22,6 +22,52 @@ const WHEEL_POS = [
   [-0.3, -0.34], [0.3, -0.34],
 ];
 
+// ------------------------------------------------------------ suspension
+// Exposed RC suspension on the open-wheel bodies: per corner a lower
+// wishbone from the chassis to the hub, and a coil-over (spring around a
+// damper) from the body down to the wishbone. Every frame they're stretched
+// between where the wheel really is (the suspension rays) and where the body
+// really is (its lean and landing squash), so you see the springs work. The
+// hatch bodies cover their wheels, so they don't draw any.
+// top: shock-tower height; out: how far out the tower sits, as a share of
+// the wheel's own x (near 1 = right beside the wheel, where RC shocks live)
+const SUSPENSION = {
+  buggy: { top: 0.24, out: 0.9, spring: '#e8b830' },
+  monster: { top: 0.28, out: 0.82, spring: '#e0362f' },
+  formula: { top: 0.13, out: 0.72, spring: '#3d8bff' },
+};
+const _unitY = new THREE.Vector3(0, 1, 0);
+const _unitX = new THREE.Vector3(1, 0, 0);
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _n = new THREE.Vector3(), _top = new THREE.Vector3();
+let _suspGeo = null;
+function suspGeo() {
+  if (_suspGeo) return _suspGeo;
+  // a unit-height coil along +y: scaled to the shock's length each frame, so
+  // it visibly squashes and stretches
+  const turns = 7, pts = [];
+  for (let i = 0; i <= turns * 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    pts.push(new THREE.Vector3(Math.cos(a) * 0.028, i / (turns * 16), Math.sin(a) * 0.028));
+  }
+  _suspGeo = {
+    coil: new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), turns * 16, 0.0065, 5, false),
+    damper: new THREE.CylinderGeometry(0.013, 0.013, 1, 8).translate(0, 0.5, 0),
+    arm: new THREE.BoxGeometry(1, 0.014, 0.05).translate(0.5, 0, 0),
+  };
+  return _suspGeo;
+}
+const SUSP_MATS = new Map();
+function suspMats(color) {
+  if (!SUSP_MATS.has(color)) {
+    SUSP_MATS.set(color, {
+      coil: new THREE.MeshStandardMaterial({ color, metalness: 0.5, roughness: 0.35 }),
+      damper: new THREE.MeshStandardMaterial({ color: '#c9ced6', metalness: 0.9, roughness: 0.2 }),
+      arm: new THREE.MeshStandardMaterial({ color: '#2a2d33', roughness: 0.6 }),
+    });
+  }
+  return SUSP_MATS.get(color);
+}
+
 // Where a bolt-on spoiler mounts per body: [deck y, deck z, half width]
 const SPOILER_MOUNT = {
   buggy: [0.13, -0.42, 0.23],
@@ -237,6 +283,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const dark = night || event?.id === 'lights_out';
   const wheels = useRef([]);
   const wheelGroups = useRef([]);
+  const susp = useRef([]); // per corner: { coil, damper, arm } meshes
   const bodyRef = useRef();
   const flameRef = useRef();
   const shieldRef = useRef();
@@ -308,6 +355,38 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
       bodyRef.current.scale.set(1 + sq * 0.06, 1 - sq * 0.13, 1 + sq * 0.06);
       bodyRef.current.position.y = -sq * 0.045;
     }
+    // coil-overs: from the (leaning, squashing) body down to the wishbone,
+    // wishbones from the chassis out to wherever the wheel is right now
+    const sp = SUSPENSION[carId];
+    if (sp && bodyRef.current && susp.current[0]) {
+      bodyRef.current.updateMatrix();
+      for (let i = 0; i < 4; i++) {
+        const parts = susp.current[i], g = wheelGroups.current[i];
+        if (!parts || !g) continue;
+        const [wx, wz] = WHEEL_POS[i];
+        const side = Math.sign(wx);
+        // wishbone: fixed chassis pivot → hub
+        _a.set(wx * 0.3, suspPivotY, wz);
+        _b.set(g.position.x - side * 0.02, g.position.y, wz);
+        _d.subVectors(_b, _a);
+        parts.arm.position.copy(_a);
+        parts.arm.quaternion.setFromUnitVectors(_unitX, _n.copy(_d).normalize());
+        parts.arm.scale.set(_d.length(), 1, 1);
+        // coil-over: body-mounted top (rides the lean and the landing squash)
+        // → a point 80% of the way out along the wishbone
+        _top.set(wx * sp.out, sp.top, wz * 0.9).applyMatrix4(bodyRef.current.matrix);
+        _b.lerpVectors(_a, _b, 0.8);
+        _d.subVectors(_top, _b);
+        const len = _d.length();
+        _d.normalize();
+        for (const m of [parts.coil, parts.damper]) {
+          m.position.copy(_b);
+          m.quaternion.setFromUnitVectors(_unitY, _d);
+        }
+        parts.coil.scale.set(1, len, 1);
+        parts.damper.scale.set(1, len * 0.85, 1);
+      }
+    }
     if (flameRef.current) {
       const on = boostingRef?.current;
       flameRef.current.visible = !!on;
@@ -366,6 +445,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   // rest pose: wheels at the TUNED equilibrium sag, tires kissing the floor —
   // soft springs slam the car, stiff springs stand it up
   const restY = -0.05 - T.settle + wheelR;
+  const suspPivotY = restY + 0.02; // wishbone inner pivot: chassis height at the hubs
   const decal = DECAL_FIT[carId] || DECAL_FIT.balanced;
   const kit = KIT[carId] || KIT.balanced;
   const bounds = shellBounds(carId);
@@ -448,6 +528,18 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
           </group>
         </group>
       ))}
+      {/* exposed suspension (open-wheel bodies) */}
+      {SUSPENSION[carId] && [0, 1, 2, 3].map((i) => {
+        const G = suspGeo(), M = suspMats(SUSPENSION[carId].spring);
+        const set = (k) => (el) => { susp.current[i] = { ...(susp.current[i] || {}), [k]: el }; };
+        return (
+          <group key={`susp${i}`}>
+            <mesh ref={set('arm')} geometry={G.arm} material={M.arm} />
+            <mesh ref={set('damper')} geometry={G.damper} material={M.damper} />
+            <mesh ref={set('coil')} geometry={G.coil} material={M.coil} castShadow />
+          </group>
+        );
+      })}
       {/* underglow */}
       {st.glow && (
         <group>
