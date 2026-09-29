@@ -52,7 +52,7 @@ export default function Practicals({ map }) {
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
-  const level = lightingFor(hour, lightsOut, map.theme).practical;
+  const level = lightingFor(hour, lightsOut, map).practical;
 
   const lamps = useMemo(() => PROPS.filter((p) => p.type === 'lamp'), [PROPS]);
   const monitors = useMemo(() => PROPS.filter((p) => p.type === 'monitor'), [PROPS]);

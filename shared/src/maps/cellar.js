@@ -307,6 +307,41 @@ export const CELLAR = {
   },
   // point lights (meters): the tube banks that actually light the floor
   CEILING_LIGHTS: [[-9, 1], [8, 1], [-13, 7], [12, 7], [-13.5, -6], [4.5, -6]],
+  // The light (client/src/game/daylight.js reads it). No windows, so no time
+  // of day: one state, lit by banks of fluorescent tubes. Cold, a little
+  // green, and flat — the light that makes a basement a basement. The key
+  // light stands almost straight overhead (where the tubes are) so shadows
+  // pool under things instead of raking across.
+  LIGHTING: {
+    fixed: {
+      label: 'Basement B-1',
+      clock: '--:--',
+      sun: { pos: [22, 210, 30], color: '#e6fff4', intensity: 1.05 },
+      amb: { intensity: 0.2, color: '#b8d0c6' },
+      hemi: { intensity: 0.36, sky: '#dff5ec', ground: '#2c2a24' },
+      ceiling: 16,
+      env: {
+        intensity: 0.42,
+        bg: '#0d1214',
+        window: { color: '#1a2226', intensity: 0.2 },
+        ceil: { color: '#e4fff3', intensity: 2.6 },
+        warm: { color: '#ffb46a', intensity: 0.35 },
+        key: { color: '#cfeee2', intensity: 1.1 },
+      },
+      shaft: { opacity: 0, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
+      pool: 0.12,
+      panel: 1.6,
+      bloom: { intensity: 0.85, threshold: 0.72 },
+      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.7 },
+      practical: 0.8,
+      wet: false,
+    },
+    // the ceiling point lights: colour, reach (m), and the server glow
+    points: { color: '#e8fff4', distance: 17 },
+    glow: { at: [-4, 8], color: '#3d7bff' },
+  },
+  // what you hear: no rain on glass down here, only the ballast hum
+  AMBIENCE: { rain: false, hum: 1 },
 
   // ---- dressing (client only; Cellar.jsx) — all in meters
   // the tubes that misbehave: the nearest fixture to each spot

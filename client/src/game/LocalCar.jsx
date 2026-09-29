@@ -1033,10 +1033,12 @@ export default function LocalCar() {
         audio.seam(S.wheelSurf?.id, S.speed / car.topSpeed);
       }
     }
-    // upstairs it rains on the glass; downstairs there is only the hum
-    const cellar = map.theme === 'cellar';
-    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : cellar ? 0 : map.roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
-    audio.setHum(cellar && st.event?.id !== 'lights_out' ? 1 : 0);
+    // the map's room tone (map.AMBIENCE): the office has rain on the glass,
+    // the cellar only its ballast hum; a blackout kills anything electric
+    const amb = map.AMBIENCE || { rain: true };
+    const dark = st.event?.id === 'lights_out';
+    audio.setRain(st.event?.id === 'sprinklers' ? 0.85 : amb.rain === false ? 0 : map.roomAt(pos.x, pos.z)?.outdoor ? 0.9 : st.night ? 0.35 : 0.15);
+    audio.setBeds({ hum: dark ? 0 : amb.hum || 0, rumble: amb.rumble || 0, air: dark ? 0 : amb.air || 0 });
 
     // ---------------- network send
     if (nowMs - S.lastSend > 1000 / INPUT_SEND_RATE) {

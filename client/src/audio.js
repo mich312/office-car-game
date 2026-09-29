@@ -20,6 +20,8 @@ let skid = null;
 let roll = null; // tyre-on-floor noise, voiced by the surface
 let rain = null;
 let hum = null;
+let rumble = null;
+let air = null;
 let muted = false;
 const MASTER_LEVEL = 0.5; // headroom under the limiter at full fader
 let vol = { master: 1, music: 0.7, effects: 1 };
@@ -52,6 +54,7 @@ function ensure() {
   buildRoll();
   buildRain();
   buildHum();
+  buildBeds();
   return true;
 }
 
@@ -160,6 +163,7 @@ const ROLL_VOICE = {
   carpet: { f: 320, q: 0.7, g: 0.05 }, carpet2: { f: 320, q: 0.7, g: 0.05 }, rug: { f: 260, q: 0.6, g: 0.045 },
   wood: { f: 620, q: 1.4, g: 0.09 }, tile: { f: 1700, q: 0.9, g: 0.06 },
   concrete: { f: 2400, q: 0.5, g: 0.11 }, dark: { f: 900, q: 1, g: 0.07 },
+  marble: { f: 2100, q: 1.3, g: 0.05 }, epoxy: { f: 1300, q: 0.8, g: 0.06 }, rubber: { f: 240, q: 0.6, g: 0.04 },
 };
 function buildRoll() {
   const g = ctx.createGain(); g.gain.value = 0;
@@ -199,6 +203,30 @@ function buildHum() {
   whine.connect(wg); wg.connect(g); whine.start();
   g.connect(bus.amb);
   hum = { g };
+}
+
+// Two more room tones a map can ask for (map.AMBIENCE): an industrial
+// rumble (machinery through the floor, with a slow pulse) and air (HVAC
+// hiss — a quiet, expensive building).
+function buildBeds() {
+  {
+    const g = ctx.createGain(); g.gain.value = 0;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuffer(4); src.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140;
+    const pulse = ctx.createGain(); pulse.gain.value = 0.7;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.45;
+    const lfoG = ctx.createGain(); lfoG.gain.value = 0.3;
+    lfo.connect(lfoG); lfoG.connect(pulse.gain); lfo.start();
+    src.connect(lp); lp.connect(pulse); pulse.connect(g); g.connect(bus.amb); src.start();
+    rumble = { g };
+  }
+  {
+    const g = ctx.createGain(); g.gain.value = 0;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuffer(3); src.loop = true;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 0.4;
+    src.connect(bp); bp.connect(g); g.connect(bus.amb); src.start();
+    air = { g };
+  }
 }
 
 export const audio = {
@@ -313,6 +341,54 @@ export const audio = {
   },
   setHum(amount) {
     if (hum) hum.g.gain.setTargetAtTime(amount * 0.05, ctx.currentTime, 0.6);
+  },
+  // the map's room tone: { hum, rumble, air } each 0…1
+  setBeds({ hum: h = 0, rumble: r = 0, air: a = 0 } = {}) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    if (hum) hum.g.gain.setTargetAtTime(h * 0.05, t, 0.6);
+    if (rumble) rumble.g.gain.setTargetAtTime(r * 0.1, t, 0.8);
+    if (air) air.g.gain.setTargetAtTime(a * 0.035, t, 0.8);
+  },
+  // One-shots a map's dressing can fire from where things happen.
+  // A metal clank: a stamping press, a dropped tool, a pallet jack.
+  clank(at = null, strength = 1) {
+    if (!ensure()) return;
+    const t = ctx.currentTime;
+    const dest = sfxOut(at);
+    for (const [f, d] of [[420, 0.25], [1130, 0.12], [2310, 0.07]]) {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f * (0.95 + Math.random() * 0.1);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.06 * strength, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d * 2);
+      o.connect(g); g.connect(dest); o.start(t); o.stop(t + d * 2 + 0.05);
+    }
+  },
+  // A pneumatic hiss: an assembly arm, an espresso machine, a door closer.
+  hiss(at = null, strength = 1, len = 0.35) {
+    if (!ensure()) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuffer(1);
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2600;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.05 * strength, t + 0.02);
+    g.gain.setTargetAtTime(0, t + len, 0.08);
+    src.connect(hp); hp.connect(g); g.connect(sfxOut(at)); src.start(t); src.stop(t + len + 0.5);
+  },
+  // A soft two-tone chime: a lift arriving, a badge reader, a build passing.
+  ding(at = null, strength = 1, hi = 1318) {
+    if (!ensure()) return;
+    const t = ctx.currentTime;
+    const dest = sfxOut(at);
+    [[hi, 0], [hi * 0.75, 0.16]].forEach(([f, dt]) => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + dt);
+      g.gain.linearRampToValueAtTime(0.05 * strength, t + dt + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.9);
+      o.connect(g); g.connect(dest); o.start(t + dt); o.stop(t + dt + 1);
+    });
   },
   // A dying fluorescent tube striking: a short, dirty 100 Hz buzz with a
   // click on the front, from where the tube is.

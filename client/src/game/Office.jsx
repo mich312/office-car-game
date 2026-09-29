@@ -8,11 +8,11 @@ import { roundedBox } from './roundedGeo.js';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useMap } from './activeMap.js';
-import CellarDressing, { CellarPiece, CELLAR_TYPES } from './Cellar.jsx';
+import { THEMES, PIECES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
-import { carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, fabricNormal, orangePeel, wearRough } from './textures.js';
+import { marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, fabricNormal, orangePeel, wearRough } from './textures.js';
 
 // Every floor gets three maps, not one. Albedo alone reads as coloured
 // plastic under a directional light; the normal gives the surface something
@@ -46,15 +46,27 @@ const FLOOR_MATS = {
     map: concreteTex(), normalMap: concreteNormal(), normalScale: new THREE.Vector2(0.6, 0.6),
     roughnessMap: wearRough('conc', 225, 16, [8, 8]), roughness: 1,
   }),
+  // polished: low roughness so the room's lights pool in it
+  marble: () => new THREE.MeshStandardMaterial({
+    map: marbleTex(), normalMap: marbleNormal(), normalScale: new THREE.Vector2(0.5, 0.5),
+    roughnessMap: wearRough('marble', 40, 18, [8, 8]), roughness: 1, envMapIntensity: 1.1,
+  }),
+  epoxy: () => new THREE.MeshStandardMaterial({
+    map: epoxyTex(), normalMap: orangePeel('epoxy', 0.4, [10, 10]), normalScale: new THREE.Vector2(0.25, 0.25),
+    roughnessMap: wearRough('epoxy', 95, 30, [10, 10]), roughness: 1, envMapIntensity: 0.8,
+  }),
+  rubber: () => new THREE.MeshStandardMaterial({
+    map: rubberTex(), normalMap: rubberNormal(), normalScale: new THREE.Vector2(0.8, 0.8), roughness: 0.85,
+  }),
 };
 
 // The floor, walls, furniture and ramps come from the map's data; the rest
-// is the map's theme — the office has its windows, skyline and daylight, the
-// cellar its tubes and pipes (Cellar.jsx). Keyed on the map, so a new map
+// is the map's theme — the office has its windows, skyline and daylight,
+// every other floor its own dressing (themes/*.jsx). Keyed on the map, so a new map
 // mounts fresh colliders instead of patching the old ones.
 export default function Office() {
   const map = useMap();
-  const cellar = map.theme === 'cellar';
+  const Dressing = THEMES[map.theme]?.Dressing;
   return (
     <group key={map.id}>
       <Floors map={map} />
@@ -62,7 +74,7 @@ export default function Office() {
       <BigFurniture map={map} />
       <Ramps map={map} />
       <Practicals map={map} />
-      {cellar ? <CellarDressing map={map} /> : (
+      {Dressing ? <Dressing map={map} /> : (
         <>
           <Ceiling map={map} />
           <Outside />
@@ -391,7 +403,8 @@ const chamfer = (w, h, d) => Math.min(0.22, Math.min(w, h, d) * 0.45);
 
 function Furniture({ f, mats }) {
   const { type, x, z, w, d, h, rotY } = f;
-  if (CELLAR_TYPES.includes(type)) return <CellarPiece f={f} mats={mats} />;
+  const Piece = PIECES[type];
+  if (Piece) return <Piece f={f} mats={mats} />;
   const legIn = 0.28;
   switch (type) {
     case 'desk':

@@ -13,8 +13,10 @@ import { CELLAR } from './maps/cellar.js';
 // about the office itself. Game code reads a map object instead.
 export * from './maps/office.js';
 
-// Decor never collides and is skipped by the server's box list.
+// Decor never collides and is skipped by the server's box list: these types,
+// or any furniture entry marked { decor: true }.
 export const DECOR_TYPES = ['rug', 'art', 'tv'];
+export const isDecor = (f) => DECOR_TYPES.includes(f.type) || !!f.decor;
 export const KOTH_RADIUS = 2.0 * M;
 
 function build(def) {

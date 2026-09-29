@@ -71,6 +71,66 @@ export const concreteTex = (repeat = [8, 8]) =>
     }
   }, repeat);
 
+// Polished stone: large slabs, grey veins wandering across them. Slab joints
+// line up with the marble surface's seams (shared/src/surfaces.js, grid 8).
+export const marbleTex = (repeat = [8, 8]) =>
+  canvasTex('marble', 256, 256, (g, w, h) => {
+    g.fillStyle = '#e9e6e0';
+    g.fillRect(0, 0, w, h);
+    // soft cloudy base
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 70;
+      const grad = g.createRadialGradient(x, y, 0, x, y, r);
+      const v = 205 + Math.random() * 35;
+      grad.addColorStop(0, `rgba(${v},${v - 2},${v - 6},0.35)`);
+      grad.addColorStop(1, `rgba(${v},${v - 2},${v - 6},0)`);
+      g.fillStyle = grad;
+      g.fillRect(0, 0, w, h);
+    }
+    // veins: long wandering strokes, a few bold, many faint
+    for (let i = 0; i < 18; i++) {
+      g.strokeStyle = `rgba(${90 + Math.random() * 50},${95 + Math.random() * 50},${105 + Math.random() * 50},${i < 4 ? 0.45 : 0.14})`;
+      g.lineWidth = i < 4 ? 1.6 : 0.8;
+      g.beginPath();
+      let x = Math.random() * w, y = Math.random() * h;
+      g.moveTo(x, y);
+      for (let k = 0; k < 9; k++) {
+        x += (Math.random() - 0.3) * 60; y += (Math.random() - 0.5) * 50;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    // slab joint
+    g.strokeStyle = 'rgba(120,118,112,0.55)';
+    g.lineWidth = 2;
+    g.strokeRect(0, 0, w, h);
+  }, repeat);
+
+// Poured resin: flat grey-green with coloured flake, the factory floor.
+export const epoxyTex = (color = '#7e8b86', repeat = [10, 10]) =>
+  canvasTex(`epoxy${color}`, 128, 128, (g, w, h) => {
+    g.fillStyle = color;
+    g.fillRect(0, 0, w, h);
+    const flakes = ['#d9dcd6', '#3b403e', '#a7b0ab', '#5d6663'];
+    for (let i = 0; i < 900; i++) {
+      g.fillStyle = flakes[i % flakes.length];
+      g.globalAlpha = 0.25;
+      g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 1.5, 1 + Math.random());
+    }
+    g.globalAlpha = 1;
+  }, repeat);
+
+// Coin-pattern rubber matting (garages, workshops, gyms).
+export const rubberTex = (repeat = [16, 16]) =>
+  canvasTex('rubber', 64, 64, (g, w, h) => {
+    g.fillStyle = '#2b2d30';
+    g.fillRect(0, 0, w, h);
+    g.fillStyle = '#34373b';
+    for (let y = 8; y < h; y += 16) {
+      for (let x = 8; x < w; x += 16) { g.beginPath(); g.arc(x, y, 4.5, 0, Math.PI * 2); g.fill(); }
+    }
+  }, repeat);
+
 export const stainTex = () =>
   canvasTex('stain', 128, 128, (g, w, h) => {
     g.clearRect(0, 0, w, h);
@@ -520,6 +580,25 @@ export const concreteNormal = (repeat = [8, 8]) =>
       g.fill();
     }
   }, 1.7, repeat);
+
+// Marble: the stone is glassy — only the slab joints have relief.
+export const marbleNormal = (repeat = [8, 8]) =>
+  normalTex('marble', 128, 128, (g, w, h) => {
+    fill(g, w, h, 200);
+    g.strokeStyle = 'rgb(40,40,40)';
+    g.lineWidth = 2;
+    g.strokeRect(0, 0, w, h);
+  }, 2.0, repeat);
+
+// Rubber matting: raised coins.
+export const rubberNormal = (repeat = [16, 16]) =>
+  normalTex('rubber', 64, 64, (g, w, h) => {
+    fill(g, w, h, 90);
+    g.fillStyle = 'rgb(220,220,220)';
+    for (let y = 8; y < h; y += 16) {
+      for (let x = 8; x < w; x += 16) { g.beginPath(); g.arc(x, y, 4.5, 0, Math.PI * 2); g.fill(); }
+    }
+  }, 2.6, repeat);
 
 // Woven upholstery: a visible warp/weft grid at this scale.
 export const fabricNormal = (repeat = [6, 6]) =>

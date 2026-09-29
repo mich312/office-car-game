@@ -18,10 +18,10 @@ import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier
 import { RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
-import { useStore } from '../store.js';
-import { audio } from '../audio.js';
-import { roundedBox } from './roundedGeo.js';
-import { glowTex } from './textures.js';
+import { useStore } from '../../store.js';
+import { audio } from '../../audio.js';
+import { roundedBox } from '../roundedGeo.js';
+import { glowTex } from '../textures.js';
 
 const TUBE_LEN = 1.25 * M;
 const TUBE_W = 0.2 * M;
@@ -96,7 +96,7 @@ function tubeLayout(map) {
   return out;
 }
 
-export default function CellarDressing({ map }) {
+export function Dressing({ map }) {
   return (
     <group>
       <CeilingAndTubes map={map} />
@@ -611,4 +611,6 @@ export function CellarPiece({ f, mats }) {
   }
 }
 
-export const CELLAR_TYPES = ['boiler', 'heater', 'dock', 'pallet', 'cage', 'workbench', 'cabinet'];
+// what themes/index.js registers: furniture type → component, prop type → component
+export const PIECES = Object.fromEntries(['boiler', 'heater', 'dock', 'pallet', 'cage', 'workbench', 'cabinet'].map((t) => [t, CellarPiece]));
+export const PROPS = {};

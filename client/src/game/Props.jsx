@@ -19,13 +19,10 @@ import { burst } from './particles.jsx';
 import { roundedBox } from './roundedGeo.js';
 import { audio } from '../audio.js';
 import { send, on } from '../net.js';
+import { Body, propRefs, flushPropHits, impactSound } from './propBody.jsx';
+import { PROP_PIECES } from './themes/index.js';
 
 const m2u = M; // meters → units shorthand
-
-// ---------------------------------------------- shared prop chaos plumbing
-const propRefs = new Map(); // PROPS index → rigid body ref
-const pendingHits = new Map(); // index → ref; latest hit wins until flushed
-let lastFlush = 0;
 
 // A map's PROPS entries + their index, built once per map so the identity
 // stays stable across renders (the prop components are memo'd on it).
@@ -35,25 +32,6 @@ const indexedProps = (map) => {
   if (!l) { l = map.PROPS.map((base, i) => ({ ...base, i })); indexedCache.set(map, l); }
   return l;
 };
-
-function flushPropHits() {
-  const nowMs = performance.now();
-  if (nowMs - lastFlush < NUDGE_RATE_MS || pendingHits.size === 0) return;
-  lastFlush = nowMs;
-  let n = 0;
-  for (const [i, ref] of pendingHits) {
-    pendingHits.delete(i);
-    const b = ref?.current;
-    if (!b) continue;
-    // momentum ≈ what the hit gave the prop — enough for remotes to mirror it
-    const v = b.linvel();
-    const m = b.mass ? b.mass() : 1;
-    const im = [v.x * m, v.y * m, v.z * m];
-    if (Math.hypot(...im) < 1) continue;
-    send({ t: MSG.PROP, i, im: im.map((x) => Math.round(x * 100) / 100) });
-    if (++n >= 8) break;
-  }
-}
 
 export default function Props() {
   const map = useMap();
@@ -97,7 +75,11 @@ export default function Props() {
           case 'lamp': return <Lamp key={key} p={p} />;
           case 'trash': return <Trash key={key} p={p} />;
           case 'roll': return <Roll key={key} p={p} />;
-          default: return null;
+          default: {
+            // a map theme's own props (themes/*.jsx)
+            const Piece = PROP_PIECES[p.type];
+            return Piece ? <Piece key={key} p={p} /> : null;
+          }
         }
       })}
     </group>
@@ -153,46 +135,6 @@ function Can({ golden }) {
   );
 }
 
-const impactSound = (() => {
-  let last = 0;
-  return (mag) => {
-    const now = performance.now();
-    if (now - last < 90 || mag < 900) return;
-    last = now;
-    audio.impact(Math.min(1, mag / 9000));
-  };
-})();
-
-function Body({ p, mass, children, colliders = null, angularDamping = 0.15, restitution = 0.25, friction = 0.7, ccd = false, onForce }) {
-  const ref = useRef();
-  useEffect(() => {
-    if (p.i === undefined) return undefined;
-    propRefs.set(p.i, ref);
-    return () => propRefs.delete(p.i);
-  }, [p.i]);
-  return (
-    <RigidBody
-      ref={ref}
-      position={[p.x, p.y + 0.4, p.z]}
-      rotation-y={p.rotY || 0}
-      colliders={colliders}
-      mass={mass}
-      angularDamping={angularDamping}
-      linearDamping={0.08}
-      restitution={restitution}
-      friction={friction}
-      ccd={ccd}
-      onContactForce={(e) => {
-        impactSound(e.totalForceMagnitude);
-        // my car whacked this prop → queue its momentum for the relay
-        if (p.i !== undefined && e.other.rigidBody?.userData?.playerId === 'me') pendingHits.set(p.i, ref);
-        onForce?.(e);
-      }}
-    >
-      {children}
-    </RigidBody>
-  );
-}
 
 const mugMat = new THREE.MeshStandardMaterial({ color: '#e8503a', roughness: 0.35 });
 const mugMat2 = new THREE.MeshStandardMaterial({ color: '#f5f2ea', roughness: 0.35 });

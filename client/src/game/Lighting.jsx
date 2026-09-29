@@ -88,14 +88,15 @@ export default function Lighting() {
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
   const map = useMap();
-  const cellar = map.theme === 'cellar';
   const ceilingSpots = map.CEILING_LIGHTS || CEILING;
+  const points = map.LIGHTING?.points || {};
+  const glow = map.LIGHTING ? map.LIGHTING.glow : { at: [9.5, 4.5], color: '#3d7bff' };
   const sun = useRef();
   const amb = useRef();
   const hemi = useRef();
   const ceiling = useRef();
 
-  const target = useMemo(() => lightingFor(hour, lightsOut, map.theme), [hour, lightsOut, map.theme]);
+  const target = useMemo(() => lightingFor(hour, lightsOut, map), [hour, lightsOut, map]);
 
   // Scratch colours and vectors, allocated once — this runs every frame.
   const tmp = useMemo(() => ({
@@ -269,22 +270,24 @@ export default function Lighting() {
         {ceilingSpots.map(([x, z], i) => (
           <pointLight
             key={`${map.id}${i}`}
-            position={[x * M, (cellar ? 2.5 : 2.7) * M, z * M]}
+            position={[x * M, map.WALL_HEIGHT - 0.3 * M, z * M]}
             intensity={13}
-            distance={(cellar ? 17 : 26) * M}
+            distance={(points.distance || 26) * M}
             decay={1.5}
-            color={cellar ? '#e8fff4' : '#fff2dc'}
+            color={points.color || '#fff2dc'}
           />
         ))}
       </group>
 
       {/* Server room ominous glow (doubles as the lights-out emergency light) */}
-      <pointLight
-        position={cellar ? [-4 * M, 1.2 * M, 8 * M] : [9.5 * M, 1.2 * M, 4.5 * M]}
-        intensity={lightsOut ? 8 : 4}
-        distance={9 * M}
-        color={lightsOut ? '#ff5040' : '#3d7bff'}
-      />
+      {glow && (
+        <pointLight
+          position={[glow.at[0] * M, 1.2 * M, glow.at[1] * M]}
+          intensity={lightsOut ? 8 : 4}
+          distance={9 * M}
+          color={lightsOut ? '#ff5040' : glow.color || '#3d7bff'}
+        />
+      )}
     </>
   );
 }

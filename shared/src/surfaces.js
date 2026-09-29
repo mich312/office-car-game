@@ -18,6 +18,12 @@ export const SURFACES = {
   concrete: { name: 'Concrete', grip: 1.02, drag: 1.08, top: 0.97, rough: 0.004 },
   dark: { name: 'Raised floor', grip: 0.97, drag: 0.95, top: 1.0, rough: 0.0008 },
   rug: { name: 'Rug', grip: 1.14, drag: 1.6, top: 0.92, rough: 0.0028 },
+  // polished stone: the fastest floor in the game and the least forgiving
+  marble: { name: 'Marble', grip: 0.855, drag: 0.68, top: 1.06, rough: 0.0002, seams: { grid: 8, depth: 0.004, width: 0.03 } },
+  // poured resin on a factory floor: neutral, smooth, a touch slow
+  epoxy: { name: 'Epoxy', grip: 1.0, drag: 0.94, top: 0.985, rough: 0.0003 },
+  // coin-pattern rubber matting: sticky and draggy
+  rubber: { name: 'Rubber mat', grip: 1.12, drag: 1.5, top: 0.925, rough: 0.0018 },
 };
 // carpet2 is the same pile in another colour
 SURFACES.carpet2 = SURFACES.carpet;

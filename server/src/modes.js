@@ -3,7 +3,7 @@
 import {
   MSG, MODES, CHECKPOINT_RADIUS, PICKUP_RADIUS,
   KOTH_RADIUS,
-  GRAVITY, M, LCS, COUNTDOWN_SECONDS, DECOR_TYPES,
+  GRAVITY, M, LCS, COUNTDOWN_SECONDS, isDecor,
   raceCheckpoints, sumoTarget, sumoCenter, kothHopSeconds,
 } from '@rc/shared';
 
@@ -337,7 +337,7 @@ class SoccerMode {
     let i = 0;
     for (const p of room.players.values()) p.team = i++ % 2;
     // decor (rugs, art, TVs) has no client collider — the ball skips it too
-    this.boxes = [...room.map.WALLS, ...room.map.FURNITURE.filter((f) => !DECOR_TYPES.includes(f.type))].map((w) => ({
+    this.boxes = [...room.map.WALLS, ...room.map.FURNITURE.filter((f) => !isDecor(f))].map((w) => ({
       minX: w.x - w.w / 2, maxX: w.x + w.w / 2,
       minZ: w.z - w.d / 2, maxZ: w.z + w.d / 2, h: w.h,
     }));

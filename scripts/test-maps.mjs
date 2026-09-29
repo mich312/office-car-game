@@ -1,7 +1,7 @@
 // Every map, checked as geometry: the lap is drivable, nothing spawns inside
 // a wall or a desk, the rooms tile the floor, and each map carries everything
 // every mode needs. A map that fails here would fail as a bug report later.
-import { MAPS, MAP_IDS, ALL_ROOM_IDS, DECOR_TYPES, SURFACES, M, CHECKPOINT_RADIUS, MODE_IDS } from '../shared/src/index.js';
+import { MAPS, MAP_IDS, ALL_ROOM_IDS, isDecor, SURFACES, M, CHECKPOINT_RADIUS, MODE_IDS } from '../shared/src/index.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -26,9 +26,10 @@ for (const id of MAP_IDS) {
   const map = MAPS[id];
   const B = map.MAP_BOUNDS;
   const solidWalls = map.WALLS.filter((w) => !w.low);
-  // desks and tables are a top and four legs: cars drive under them
+  // desks and tables are a top and four legs: cars drive under them (a map's
+  // own drive-under pieces say so with { driveUnder: true })
   const UNDER = ['desk', 'table', 'ceodesk', 'workbench'];
-  const solid = [...solidWalls, ...map.FURNITURE.filter((f) => !DECOR_TYPES.includes(f.type) && !UNDER.includes(f.type)).map(rotBox)];
+  const solid = [...solidWalls, ...map.FURNITURE.filter((f) => !isDecor(f) && !UNDER.includes(f.type) && !f.driveUnder).map(rotBox)];
   const blocked = (x, z, pad = 0) => solid.some((b) => inBox(x, z, b, pad));
   const inside = (x, z) => x > B.minX && x < B.maxX && z > B.minZ && z < B.maxZ;
   const tag = `${id}:`;

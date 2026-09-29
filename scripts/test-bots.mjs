@@ -10,7 +10,7 @@ import {
   shouldUseItem, padWorthDetour, ITEM_REACT_S, ITEM_FALLBACK_S, SHIELD_ROCKET_RANGE,
 } from '../server/src/botbrain.js';
 import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT } from '../shared/src/index.js';
-import { MAPS } from '../shared/src/index.js';
+import { MAPS, MAP_IDS } from '../shared/src/index.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -166,35 +166,36 @@ for (const mode of ['coffee_run', 'battery', 'soccer', 'koth', 'tag', 'sumo', 'l
   if (['soccer', 'koth', 'sumo'].includes(mode)) check(`${mode}: no doughnuts around the target (${(driftT2 / t2 * 100).toFixed(1)}% drifting)`, driftT2 / t2 < 0.1);
 }
 
-// ------------------------------------------------------- the IT Cellar
-// Every map has to be raceable by bots and survive every mode. The cellar's
-// lap is a figure-8 through the crossroads, shorter than the office's.
-{
-  const cellar = MAPS.cellar;
+// ------------------------------------------------------ every other map
+// Every map has to be raceable by bots (both directions) and survive every
+// mode. Lap lengths differ per floor, so the pace band here is wide; the
+// office's tight band above is the tuning reference.
+for (const mapId of MAP_IDS.filter((id) => id !== 'office')) {
+  const map = MAPS[mapId];
   for (const variant of ['classic', 'reverse']) {
     let lapped = 0, total = 0;
     const seen = new Set();
     const firsts = [];
     for (const seed of [1, 2]) {
-      const sim = await createSim({ seed, mode: 'desk_dash', variant, map: 'cellar' });
+      const sim = await createSim({ seed, mode: 'desk_dash', variant, map: mapId });
       const t0 = sim.now();
       const lapAt = new Map();
-      sim.run(120, (s) => {
+      sim.run(150, (s) => {
         for (const b of s.bots) {
-          seen.add(b.nextCp % cellar.CHECKPOINTS.length);
+          seen.add(b.nextCp % map.CHECKPOINTS.length);
           if (b.lap >= 1 && !lapAt.has(b.id)) lapAt.set(b.id, (s.now() - t0) / 1000);
         }
       });
       total += sim.bots.length; lapped += lapAt.size; firsts.push(...lapAt.values());
     }
     const mean = firsts.reduce((a, b) => a + b, 0) / Math.max(1, firsts.length);
-    check(`cellar ${variant}: bots lap the figure-8 (${lapped}/${total}, mean ${mean.toFixed(1)} s)`, lapped >= total * 0.9 && mean > 22 && mean < 42);
-    check(`cellar ${variant}: every checkpoint is reached (${seen.size}/${cellar.CHECKPOINTS.length})`, seen.size === cellar.CHECKPOINTS.length);
+    check(`${mapId} ${variant}: bots lap it (${lapped}/${total}, mean ${mean.toFixed(1)} s)`, lapped >= total * 0.9 && mean > 18 && mean < 70);
+    check(`${mapId} ${variant}: every checkpoint is reached (${seen.size}/${map.CHECKPOINTS.length})`, seen.size === map.CHECKPOINTS.length);
   }
-  for (const mode of ['coffee_run', 'battery', 'soccer', 'koth', 'sumo', 'last_standing', 'free_roam']) {
+  for (const mode of ['coffee_run', 'battery', 'soccer', 'koth', 'tag', 'sumo', 'last_standing', 'free_roam']) {
     let err = null;
-    try { (await createSim({ seed: 4, mode, map: 'cellar' })).run(45); } catch (e) { err = e; }
-    check(`cellar ${mode}: 45 s of bots without an error${err ? ` (${err.message})` : ''}`, !err);
+    try { (await createSim({ seed: 4, mode, map: mapId })).run(45); } catch (e) { err = e; }
+    check(`${mapId} ${mode}: 45 s of bots without an error${err ? ` (${err.message})` : ''}`, !err);
   }
 }
 
