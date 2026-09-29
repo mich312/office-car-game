@@ -7,6 +7,8 @@
 // it and the client points you at the right checkpoint with it.
 
 import { M } from './constants.js';
+import { isDecor } from './map.js';
+import { PERCH_MIN_Y } from './modes.js';
 
 export const MODE_VARIANTS = {
   desk_dash: [
@@ -62,11 +64,31 @@ export function raceSpawn(i, variant, map) {
 // leave the field driving the long way round (the tower's lift core).
 // Never the ring's own centre (the ring wouldn't move) and never last
 // round's room again.
+// Nor a spot whose final ring holds something a car can park on (the
+// office meeting table, a factory bench): bots can't climb, so a human
+// sitting on the table in the last ring could never be shoved out of it.
 export const SUMO_TARGET_MIN_DIST = 4 * M;
+const sumoPools = new WeakMap();
+function sumoPool(map) {
+  let pool = sumoPools.get(map);
+  if (pool) return pool;
+  const Z = map.SUMO_ZONE;
+  const all = map.SUMO_TARGETS || map.KOTH_SPOTS;
+  pool = all.filter((s) => !map.FURNITURE.some((f) => {
+    if (isDecor(f) || f.h <= PERCH_MIN_Y) return false;
+    const q = Math.abs(Math.sin(f.rotY || 0)) > 0.7;
+    const w = q ? f.d : f.w, d = q ? f.w : f.d;
+    const cx = Math.max(f.x - w / 2, Math.min(s.x, f.x + w / 2)), cz = Math.max(f.z - d / 2, Math.min(s.z, f.z + d / 2));
+    return Math.hypot(cx - s.x, cz - s.z) < Z.r1 + 0.5 * M;
+  }));
+  if (!pool.length) pool = all;
+  sumoPools.set(map, pool);
+  return pool;
+}
 export function sumoTarget(round, variant, map, pick = Math.random, prev = null) {
   if (variant !== 'drift') return null;
   const Z = map.SUMO_ZONE;
-  const pool = map.SUMO_TARGETS || map.KOTH_SPOTS;
+  const pool = sumoPool(map);
   let spots = pool.filter((s) => s !== prev && Math.hypot(s.x - Z.x, s.z - Z.z) > SUMO_TARGET_MIN_DIST);
   if (!spots.length) spots = pool;
   return spots[Math.floor(pick() * spots.length) % spots.length];
