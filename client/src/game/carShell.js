@@ -116,12 +116,13 @@ export const BODIES = {
     tumble: [0.02, 0.1], swell: [0, 0], ends: [0.03, 0.03],
     cockpit: [-0.22, 0.13, 0.14], // [z0, z1, half-width] of the open tub
   },
-  formula: { // Formula Fun: needle nose, sidepods, engine cover
-    z: [-0.44, 0.47], axleY: -0.145, arch: 0,
-    top: [[-0.44, 0.03], [-0.4, 0.06], [-0.2, 0.1], [-0.08, 0.118], [0.0, 0.1], [0.14, 0.085], [0.3, 0.06], [0.44, 0.032], [0.47, 0.012]],
-    bot: [[-0.44, -0.04], [-0.4, -0.06], [0.3, -0.06], [0.44, -0.035], [0.47, -0.02]],
-    plan: [[-0.44, 0.05], [-0.36, 0.07], [-0.1, 0.1], [0.14, 0.1], [0.3, 0.07], [0.44, 0.04], [0.47, 0.03]],
-    tumble: [0.04, 0.25], swell: [0, 0], ends: [0.02, 0.02],
+  formula: { // Formula Fun: needle nose, sidepods, engine cover ending short
+    // of the gearbox so the drivetrain shows under the rear wing
+    z: [-0.35, 0.47], axleY: -0.145, arch: 0,
+    top: [[-0.35, 0.04], [-0.32, 0.075], [-0.2, 0.1], [-0.08, 0.118], [0.0, 0.1], [0.14, 0.085], [0.3, 0.06], [0.44, 0.032], [0.47, 0.012]],
+    bot: [[-0.35, -0.035], [-0.32, -0.06], [0.3, -0.06], [0.44, -0.035], [0.47, -0.02]],
+    plan: [[-0.35, 0.05], [-0.3, 0.075], [-0.1, 0.1], [0.14, 0.1], [0.3, 0.07], [0.44, 0.04], [0.47, 0.03]],
+    tumble: [0.04, 0.25], swell: [0, 0], ends: [0.025, 0.02],
     // sidepods: [z0, z1, half-width, top y] — a low shelf either side of the tub
     pods: [-0.3, 0.12, 0.2, 0.045],
     cockpit: [-0.06, 0.13, 0.075],
@@ -217,6 +218,12 @@ export function bodyX(carId, z, y, wide) {
 
 // Height of the body's upper surface at (z, x) — for things that sit on the
 // hood, deck or roof. Includes the greenhouse roof where there is one.
+// ...and the same for the painted lower body only (under the greenhouse:
+// the cabin floor, the cowl the wipers rest on).
+export function deckY(carId, z, x = 0, wide) {
+  return surfaceBody(compile(carId, wide), z, Math.abs(x));
+}
+
 export function surfaceY(carId, z, x = 0, wide) {
   const C = compile(carId, wide);
   const ax = Math.abs(x);
@@ -264,15 +271,16 @@ export function bodyInfo(carId, wide) {
 // ------------------------------------------------------------- lofting
 // Station spacing: dense at the ends (where the caps close) and through the
 // arches (where the underside climbs), plus any z the caller needs crisp.
-function stations(C, extra = []) {
+function stations(C, extra = [], coarse = false) {
   const zs = [];
-  const n = 34;
+  const n = coarse ? 18 : 30;
   for (let i = 0; i <= n; i++) zs.push(C.zt + (C.zn - C.zt) * (0.5 - 0.5 * Math.cos((Math.PI * i) / n)));
   const [rt, rn] = C.B.ends;
-  for (let i = 1; i < 5; i++) { zs.push(C.zt + rt * (1 - Math.cos((i / 5) * Math.PI / 2))); zs.push(C.zn - rn * (1 - Math.cos((i / 5) * Math.PI / 2))); }
+  for (let i = 1; i < (coarse ? 3 : 5); i++) { zs.push(C.zt + rt * (1 - Math.cos((i / 5) * Math.PI / 2))); zs.push(C.zn - rn * (1 - Math.cos((i / 5) * Math.PI / 2))); }
   if (C.B.arch) {
     for (const az of C.axles) {
-      for (let k = -8; k <= 8; k++) zs.push(az + (k / 8) * (C.B.arch + 0.01));
+      const m = coarse ? 3 : 6;
+      for (let k = -m; k <= m; k++) zs.push(az + (k / m) * (C.B.arch + 0.01));
     }
   }
   if (C.B.pods) { const p = C.B.pods; for (const z of [p[0] - 0.08, p[0] - 0.04, p[0], p[0] + 0.04, p[1] - 0.06, p[1] - 0.02, p[1] + 0.02]) zs.push(z); }
@@ -370,12 +378,13 @@ function surfaceBody(C, z, x) {
   return p[1];
 }
 
-function greenStations(carId) {
+function greenStations(carId, coarse = false) {
   const G = BODIES[carId].green;
   const [zf, zw, zr, zb] = G.z;
   const zs = [];
   const add = (a, b, n) => { for (let i = 0; i <= n; i++) zs.push(a + (b - a) * (i / n)); };
-  add(zb, zr, 7); add(zr, zw, 16); add(zw, zf, 9);
+  const k = coarse ? 0.5 : 1;
+  add(zb, zr, Math.ceil(6 * k)); add(zr, zw, Math.ceil(10 * k)); add(zw, zf, Math.ceil(8 * k));
   zs.push(...G.side, ...(G.b || []));
   zs.sort((a, b) => a - b);
   const out = [];
@@ -419,19 +428,20 @@ function patch(rows, i0, i1, j0, j1) {
 const shellCache = new Map();
 // { paint, glass, outline } geometries for one body (and widebody variant).
 // paint = lower body + roof/pillar skin; glass = the whole greenhouse.
-export function shellGeos(carId, wide = false) {
+// `coarse`: the mid-LOD / proxy build, about half the stations.
+export function shellGeos(carId, wide = false, coarse = false) {
   const id = BODIES[carId] ? carId : 'balanced';
-  const key = `${id}${wide ? ':w' : ''}`;
+  const key = `${id}${wide ? ':w' : ''}${coarse ? ':c' : ''}`;
   if (shellCache.has(key)) return shellCache.get(key);
   const C = compile(id, wide);
   const G = C.B.green;
-  const zs = stations(C, G ? G.z : []);
+  const zs = stations(C, G ? G.z : [], coarse);
   const lower = gridGeo(lowerRows(C, zs), true);
   fixEndNormals(lower, lowerRows(C, zs)[0].length);
   const paintParts = [lower];
   let glass = null, green = null;
   if (G) {
-    const gz = greenStations(id);
+    const gz = greenStations(id, coarse);
     green = greenRows(id, wide, gz);
     glass = gridGeo(green, false);
     const skin = greenRows(id, wide, gz, 0.0035);
@@ -461,10 +471,11 @@ export function shellGeos(carId, wide = false) {
   // Outline: the silhouette pushed out along smooth normals and drawn
   // back-faces only — a clean ink line that hugs the curves (a uniformly
   // scaled copy pulls away from the ends and sinks into the middle).
-  const outline = inflate(lower, 0.011);
+  const coarseRows = lowerRows(C, stations(C, G ? G.z : [], true));
+  const outline = inflate(gridGeo(coarseRows, true), 0.011);
   const outlineParts = [outline];
   if (green) {
-    const gz = greenStations(id);
+    const gz = greenStations(id, coarse);
     outlineParts.push(inflate(gridGeo(greenRows(id, wide, gz), false), 0.011));
   }
   const res = { paint, glass, outline: mergeSimple(outlineParts), lower };

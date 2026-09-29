@@ -7,7 +7,7 @@
 // surface queries), so parts sit ON the paint instead of in it.
 import * as THREE from 'three';
 import { Parts, COL, LENS, mat4, tyreGeo, cylGeo } from './carKit.js';
-import { BODIES, bodyX, surfaceY, endZ, shellBounds, shellGeos } from './carShell.js';
+import { BODIES, bodyX, surfaceY, deckY, endZ, shellBounds, shellGeos } from './carShell.js';
 
 // Per-body mount points that are design decisions rather than geometry:
 //   head/tail: lamp centre [x, y] and lens [w, h]   grille: [y, halfW, halfH]
@@ -37,12 +37,21 @@ const ANCHOR = {
     seat: [0.05, -0.06, 1], antenna: [-0.18, -0.26], sill: [-0.15, 0.15], pipe: [0.11, -0.01], deck: -0.34,
   },
   formula: {
-    head: null, tail: [0, 0.01, 0.03, 0.03], grille: null,
-    intake: null, plate: [0.075, 0.12], bumper: [-0.045, -0.045], mirror: 0.13, hood: 0.3, roof: -0.2,
-    seat: [0.0, 0.035, 0.82], antenna: [-0.1, -0.36], sill: [-0.2, 0.1], pipe: [0, 0.05], deck: -0.4,
+    head: null, tail: null, grille: null,
+    intake: null, plate: [0.06, 0.1], bumper: [-0.045, -0.045], mirror: 0.13, hood: 0.3, roof: -0.2,
+    seat: [0.0, 0.035, 0.82], antenna: [-0.1, -0.3], sill: [-0.2, 0.1], pipe: [0, 0.035], deck: -0.4,
   },
 };
 export const anchorsOf = (carId) => ANCHOR[carId] || ANCHOR.balanced;
+
+// Shut lines, the thin dark grooves between panels that make a die-cast
+// read as pressed metal: doors [z, y0, y1] down each flank, lids [z] across
+// the top (hood, trunk), and the tailgate [y] across the back.
+const SHUT = {
+  balanced: { doors: [[0.108, -0.1, 0.108], [-0.118, -0.1, 0.112]], lids: [0.16], gate: 0.03 },
+  drift: { doors: [[0.13, -0.1, 0.08], [-0.17, -0.1, 0.085]], lids: [0.19, -0.39], gate: null },
+  monster: { doors: [[0.165, 0.08, 0.2], [-0.1, 0.08, 0.2]], lids: [0.2], gate: null },
+};
 
 const PI = Math.PI;
 
@@ -63,14 +72,16 @@ export function buildCar(carId, o) {
     tail: (x, y) => endZ(id, -1, x, y, wide),
     side: (z, y) => bodyX(id, z, y, wide),
     top: (z, x = 0) => surfaceY(id, z, x, wide),
+    deck: (z, x = 0) => deckY(id, z, x, wide),
   };
   const out = { anchors: {} };
   // the shell itself joins the paint, glass and outline draws
-  const shell = shellGeos(id, wide);
+  const shell = shellGeos(id, wide, !!o.mid);
   P.add('paint', shell.paint, null);
   if (shell.glass) P.add('glass', shell.glass, null);
   P.add('outline', shell.outline, null);
   stockKit(P, S, o, out);
+  if (!o.mid) shutLines(P, S);
   SIGNATURE[id](P, S, o, out);
   frontEnd(P, S, o);
   hood(P, S, o);
@@ -164,6 +175,8 @@ function stockKit(P, S, o, out) {
   // body posts and R-clips on the hood and deck: this is an RC body shell
   if (S.B.green || id === 'monster') {
     for (const z of [0.3, -0.36]) {
+      // only where the post comes through paint, not glass
+      if (S.B.green && z < S.B.green.z[0] && z > S.B.green.z[3]) continue;
       const y = S.top(z, 0);
       if (y < 0) continue;
       P.cyl('metal', 0.006, 0.006, 0.02, [0, y + 0.006, z], null, COL.steel, 6);
@@ -186,21 +199,60 @@ function stockKit(P, S, o, out) {
   if (S.B.green) {
     const [zf, , , zb] = S.B.green.z;
     const zc = (zf + zb) / 2;
-    const y = S.top(zc, 0) + 0.003;
+    const y = S.deck(zc, 0) + 0.003;
     const hw = S.B.green.base * 0.9;
     P.box('kit', [hw * 2, 0.008, zf - zb - 0.04], [0, y, zc], null, COL.plastic, 0.004);
-    P.box('kit', [0.13, 0.12, 0.035], [0, y + 0.05, A.seat[1] - 0.055], [-0.18, 0, 0], '#2b2f38', 0.012);
+    P.box('kit', [0.13, 0.075, 0.03], [0, y + 0.04, A.seat[1] - 0.055], [-0.18, 0, 0], '#2b2f38', 0.012);
     P.box('kit', [hw * 1.9, 0.03, 0.05], [0, y + 0.015, zf - 0.06], null, COL.black, 0.01);
   }
   // wipers resting at the windshield base
   if (S.B.green) {
     const zf = S.B.green.z[0];
-    const y = S.top(zf - 0.02, 0);
+    // lying on the glass just above its base, one each side
     for (const s of [-1, 1]) {
-      P.box('kit', [0.14, 0.005, 0.008], [s * 0.06 - 0.02, y + 0.004, zf - 0.03], [0, 0.08 * s, 0.06], COL.black, 0.002);
+      const x = s * 0.06 - 0.02, z = zf - 0.022;
+      P.box('kit', [0.14, 0.005, 0.008], [x, S.top(z, x) + 0.004, z], [0, 0.08 * s, 0.06], COL.black, 0.002);
     }
   }
   out.anchors.seat = A.seat;
+}
+
+function shutLines(P, S) {
+  const L = SHUT[S.id];
+  if (!L) return;
+  const r = 0.0022, c = '#0d0e11';
+  for (const [z, y0, y1] of L.doors) {
+    for (const s of [-1, 1]) {
+      let prev = null;
+      for (let k = 0; k <= 6; k++) {
+        const y = y0 + ((y1 - y0) * k) / 6;
+        const x = S.side(z, y);
+        if (x < 0) { prev = null; continue; }
+        const pt = [s * (x + 0.0006), y, z];
+        if (prev) P.rod('kit', prev, pt, r, c, 4);
+        prev = pt;
+      }
+    }
+  }
+  for (const z of L.lids) {
+    let prev = null;
+    const hw = S.side(z, S.deck(z, 0) - 0.03);
+    for (let k = 0; k <= 8; k++) {
+      const x = -hw * 0.92 + (hw * 1.84 * k) / 8;
+      const pt = [x, S.deck(z, x) + 0.0008, z];
+      if (prev) P.rod('kit', prev, pt, r, c, 4);
+      prev = pt;
+    }
+  }
+  if (L.gate !== null) {
+    let prev = null;
+    for (let k = 0; k <= 8; k++) {
+      const x = -0.22 + (0.44 * k) / 8;
+      const pt = [x, L.gate, S.tail(Math.abs(x), L.gate) - 0.0008];
+      if (prev) P.rod('kit', prev, pt, r, c, 4);
+      prev = pt;
+    }
+  }
 }
 
 // ------------------------------------------------------------- signatures
@@ -275,7 +327,7 @@ const SIGNATURE = {
     const fy = S.bounds.botY - 0.018;
     for (const s of [-1, 1]) P.box('kit', [0.03, 0.035, 0.78], [s * 0.12, fy, 0], null, COL.black, 0.006);
     // fender flares in black plastic over the big tyres
-    fenderFlares(P, S, o, null, 0.045, [0.92, 0.95, 2.2]);
+    fenderFlares(P, S, o, null, 0.04, [0.95, 0.95, 2.1], PI * 0.5);
     // stock bumpers are tube (the bull bar is the front slot's stock)
     const tz = S.tail(0, 0.1);
     P.rod('metal', [-0.2, 0.08, tz - 0.03], [0.2, 0.08, tz - 0.03], 0.016, COL.black, 8);
@@ -305,15 +357,9 @@ const SIGNATURE = {
     cage([-0.13, top - 0.03, hz + 0.01], [0.13, top - 0.03, hz + 0.01]);
     out.anchors.roofY = top + 0.012;
     out.anchors.roofZ = hz + 0.1;
-    // exposed drivetrain behind the tub: gearbox, motor can with heat-sink
-    // fins, spur gear, and the carbon shock tower the rear coil-overs hang off
-    const cy = -0.07;
-    P.box('kit', [0.16, 0.08, 0.09], [0, cy, -0.36], null, COL.plastic, 0.012);
-    P.cyl('metal', 0.045, 0.045, 0.12, [0.06, cy + 0.05, -0.38], [0, 0, PI / 2], COL.gold, 18);
-    for (let i = 0; i < 6; i++) P.box('metal', [0.1, 0.008, 0.006], [0.06, cy + 0.05 + Math.cos(i * PI / 3) * 0.048, -0.38 + Math.sin(i * PI / 3) * 0.048], [i * PI / 3, 0, 0], COL.alu, 0.002);
-    P.cyl('metal', 0.02, 0.02, 0.02, [0.13, cy + 0.05, -0.38], [0, 0, PI / 2], COL.copper, 10);
-    P.cyl('kit', 0.06, 0.06, 0.01, [-0.085, cy + 0.02, -0.37], [0, 0, PI / 2], '#e8e8e8', 36);
-    P.cyl('kit', 0.018, 0.018, 0.016, [-0.085, cy + 0.02, -0.37], [0, 0, PI / 2], COL.black, 10);
+    // exposed drivetrain behind the tub, and the carbon shock towers the
+    // coil-overs hang off
+    drivetrain(P, -0.07, -0.37, 1);
     P.rod('metal', [-0.3, S.B.axleY, -0.34], [0.3, S.B.axleY, -0.34], 0.008, COL.steel); // driveshafts
     // shock towers: a slim carbon bar across each axle, braced to the chassis
     for (const [tz, lean] of [[-0.31, 0.15], [0.3, -0.15]]) {
@@ -367,8 +413,31 @@ const SIGNATURE = {
       P.box('trim', [0.04, 0.022, 0.018], [s * 0.14, cy + 0.05, S.A.mirror], null, null, 0.007);
     }
     P.box('kit', [0.018, 0.018, 0.03], [0, ay + 0.065, az + 0.02], null, COL.black, 0.005);
+    // carbon cross-bars carrying the coil-over tops at each axle
+    for (const tz of [-0.306, 0.306]) P.box('kit', [0.46, 0.022, 0.012], [0, 0.1, tz], null, COL.carbon, 0.004);
+    // gearbox and motor out in the open under the rear wing, a rain light on
+    // the back of the gearbox
+    drivetrain(P, -0.085, -0.4, 0.8);
+    P.rod('metal', [-0.3, S.B.axleY, -0.34], [0.3, S.B.axleY, -0.34], 0.007, COL.steel);
+    P.box('kit', [0.05, 0.03, 0.016], [0, -0.03, -0.448], null, COL.black, 0.005);
+    P.box('tail', [0.04, 0.02, 0.01], [0, -0.03, -0.456], null, LENS.tail, 0.004);
   },
 };
+
+// RC drivetrain: gearbox, a gold motor can with heat-sink fins, the white
+// spur gear and pinion. Centred on the car at (y, z); `k` scales it.
+function drivetrain(P, y, z, k) {
+  P.box('kit', [0.16 * k, 0.08 * k, 0.09 * k], [0, y, z + 0.01], null, COL.plastic, 0.012 * k);
+  const my = y + 0.05 * k, mz = z - 0.01;
+  P.cyl('metal', 0.045 * k, 0.045 * k, 0.12 * k, [0.06 * k, my, mz], [0, 0, PI / 2], COL.gold, 18);
+  for (let i = 0; i < 6; i++) {
+    const a = (i * PI) / 3;
+    P.box('metal', [0.1 * k, 0.008, 0.006], [0.06 * k, my + Math.cos(a) * 0.048 * k, mz + Math.sin(a) * 0.048 * k], [a, 0, 0], COL.alu, 0.002);
+  }
+  P.cyl('metal', 0.02 * k, 0.02 * k, 0.02, [0.13 * k, my, mz], [0, 0, PI / 2], COL.copper, 10);
+  P.cyl('kit', 0.06 * k, 0.06 * k, 0.01, [-0.085 * k, y + 0.02 * k, mz + 0.01], [0, 0, PI / 2], '#e8e8e8', 36);
+  P.cyl('kit', 0.018 * k, 0.018 * k, 0.016, [-0.085 * k, y + 0.02 * k, mz + 0.01], [0, 0, PI / 2], COL.black, 10);
+}
 
 function intake(P, S) {
   const I = S.A.intake;
@@ -395,8 +464,7 @@ function wingBlade(P, slot, pos, hw, c, aoa) {
 }
 
 // Fender flares: an arc over each tyre, pushed out past the flank.
-function fenderFlares(P, S, o, color, radius, scale) {
-  const arc = PI * 0.7;
+function fenderFlares(P, S, o, color, radius, scale, arc = PI * 0.7) {
   for (const [x, z] of [[-0.3, 0.34], [0.3, 0.34], [-0.3, -0.34], [0.3, -0.34]]) {
     const R = o.wheelR + radius;
     const g = new THREE.TorusGeometry(R, 0.028, 5, 12, arc);

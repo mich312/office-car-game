@@ -245,7 +245,9 @@ function tyreHeight(type) {
     g.fillStyle = 'rgb(128,128,128)'; g.fillRect(0, 0, w, h);
     const tv0 = h * 0.3, tv1 = h * 0.7;
     if (type === 'road') {
-      // sipes: short diagonal cuts across the shoulder blocks
+      // two circumferential grooves, and sipes cut across the shoulder blocks
+      g.fillStyle = 'rgb(20,20,20)';
+      g.fillRect(0, h * 0.42, w, h * 0.035); g.fillRect(0, h * 0.545, w, h * 0.035);
       g.fillStyle = 'rgb(40,40,40)';
       for (let x = 0; x < w; x += 12) {
         for (const [a, b] of [[0.31, 0.4], [0.6, 0.69]]) {
@@ -320,13 +322,7 @@ export function tyreGeo(type, r, w, seg) {
     [0.64, -0.8], [0.72, -0.98], [0.82, -1.0], [0.9, -0.97], [0.955, -0.88], [0.985, -0.7],
     [1, -0.4], [1, 0], [1, 0.4], [0.985, 0.7], [0.955, 0.88], [0.9, 0.97], [0.82, 1.0], [0.72, 0.98], [0.64, 0.8],
   ];
-  if (type === 'road') {
-    prof = [
-      ...prof.slice(0, 6), [0.998, -0.5], [0.998, -0.3], [0.975, -0.28], [0.975, -0.16], [1, -0.14], [1, 0.14],
-      [0.975, 0.16], [0.975, 0.28], [0.998, 0.3], [0.998, 0.5], ...prof.slice(9),
-    ];
-  }
-  const S = seg || (type === 'knobby' ? 40 : 32);
+  const S = seg || (type === 'knobby' ? 40 : 28);
   const P = prof.length;
   const pos = [], uv = [], col = [];
   // arc length across the profile for v
@@ -382,11 +378,11 @@ export function rimGeo(style, r, w) {
   const WHITE = [1, 1, 1], DIM = [0.42, 0.42, 0.45], DARK = [0.12, 0.12, 0.13];
   // barrel: a short open tube inside the bead, and a dark backplate so you
   // never see daylight through the wheel
-  P.cyl('rim', R, R, w * 0.92, [0, 0, 0], [0, 0, Math.PI / 2], DIM, 24, true);
-  P.cyl('rim', R * 0.98, R * 0.98, 0.004, [-hw * 0.3, 0, 0], [0, 0, Math.PI / 2], DARK, 20);
+  P.cyl('rim', R, R, w * 0.92, [0, 0, 0], [0, 0, Math.PI / 2], DIM, 18, true);
+  P.cyl('rim', R * 0.98, R * 0.98, 0.004, [-hw * 0.3, 0, 0], [0, 0, Math.PI / 2], DARK, 16);
   // outer lip: a rolled edge proud of the bead
   const lipR = style.lip ? r * 0.7 : r * 0.665;
-  P.torus('rim', R, style.lip ? 0.014 : 0.008, [hw * 0.9, 0, 0], [0, Math.PI / 2, 0], WHITE, Math.PI * 2, 6, 28);
+  P.torus('rim', R, style.lip ? 0.014 : 0.008, [hw * 0.9, 0, 0], [0, Math.PI / 2, 0], WHITE, Math.PI * 2, 5, 22);
   if (style.lip) {
     // deep dish: a polished cone from the lip down to a recessed spoke face
     const lathe = new THREE.LatheGeometry([new THREE.Vector2(R * 0.72, 0), new THREE.Vector2(lipR * 0.97, hw * 0.55)], 28);
@@ -476,7 +472,7 @@ let _susp = null;
 export function suspGeos() {
   if (_susp) return _susp;
   // coil along +y, 0..1 long: 7 turns, 10 segments a turn, 4-sided tube
-  const turns = 7, per = 10, pts = [];
+  const turns = 6, per = 9, pts = [];
   for (let i = 0; i <= turns * per; i++) {
     const a = (i / per) * Math.PI * 2;
     pts.push(new THREE.Vector3(Math.cos(a) * 0.028, i / (turns * per), Math.sin(a) * 0.028));

@@ -17,7 +17,7 @@ import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
 import {
   CARS, WHEEL_STYLES, DEFAULT_STYLE, sanitizeStyle, FINISHES,
   tunedStats, sanitizeTune, STOCK_TUNE,
-  antennaStep, newAntenna,
+  antennaStep, newAntenna, SUSPENSION_SETTLE,
 } from '@rc/shared';
 import { vinylTopTex, vinylSideTex, glowTex, plateTex } from './textures.js';
 import { useStore } from '../store.js';
@@ -669,18 +669,20 @@ export function CarMid({ carId, paint, style, tune, name, team }) {
 
 // Far-LOD stand-in: the shell in its paint plus a dark block for wheels and
 // chassis — two draws, and the silhouette matches so the switch is invisible.
-const PROXY_BASE = new THREE.BoxGeometry(0.7, 0.18, 0.86);
+const PROXY_BASE = new THREE.BoxGeometry(1, 1, 1);
 const PROXY_DARK = new THREE.MeshBasicMaterial({ color: '#17181c' });
 export function CarProxy({ carId, paint }) {
   const car = CARS[carId] || CARS.balanced;
   const id = CARS[carId] ? carId : 'balanced';
   const color = paint || car.color;
   const mat = paintMat(color, 'matte', FINISHES);
-  const b = shellBounds(id);
+  // the dark block stands in for wheels and chassis: hub height, tyre tall
+  const r = id === 'monster' ? 0.18 : 0.13;
+  const y = -0.05 - SUSPENSION_SETTLE + r;
   return (
     <group>
-      <mesh geometry={shellGeos(id).paint} material={mat} />
-      <mesh position={[0, b.botY - 0.07, 0]} geometry={PROXY_BASE} material={PROXY_DARK} />
+      <mesh geometry={shellGeos(id, false, true).paint} material={mat} />
+      <mesh position={[0, y, 0]} scale={[0.72, r * 1.9, 0.9]} geometry={PROXY_BASE} material={PROXY_DARK} />
     </group>
   );
 }
