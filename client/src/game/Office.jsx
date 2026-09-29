@@ -1,10 +1,9 @@
 // The handcrafted office: floors, walls, glass, windows, ceiling, big
 // furniture, ramps, rain, skyline, dust and floating paper. Static physics.
-import { useMemo, useRef, useLayoutEffect } from 'react';
+import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { Sparkles, RoundedBox } from '@react-three/drei';
-import { roundedBox } from './roundedGeo.js';
+import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
+import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { M, SURFACES } from '@rc/shared';
 import { useMap } from './activeMap.js';
@@ -12,7 +11,11 @@ import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
-import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, smudgeTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, fabricNormal, orangePeel, wearRough } from './textures.js';
+import { mat, castsShadow, receivesShadow } from './materials.js';
+import { bake, placeMatrix } from './kit.js';
+import { buildPiece, pieceContext, rampParts } from './furniture.js';
+import { buildArchitecture } from './architecture.js';
+import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
 
 // Every floor gets three maps, not one. Albedo alone reads as coloured
 // plastic under a directional light; the normal gives the surface something
@@ -224,69 +227,18 @@ function Floors({ map }) {
 }
 
 // ------------------------------------------------------------------- walls
-// One static rigid body holds every wall collider; all solid walls render
-// as a single instanced mesh (glass stays individual for transparency).
-const SKIRT_H = 0.12 * M;   // 12 cm — two thirds of a car
-const SKIRT_OUT = 0.06;     // proud of the wall face, so it catches a rim of light
-
+// One static rigid body holds every wall collider. What the walls look like
+// — paint, skirting, door frames, glass with mullions, balustrades, the
+// office's sockets and scuffs — is architecture.js, baked into the same
+// static batch as the furniture. Walls with a { style } are drawn by their
+// theme (WALL_STYLES).
 function Walls({ map }) {
   const { WALLS } = map;
-  const look = map.LOOK || {};
-  // Matt emulsion. The orange-peel normal is deliberately almost invisible —
-  // its job is to break the perfectly flat specular that made every wall read
-  // as an untextured box, especially where a low sun grazes along one.
-  const paint = useMemo(() => new THREE.MeshStandardMaterial({
-    color: look.wall || '#e8e4da',
-    normalMap: orangePeel('paint', 0.55, [3, 3]),
-    normalScale: new THREE.Vector2(0.35, 0.35),
-    roughnessMap: wearRough('paint', 218, 16, [3, 3]),
-    roughness: 1,
-  }), []);
-  const glassMat = useMemo(() => new THREE.MeshPhysicalMaterial({
-    color: '#bfe3ee', transparent: true, opacity: 0.16, roughness: 0.06, metalness: 0,
-    envMapIntensity: 1.6, side: THREE.DoubleSide, depthWrite: false,
-  }), []);
-  const railMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#8f98a6', metalness: 0.8, roughness: 0.3 }), []);
-  const smudge = useMemo(() => new THREE.MeshBasicMaterial({ map: smudgeTex(), transparent: true, opacity: 0.5, depthWrite: false }), []);
-  // Matt skirting in a slightly darker tone. At 18 cm car scale a 12 cm
-  // skirting board stands two thirds as tall as the car — it is a feature you
-  // drive alongside, and it is most of what turns a flat white plane into a
-  // room. One extra instanced draw call for the whole building.
-  const skirtMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: look.skirt || '#d8d2c6',
-    normalMap: orangePeel('paint', 0.55, [3, 3]),
-    normalScale: new THREE.Vector2(0.3, 0.3),
-    roughness: 0.7,
-  }), []);
-  const skirt = useRef();
-  // walls with a { style } are drawn by their theme (WALL_STYLES), grouped
   const styled = useMemo(() => {
     const by = {};
     for (const w of WALLS) if (w.style && WALL_STYLES[w.style]) (by[w.style] ||= []).push(w);
     return by;
   }, [WALLS]);
-  const plain = useMemo(() => WALLS.filter((w) => !(w.style && WALL_STYLES[w.style])), [WALLS]);
-  const solid = useMemo(() => plain.filter((w) => !w.glass && !w.low), [plain]);
-  const glass = useMemo(() => plain.filter((w) => w.glass), [plain]);
-  const rails = useMemo(() => plain.filter((w) => w.low), [plain]);
-  const inst = useRef();
-  useLayoutEffect(() => {
-    const dummy = new THREE.Object3D();
-    solid.forEach((w, i) => {
-      dummy.position.set(w.x, w.h / 2, w.z);
-      dummy.scale.set(w.w, w.h, w.d);
-      dummy.updateMatrix();
-      inst.current.setMatrixAt(i, dummy.matrix);
-      // proud of the wall face on every side, sitting on the floor
-      dummy.position.set(w.x, SKIRT_H / 2, w.z);
-      dummy.scale.set(w.w + SKIRT_OUT, SKIRT_H, w.d + SKIRT_OUT);
-      dummy.updateMatrix();
-      skirt.current.setMatrixAt(i, dummy.matrix);
-    });
-    inst.current.instanceMatrix.needsUpdate = true;
-    skirt.current.instanceMatrix.needsUpdate = true;
-  }, [solid]);
-
   return (
     <group>
       <RigidBody type="fixed" colliders={false} friction={0.2}>
@@ -294,34 +246,10 @@ function Walls({ map }) {
           <CuboidCollider key={i} args={[w.w / 2, w.h / 2, w.d / 2]} position={[w.x, w.h / 2, w.z]} />
         ))}
       </RigidBody>
-      <instancedMesh ref={skirt} args={[null, null, solid.length]} material={skirtMat} castShadow receiveShadow frustumCulled={false}>
-        <boxGeometry args={[1, 1, 1]} />
-      </instancedMesh>
-      <instancedMesh ref={inst} args={[null, null, solid.length]} material={paint} castShadow receiveShadow frustumCulled={false}>
-        <boxGeometry args={[1, 1, 1]} />
-      </instancedMesh>
       {Object.entries(styled).map(([style, walls]) => {
         const Style = WALL_STYLES[style];
         return <Style key={style} walls={walls} />;
       })}
-      {rails.map((w, i) => (
-        <mesh key={i} position={[w.x, w.h / 2, w.z]} material={railMat}>
-          <boxGeometry args={[w.w, w.h, w.d]} />
-        </mesh>
-      ))}
-      {glass.map((w, i) => (
-        <group key={i}>
-          <mesh position={[w.x, w.h / 2, w.z]} material={glassMat}>
-            <boxGeometry args={[w.w, w.h, w.d]} />
-          </mesh>
-          <mesh position={[w.x + (w.w < w.d ? 0.06 : 0), 1.2, w.z + (w.w < w.d ? 0 : 0.06)]} rotation-y={w.w < w.d ? Math.PI / 2 : 0} material={smudge}>
-            <planeGeometry args={[Math.max(w.w, w.d) * 0.9, 2.2]} />
-          </mesh>
-          <mesh position={[w.x, w.h - 0.1, w.z]} material={railMat}>
-            <boxGeometry args={[w.w + 0.05, 0.2, w.d + 0.05]} />
-          </mesh>
-        </group>
-      ))}
     </group>
   );
 }
@@ -381,550 +309,136 @@ function Ceiling({ map }) {
 }
 
 // ------------------------------------------------------------ big furniture
-// Furniture materials. The rule the whole pass follows: no surface may be
-// perfectly smooth and no surface may have one uniform roughness. Real wood
-// has grain to catch a low sun, real upholstery is woven, real moulded plastic
-// has orange peel. All three are Sobel-differentiated canvases — see
-// textures.js — so "zero external assets" still holds.
-const N_WOOD = new THREE.Vector2(0.3, 0.3);
-const N_FABRIC = new THREE.Vector2(0.9, 0.9);
-const N_PLASTIC = new THREE.Vector2(0.35, 0.35);
+// Every piece is a pure builder (furniture.js): visuals in metres, colliders
+// in units. The colliders go on one fixed body per piece, exactly as before;
+// the visuals are baked into ONE mesh per material for the whole floor —
+// every desk, leg, tray and cable in the building is a handful of draw
+// calls. (Splitting by room to cull didn't pay: an open-plan floor behind
+// glass has most rooms in view, and each one multiplied the draws.) A
+// theme's PIECES (React components) still render as components; a theme's
+// BUILDERS join the batch.
+const THEME_BUILDERS = Object.assign({}, ...Object.values(THEMES).map((t) => t.BUILDERS || {}));
 
-// Tiled fine, because one material is shared by everything wooden and the
-// biggest surface decides the setting: at [2,1] a plank spanned a whole desk.
-// Per-object UV scaling would be the proper fix and costs a material per item.
-const WOOD = () => new THREE.MeshStandardMaterial({
-  map: woodTex([6, 3]), normalMap: woodNormal([6, 3]), normalScale: N_WOOD,
-  roughnessMap: wearRough('deskwood', 128, 22, [6, 3]), roughness: 1, envMapIntensity: 0.5,
-});
-const METAL = () => new THREE.MeshStandardMaterial({
-  color: '#9aa3ad', metalness: 0.85,
-  roughnessMap: wearRough('metal', 90, 26, [2, 2]), roughness: 1,
-});
-const FABRIC = (c = '#5b8bd6') => new THREE.MeshStandardMaterial({
-  color: c, normalMap: fabricNormal([5, 5]), normalScale: N_FABRIC, roughness: 1,
-});
-const PLASTIC = (c = '#e8e8e8') => new THREE.MeshStandardMaterial({
-  color: c, normalMap: orangePeel('furn', 0.6, [2, 2]), normalScale: N_PLASTIC,
-  roughnessMap: wearRough('plastic', 155, 24, [2, 2]), roughness: 1,
-});
+// What a theme's component PIECES get as `mats`: the shared library under
+// the names they have always used.
+const LEGACY_MATS = {
+  wood: 'veneerOak', metal: 'brushedSteel', fabric: 'fabric:#5b8bd6', fabric2: 'fabric:#c0573f',
+  white: 'plasticWhite', dark: 'laminateCharcoal', grey: 'melamineGrey', ceramic: 'ceramic', felt: 'felt', teal: 'feltTeal',
+};
 
 function BigFurniture({ map }) {
   const { FURNITURE } = map;
-  const mats = useMemo(() => ({
-    wood: WOOD(), metal: METAL(), fabric: FABRIC(), fabric2: FABRIC('#c0573f'),
-    white: PLASTIC(), dark: PLASTIC('#2f333b'), grey: PLASTIC('#b9bfc7'),
-    ceramic: new THREE.MeshStandardMaterial({ color: '#f2f4f6', roughness: 0.22, envMapIntensity: 0.7 }),
-    felt: new THREE.MeshStandardMaterial({ color: '#2e7d4f', roughness: 0.9 }),
-    teal: FABRIC('#3f7d7a'),
-  }), []);
+  const legacy = useMemo(() => Object.fromEntries(Object.entries(LEGACY_MATS).map(([k, v]) => [k, mat(v)])), []);
+  const built = useMemo(() => FURNITURE.map((f, i) => {
+    if (PIECES[f.type] && !THEME_BUILDERS[f.type]) return null;
+    const ctx = pieceContext(map, f, i);
+    const b = (THEME_BUILDERS[f.type] || buildPiece)(f, ctx);
+    return { f, ...b };
+  }), [map, FURNITURE]);
   return (
     <group>
-      {FURNITURE.map((f, i) => <Furniture key={i} f={f} mats={mats} />)}
+      {built.map((b, i) => (b && b.colliders.length ? (
+        <RigidBody key={i} type="fixed" colliders={false} position={[b.f.x, 0, b.f.z]} rotation-y={b.f.rotY || 0} friction={b.friction}>
+          {b.colliders.map((c, k) => (c.cyl
+            ? <CylinderCollider key={k} args={c.cyl} position={c.at} />
+            : <CuboidCollider key={k} args={c.box} position={c.at} rotation={c.rot || [0, 0, 0]} />))}
+        </RigidBody>
+      ) : null))}
+      <StaticBatch map={map} built={built} />
+      <Leds built={built} />
+      {FURNITURE.map((f, i) => {
+        const Piece = !built[i] && PIECES[f.type];
+        return Piece ? <Piece key={i} f={f} mats={legacy} /> : null;
+      })}
     </group>
   );
 }
 
-// Edge radius in world units (1 unit = 22.5 cm), exaggerated on purpose: a
-// real desk edge is 2-5 mm and would be invisible here. Keying off the
-// smallest dimension times a small factor left thin slabs sharp, so this takes
-// as much of the thin axis as geometry allows (a slab cannot round by more
-// than half its thickness) and caps it so big boxes don't go pill-shaped.
-const chamfer = (w, h, d) => Math.min(0.22, Math.min(w, h, d) * 0.45);
-
-function Furniture({ f, mats }) {
-  const { type, x, z, w, d, h, rotY } = f;
-  const Piece = PIECES[type];
-  if (Piece) return <Piece f={f} mats={mats} />;
-  const legIn = 0.28;
-  switch (type) {
-    case 'desk':
-    case 'table':
-    case 'ceodesk': {
-      const top = 0.12;
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
-          {/* cars drive UNDER desks — collider is just the top slab + legs */}
-          <CuboidCollider args={[w / 2, top / 2, d / 2]} position={[0, h - top / 2, 0]} />
-          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
-            <CuboidCollider key={i} args={[0.1, h / 2, 0.1]} position={[sx * (w / 2 - legIn), h / 2, sz * (d / 2 - legIn)]} />
-          ))}
-          {/* A chamfered slab, not a cuboid. At 18 cm car scale a 1–2 cm
-              radius is a visible highlight running the length of the desk —
-              it is most of what stops furniture reading as greybox. */}
-          <RoundedBox position={[0, h - top / 2, 0]} args={[w, top, d]} radius={chamfer(w, top, d)} smoothness={3}
-            castShadow receiveShadow material={type === 'ceodesk' ? mats.dark : mats.wood} />
-          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
-            <mesh key={i} position={[sx * (w / 2 - legIn), (h - top) / 2, sz * (d / 2 - legIn)]} castShadow material={mats.metal}>
-              <cylinderGeometry args={[0.09, 0.09, h - top, 8]} />
-            </mesh>
-          ))}
-        </RigidBody>
-      );
-    }
-    case 'sofa':
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
-          <CuboidCollider args={[w / 2, (h * 0.55) / 2, d / 2]} position={[0, h * 0.275, 0]} />
-          <CuboidCollider args={[w / 2, h / 2, d * 0.14]} position={[0, h / 2, -d / 2 + d * 0.14]} />
-          {/* upholstery is soft: big radii on every cushion */}
-          <mesh position={[0, h * 0.275, 0]} castShadow receiveShadow material={mats.fabric}
-            geometry={roundedBox(w, h * 0.55, d, 0.2)} />
-          <mesh position={[0, h * 0.6, -d / 2 + d * 0.14]} castShadow material={mats.fabric}
-            geometry={roundedBox(w, h * 0.8, d * 0.28, 0.18)} />
-          {[-1, 1].map((s) => (
-            <mesh key={s} position={[s * (w / 2 - 0.15), h * 0.45, 0]} castShadow material={mats.fabric}
-              geometry={roundedBox(0.3, h * 0.9, d, 0.13)} />
-          ))}
-        </RigidBody>
-      );
-    case 'rack':
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.4}>
-          <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-          <mesh position={[0, h / 2, 0]} castShadow receiveShadow material={mats.dark}
-            geometry={roundedBox(w, h, d, 0.06)} />
-          <ServerLights w={w} h={h} d={d} />
-        </RigidBody>
-      );
-    case 'fridge':
-      return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.grey}>
-          <mesh position={[0, h * 0.55, d / 2 + 0.02]} material={mats.metal}>
-            <boxGeometry args={[0.08, h * 0.5, 0.06]} />
-          </mesh>
-        </SimpleBox>
-      );
-    case 'copier':
-      return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.white}>
-          <mesh position={[0, h + 0.05, 0]} castShadow material={mats.dark}>
-            <boxGeometry args={[w * 0.8, 0.1, d * 0.6]} />
-          </mesh>
-          <mesh position={[0, h * 0.6, d / 2 + 0.01]} material={mats.dark}>
-            <planeGeometry args={[w * 0.5, 0.25]} />
-          </mesh>
-        </SimpleBox>
-      );
-    case 'whiteboard':
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY}>
-          <CuboidCollider args={[w / 2 + 0.02, h / 2, 0.1]} position={[0, h / 2 + 0.4, 0]} />
-          <mesh position={[0, h / 2 + 0.4, 0]} castShadow material={mats.white}
-            geometry={roundedBox(w, h, 0.2, 0.05)} />
-          <mesh position={[0, h / 2 + 0.5, 0.11]}>
-            <planeGeometry args={[w * 0.9, h * 0.85]} />
-            <meshStandardMaterial color="#f6f8f9" roughness={0.3} />
-          </mesh>
-        </RigidBody>
-      );
-    case 'bookshelf':
-      return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.wood}>
-          <ShelfBooks w={w} d={d} />
-        </SimpleBox>
-      );
-    // ------------------------------------------------ decor (no colliders)
-    case 'rug': {
-      const c = ['#7a4f3f', '#3f5a7a', '#54707a', '#6b5a7a'][Math.abs(Math.round(x * 0.7 + z * 1.3)) % 4];
-      return (
-        <mesh rotation-x={-Math.PI / 2} rotation-z={rotY} position={[x, 0.018, z]} receiveShadow>
-          <planeGeometry args={[w, d]} />
-          <meshStandardMaterial color={c} roughness={1} />
-        </mesh>
-      );
-    }
-    case 'art': {
-      const size = Math.max(w, d);
-      const c = ['#e2704d', '#4d8fe2', '#57b878', '#c9a54a'][Math.abs(Math.round(x + z)) % 4];
-      return (
-        <group position={[x, 7.2, z]} rotation-y={rotY}>
-          <mesh material={mats.dark}>
-            <boxGeometry args={[size, h, 0.08]} />
-          </mesh>
-          <mesh position={[0, 0, 0.05]}>
-            <planeGeometry args={[size * 0.85, h * 0.8]} />
-            <meshStandardMaterial color={c} roughness={0.9} />
-          </mesh>
-          <mesh position={[0, 0.1, 0.06]} rotation-z={0.4}>
-            <planeGeometry args={[size * 0.45, h * 0.22]} />
-            <meshStandardMaterial color="#f0ede4" roughness={0.9} />
-          </mesh>
-        </group>
-      );
-    }
-    case 'tv':
-      return (
-        <group position={[x, 6.8, z]} rotation-y={rotY}>
-          <mesh material={mats.dark}>
-            <boxGeometry args={[Math.max(w, d), h, 0.14]} />
-          </mesh>
-          <mesh position={[0, 0, 0.08]}>
-            <planeGeometry args={[Math.max(w, d) * 0.92, h * 0.85]} />
-            <meshStandardMaterial color="#0d3b52" emissive="#155a7d" emissiveIntensity={0.8} roughness={0.3} />
-          </mesh>
-        </group>
-      );
-    // --------------------------------------------------- new interior kit
-    case 'booth':
-      // focus pod: tall fabric shell open on one side, cushion inside
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.8}>
-          <CuboidCollider args={[w / 2, h / 2, 0.09]} position={[0, h / 2, -d / 2 + 0.09]} />
-          {[-1, 1].map((s) => (
-            <CuboidCollider key={s} args={[0.09, h / 2, d / 2]} position={[s * (w / 2 - 0.09), h / 2, 0]} />
-          ))}
-          <CuboidCollider args={[w / 2 - 0.18, 0.3, d / 2 - 0.25]} position={[0, 0.3, -0.12]} />
-          <mesh castShadow receiveShadow material={mats.teal} position={[0, h / 2, -d / 2 + 0.09]}
-            geometry={roundedBox(w, h, 0.18, 0.08)} />
-          {[-1, 1].map((s) => (
-            <mesh key={s} castShadow material={mats.teal} position={[s * (w / 2 - 0.09), h / 2, 0]}
-              geometry={roundedBox(0.18, h, d, 0.08)} />
-          ))}
-          <mesh castShadow material={mats.fabric} position={[0, 0.42, -0.12]}
-            geometry={roundedBox(w - 0.4, 0.5, d - 0.5, 0.18)} />
-        </RigidBody>
-      );
-    case 'stall':
-      return <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.grey} />;
-    case 'sink':
-      return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.ceramic}>
-          {[-w / 4, w / 4].map((sx) => (
-            <group key={sx} position={[sx, h, 0]}>
-              <mesh material={mats.metal} position={[0, 0.12, -d / 4]}>
-                <cylinderGeometry args={[0.05, 0.05, 0.35, 8]} />
-              </mesh>
-              <mesh material={mats.metal} position={[0, 0.28, -d / 4 + 0.14]} rotation-x={Math.PI / 2}>
-                <cylinderGeometry args={[0.04, 0.04, 0.3, 8]} />
-              </mesh>
-              <mesh position={[0, 0.03, 0.05]} rotation-x={-Math.PI / 2}>
-                <ringGeometry args={[0.14, 0.3, 16]} />
-                <meshStandardMaterial color="#d9dee3" roughness={0.15} metalness={0.2} />
-              </mesh>
-            </group>
-          ))}
-        </SimpleBox>
-      );
-    case 'toilet':
-      // load-bearing comedy
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY}>
-          <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, -0.05]} />
-          <mesh castShadow material={mats.ceramic} position={[0, h * 0.72, -d / 2 + 0.18]}>
-            <boxGeometry args={[w * 0.92, h * 0.85, 0.36]} />
-          </mesh>
-          <mesh castShadow material={mats.ceramic} position={[0, h * 0.32, 0.1]}>
-            <cylinderGeometry args={[w * 0.42, w * 0.28, h * 0.62, 14]} />
-          </mesh>
-          <mesh material={mats.ceramic} position={[0, h * 0.66, 0.1]} rotation-x={-Math.PI / 2}>
-            <torusGeometry args={[w * 0.36, 0.1, 8, 18]} />
-          </mesh>
-          <mesh castShadow material={mats.ceramic} position={[0, h * 0.98, -d / 2 + 0.4]} rotation-x={-0.4}>
-            <cylinderGeometry args={[w * 0.4, w * 0.4, 0.06, 14]} />
-          </mesh>
-          <mesh material={mats.metal} position={[w * 0.28, h * 1.18, -d / 2 + 0.18]}>
-            <boxGeometry args={[0.18, 0.06, 0.1]} />
-          </mesh>
-        </RigidBody>
-      );
-    case 'bartop': {
-      const long = Math.max(w, d);
-      const alongX = w >= d;
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
-          <CuboidCollider args={[w / 2, 0.07, d / 2]} position={[0, h - 0.07, 0]} />
-          {[-1, 1].map((s) => (
-            <CuboidCollider
-              key={s}
-              args={[0.07, (h - 0.14) / 2, 0.07]}
-              position={[alongX ? s * (long / 2 - 0.25) : 0, (h - 0.14) / 2, alongX ? 0 : s * (long / 2 - 0.25)]}
-            />
-          ))}
-          <mesh castShadow receiveShadow material={mats.wood} position={[0, h - 0.07, 0]}>
-            <boxGeometry args={[w, 0.14, d]} />
-          </mesh>
-          {[-1, 1].map((s) => (
-            <mesh
-              key={s}
-              castShadow
-              material={mats.metal}
-              position={[alongX ? s * (long / 2 - 0.25) : 0, (h - 0.14) / 2, alongX ? 0 : s * (long / 2 - 0.25)]}
-            >
-              <cylinderGeometry args={[0.07, 0.09, h - 0.14, 10]} />
-            </mesh>
-          ))}
-        </RigidBody>
-      );
-    }
-    case 'foosball':
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.9}>
-          <CuboidCollider args={[w / 2, h * 0.25, d / 2]} position={[0, h * 0.75, 0]} />
-          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
-            <CuboidCollider key={i} args={[0.09, h * 0.25, 0.09]} position={[sx * (w / 2 - 0.2), h * 0.25, sz * (d / 2 - 0.2)]} />
-          ))}
-          <mesh castShadow receiveShadow material={mats.wood} position={[0, h * 0.75, 0]}>
-            <boxGeometry args={[w, h * 0.5, d]} />
-          </mesh>
-          <mesh receiveShadow material={mats.felt} position={[0, h + 0.005, 0]} rotation-x={-Math.PI / 2}>
-            <planeGeometry args={[w * 0.86, d * 0.82]} />
-          </mesh>
-          {[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz], i) => (
-            <mesh key={i} castShadow material={mats.dark} position={[sx * (w / 2 - 0.2), h * 0.25, sz * (d / 2 - 0.2)]}>
-              <boxGeometry args={[0.18, h * 0.5, 0.18]} />
-            </mesh>
-          ))}
-          {[-0.3, -0.1, 0.1, 0.3].map((fx, i) => (
-            <group key={i} position={[fx * w * 2, h + 0.16, 0]}>
-              <mesh material={mats.metal} rotation-x={Math.PI / 2}>
-                <cylinderGeometry args={[0.03, 0.03, d + 0.5, 8]} />
-              </mesh>
-              {[-0.22, 0, 0.22].map((mz, j) => (
-                <mesh key={j} position={[0, -0.1, mz * d]} castShadow>
-                  <boxGeometry args={[0.08, 0.2, 0.07]} />
-                  <meshStandardMaterial color={i % 2 ? '#e8332a' : '#3498db'} roughness={0.5} />
-                </mesh>
-              ))}
-            </group>
-          ))}
-        </RigidBody>
-      );
-    case 'hoop':
-      // mini basketball hoop — backboard against the wall, ring over the court
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY}>
-          <CuboidCollider args={[0.09, h / 2, 0.09]} position={[0, h / 2, -0.2]} />
-          <CuboidCollider args={[0.6, 0.42, 0.06]} position={[0, h * 0.82, 0]} />
-          <mesh castShadow material={mats.metal} position={[0, h / 2, -0.2]}>
-            <cylinderGeometry args={[0.08, 0.1, h, 10]} />
-          </mesh>
-          <mesh castShadow material={mats.white} position={[0, h * 0.82, 0]}>
-            <boxGeometry args={[1.2, 0.84, 0.08]} />
-          </mesh>
-          <mesh position={[0, h * 0.74, 0.05]}>
-            <planeGeometry args={[0.5, 0.4]} />
-            <meshStandardMaterial color="#e8332a" roughness={0.6} />
-          </mesh>
-          <mesh material={mats.metal} position={[0, h * 0.68, 0.35]} rotation-x={Math.PI / 2}>
-            <torusGeometry args={[0.32, 0.035, 8, 20]} />
-          </mesh>
-          <mesh position={[0, h * 0.6, 0.35]}>
-            <cylinderGeometry args={[0.32, 0.2, 0.35, 12, 1, true]} />
-            <meshStandardMaterial color="#f5f5f5" roughness={0.9} transparent opacity={0.55} side={THREE.DoubleSide} />
-          </mesh>
-        </RigidBody>
-      );
-    case 'bench':
-      return (
-        <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={1}>
-          <CuboidCollider args={[w / 2, 0.06, d / 2]} position={[0, h, 0]} />
-          {[-1, 1].map((s) => (
-            <CuboidCollider key={s} args={[w / 2 - 0.05, h / 2, 0.06]} position={[0, h / 2, s * (d / 2 - 0.15)]} />
-          ))}
-          {[-0.32, 0, 0.32].map((sx, i) => (
-            <mesh key={i} castShadow material={mats.wood} position={[sx * w, h, 0]}>
-              <boxGeometry args={[w * 0.28, 0.1, d]} />
-            </mesh>
-          ))}
-          {[-1, 1].map((s) => (
-            <mesh key={s} castShadow material={mats.metal} position={[0, h / 2, s * (d / 2 - 0.15)]}>
-              <boxGeometry args={[w - 0.1, h, 0.1]} />
-            </mesh>
-          ))}
-        </RigidBody>
-      );
-    case 'planter':
-      return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.grey}>
-          <mesh position={[0, h + 0.01, 0]} rotation-x={-Math.PI / 2}>
-            <planeGeometry args={[w * 0.9, d * 0.9]} />
-            <meshStandardMaterial color="#2e2218" roughness={1} />
-          </mesh>
-          {(() => {
-            const n = Math.max(2, Math.round(Math.max(w, d) / 3));
-            const alongX = w >= d;
-            return Array.from({ length: n }, (_, i) => {
-              const t = n === 1 ? 0 : i / (n - 1) - 0.5;
-              return (
-                <mesh key={i} castShadow position={[alongX ? t * (w - 1) : 0, h + 0.55 + (i % 2) * 0.2, alongX ? 0 : t * (d - 1)]}>
-                  <sphereGeometry args={[0.5 + (i % 3) * 0.12, 8, 6]} />
-                  <meshStandardMaterial color={['#2ecc71', '#27a85c', '#3a9e52'][i % 3]} roughness={0.85} flatShading />
-                </mesh>
-              );
-            });
-          })()}
-        </SimpleBox>
-      );
-    case 'vending':
-      // Ram it at speed: a can drops, sometimes golden (the server pays out).
-      return (
-        <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={mats.dark}>
-          {/* glowing front panel facing into the kitchen (+z) */}
-          <mesh position={[0, h * 0.58, d / 2 + 0.01]}>
-            <planeGeometry args={[w * 0.72, h * 0.62]} />
-            <meshStandardMaterial color="#0d2b38" emissive="#1f7a9e" emissiveIntensity={0.7} roughness={0.3} />
-          </mesh>
-          {/* can rows behind the glass */}
-          {[0.35, 0.55, 0.75].map((fy, row) => (
-            <group key={row}>
-              {[-0.28, -0.09, 0.1, 0.29].map((fx, col) => (
-                <mesh key={col} position={[fx * w, h * fy, d / 2 + 0.02]} rotation-x={Math.PI / 2}>
-                  <cylinderGeometry args={[0.055, 0.055, 0.02, 8]} />
-                  <meshStandardMaterial color={['#e8332a', '#f1c40f', '#2ecc71', '#3498db'][(row + col) % 4]} emissive="#222" roughness={0.3} />
-                </mesh>
-              ))}
-            </group>
-          ))}
-          {/* dispensing slot */}
-          <mesh position={[0, h * 0.14, d / 2 + 0.01]}>
-            <planeGeometry args={[w * 0.6, h * 0.1]} />
-            <meshStandardMaterial color="#08090c" roughness={0.9} />
-          </mesh>
-        </SimpleBox>
-      );
-    default:
-      return <SimpleBox x={x} z={z} w={w} d={d} h={h} rotY={rotY} mat={type === 'recdesk' ? mats.wood : type === 'island' || type === 'counter' ? mats.grey : mats.white} />;
-  }
+// The batch: every built piece's parts, the ramps' and the building's, moved
+// into the world and merged by material.
+function StaticBatch({ map, built }) {
+  const groups = useMemo(() => {
+    const all = [];
+    const push = (parts, world) => {
+      for (const part of parts) all.push({ ...part, m: world.clone().multiply(part.m) });
+    };
+    for (const b of built) if (b) push(b.parts, placeMatrix(b.f.x, b.f.z, b.f.rotY, M));
+    for (const r of map.RAMPS) if (!RAMP_SKINS[r.skin]) push(rampParts(r), placeMatrix(r.x, r.z, r.rotY, M));
+    // the building's parts are already in world metres
+    const office = !THEMES[map.theme];
+    push(buildArchitecture(map, { office, styled: new Set(Object.keys(WALL_STYLES)) }), new THREE.Matrix4().makeScale(M, M, M));
+    return [...bake(all)].map(([key, geo]) => ({ key, geo }));
+  }, [map, built]);
+  useEffect(() => () => groups.forEach((g) => g.geo.dispose()), [groups]);
+  return groups.map((g) => (
+    <mesh key={g.key} geometry={g.geo} material={mat(g.key)} castShadow={castsShadow(g.key)} receiveShadow={receivesShadow(g.key)} />
+  ));
 }
 
-function SimpleBox({ x, z, w, d, h, rotY = 0, mat, children }) {
-  return (
-    <RigidBody type="fixed" colliders={false} position={[x, 0, z]} rotation-y={rotY} friction={0.8}>
-      <CuboidCollider args={[w / 2, h / 2, d / 2]} position={[0, h / 2, 0]} />
-      <RoundedBox position={[0, h / 2, 0]} args={[w, h, d]} radius={chamfer(w, h, d)} smoothness={3}
-        castShadow receiveShadow material={mat} />
-      {children}
-    </RigidBody>
-  );
-}
-
-// Static instanced book rows for the CEO bookshelf (one draw call)
-const BOOK_COLORS = ['#a33f3f', '#3f6ea3', '#3fa36a', '#a3823f', '#7a3fa3'];
-function ShelfBooks({ w, d }) {
+// Status LEDs for every rack on the map: one instanced mesh, blinking.
+const _led = new THREE.Color();
+function Leds({ built }) {
   const ref = useRef();
-  useLayoutEffect(() => {
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    let n = 0;
-    [0.35, 0.85, 1.35, 1.85].forEach((sy, i) => {
-      for (let j = 0; j < 7; j++) {
-        // on the open front (+z), never on a side that may be against a wall
-        dummy.position.set(-w / 2 + 0.25 + j * (w - 0.5) / 6, sy * M * 0.36 + 0.5, d / 2 + 0.07);
-        dummy.scale.set(1, 1 + (j % 3) * 0.14, 1);
-        dummy.updateMatrix();
-        ref.current.setMatrixAt(n, dummy.matrix);
-        ref.current.setColorAt(n, color.set(BOOK_COLORS[(i + j) % BOOK_COLORS.length]));
-        n++;
+  const leds = useMemo(() => {
+    const out = [];
+    const o = new THREE.Object3D();
+    for (const b of built) {
+      if (!b?.leds) continue;
+      const world = placeMatrix(b.f.x, b.f.z, b.f.rotY, M);
+      for (const l of b.leds) {
+        o.position.set(...l.at);
+        o.rotation.set(0, l.yaw || 0, 0);
+        o.scale.setScalar(0.012);
+        o.updateMatrix();
+        out.push({ ...l, m: world.clone().multiply(o.matrix), color: new THREE.Color(l.c) });
       }
-    });
-    ref.current.instanceMatrix.needsUpdate = true;
-    ref.current.instanceColor.needsUpdate = true;
-  }, [w, d]);
-  return (
-    <instancedMesh ref={ref} args={[null, null, 28]} frustumCulled={false}>
-      <boxGeometry args={[0.14, 0.42, 0.12]} />
-      <meshStandardMaterial roughness={0.8} />
-    </instancedMesh>
-  );
-}
-
-// Blinking server LEDs — one instanced mesh per rack, colors toggled per frame
-const _ledColor = new THREE.Color();
-function ServerLights({ w, h, d }) {
-  const ref = useRef();
-  const leds = useMemo(() => Array.from({ length: 14 }, (_, i) => ({
-    y: 0.4 + (i % 7) * (h * 0.55) / 7 + h * 0.2,
-    x: -w * 0.3 + (i > 6 ? w * 0.6 : 0),
-    speed: 2 + Math.random() * 9,
-    phase: Math.random() * 10,
-    color: new THREE.Color(Math.random() > 0.3 ? '#37ff7c' : '#ffb347'),
-  })), [w, h]);
+    }
+    return out;
+  }, [built]);
   useLayoutEffect(() => {
-    const dummy = new THREE.Object3D();
-    leds.forEach((l, i) => {
-      dummy.position.set(l.x, l.y, d / 2 + 0.015);
-      dummy.updateMatrix();
-      ref.current.setMatrixAt(i, dummy.matrix);
-    });
+    if (!ref.current) return;
+    leds.forEach((l, i) => ref.current.setMatrixAt(i, l.m));
     ref.current.instanceMatrix.needsUpdate = true;
-  }, [leds, d]);
+  }, [leds]);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     const t = clock.elapsedTime;
-    leds.forEach((l, i) => {
-      const on = Math.sin(t * l.speed + l.phase) > 0;
-      _ledColor.copy(l.color).multiplyScalar(on ? 1 : 0.08);
-      ref.current.setColorAt(i, _ledColor);
-    });
-    ref.current.instanceColor.needsUpdate = true;
+    for (let i = 0; i < leds.length; i++) {
+      const l = leds[i];
+      _led.copy(l.color).multiplyScalar(Math.sin(t * l.speed + l.phase) > -0.3 ? 1 : 0.06);
+      ref.current.setColorAt(i, _led);
+    }
+    if (ref.current.instanceColor) ref.current.instanceColor.needsUpdate = true;
   });
+  if (!leds.length) return null;
   return (
-    <instancedMesh ref={ref} args={[null, null, 14]} frustumCulled={false}>
-      <planeGeometry args={[0.06, 0.06]} />
+    <instancedMesh ref={ref} args={[null, null, leds.length]} frustumCulled={false}>
+      <planeGeometry args={[1, 1]} />
       <meshBasicMaterial toneMapped={false} />
     </instancedMesh>
   );
 }
 
 // ------------------------------------------------------------------- ramps
-// A ramp is a deck on a solid wedge, not a plank in mid-air. The collider
-// is the deck; what it looks like is its skin — a theme's (RAMP_SKINS), or
-// the built-in plank on a wedge.
-function wedgeGeometry(l, w, rise) {
-  // a right-angled prism: foot at z = −l/2, top edge at z = +l/2, y = rise
-  const x0 = -w / 2, x1 = w / 2, z0 = -l / 2, z1 = l / 2;
-  const v = [
-    x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z1, // floor
-    x0, rise, z1, x1, rise, z1, // top edge
-  ];
-  const idx = [
-    0, 5, 1, 0, 4, 5, // slope
-    3, 2, 5, 3, 5, 4, // back face
-    0, 1, 2, 0, 2, 3, // underside
-    0, 3, 4, // left side
-    1, 5, 2, // right side
-  ];
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-  g.setIndex(idx);
-  const ng = g.toNonIndexed();
-  ng.computeVertexNormals();
-  return ng;
-}
-
-function PlankRamp({ r, len, angle, mats }) {
-  const wedge = useMemo(() => wedgeGeometry(r.l, r.w * 0.94, r.rise - 0.02), [r.l, r.w, r.rise]);
-  return (
-    <group>
-      <mesh geometry={wedge} castShadow receiveShadow material={mats.body} />
-      <group rotation-x={-angle} position={[0, r.rise / 2, 0]}>
-        <mesh castShadow receiveShadow material={mats.deck}>
-          <boxGeometry args={[r.w, 0.08, len]} />
-        </mesh>
-      </group>
-    </group>
-  );
-}
-
+// A ramp's collider is its deck; what it looks like is its skin — a theme's
+// (RAMP_SKINS, drawn here as a component) or a built-in one (furniture.js
+// rampParts: plank, dustpan, binder, books, clipboard, ruler, steel,
+// pallet), baked with the furniture.
 function Ramps({ map }) {
   const { RAMPS } = map;
-  const mats = useMemo(() => ({
-    deck: new THREE.MeshStandardMaterial({ color: '#c8b28a', roughness: 0.7 }),
-    body: new THREE.MeshStandardMaterial({ color: '#8f7a5a', roughness: 0.85, side: THREE.DoubleSide }),
-  }), []);
+  const mats = useMemo(() => ({ deck: mat('mdf'), body: mat('mdf') }), []);
   return (
     <group>
       {RAMPS.map((r, i) => {
         const angle = Math.atan2(r.rise, r.l);
         const len = Math.hypot(r.l, r.rise);
-        const Skin = RAMP_SKINS[r.skin] || PlankRamp;
+        const Skin = RAMP_SKINS[r.skin];
         return (
           <RigidBody key={i} type="fixed" colliders={false} position={[r.x, 0, r.z]} rotation-y={r.rotY} friction={1.2}>
             <group rotation-x={-angle} position={[0, r.rise / 2, 0]}>
               <CuboidCollider args={[r.w / 2, 0.04, len / 2]} />
             </group>
-            <Skin r={r} len={len} angle={angle} mats={mats} />
+            {Skin && <Skin r={r} len={len} angle={angle} mats={mats} />}
           </RigidBody>
         );
       })}

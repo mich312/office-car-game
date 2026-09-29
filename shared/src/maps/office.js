@@ -163,7 +163,7 @@ export const FURNITURE = [
   f('shelfrack', -13.55, -10.3, 0.5, 1.8, 1.8),
   f('shelfrack', -8.45, -10.8, 0.5, 1.8, 1.8),
   // Bathroom — the comedy suite
-  f('sink', -11, 0.46, 2.6, 0.85, 0.85),
+  f('sink', -11, 0.46, 2.6, 0.85, 0.85, Math.PI), // basins face into the room
   f('toilet', -12.9, -3.45, 0.7, 0.9, 0.8),
   f('toilet', -11.4, -3.45, 0.7, 0.9, 0.8),
   f('stall', -12.15, -3.2, 0.08, 1.4, 1.5),
@@ -238,18 +238,20 @@ export const FURNITURE = [
 
 // Ramps: rotated planks that let cars climb furniture. rise over length.
 // rotY: 0 rises toward +z, π toward −z, π/2 toward +x, −π/2 toward −x.
-const ramp = (x, z, l, w, rise, rotY) => ({ x: u(x), z: u(z), l: u(l), w: u(w), rise: u(rise), rotY });
+// skin: what it looks like (Office.jsx / furniture.js draw a built-in one,
+// or a theme's RAMP_SKINS) — the collider is the same deck either way.
+const ramp = (x, z, l, w, rise, rotY, skin) => ({ x: u(x), z: u(z), l: u(l), w: u(w), rise: u(rise), rotY, skin });
 
 export const RAMPS = [
-  ramp(-4.5, -2.85, 1.9, 0.6, 0.74, 0), // shelf plank onto open-office pod 1 (south)
-  ramp(2.5, 5.85, 1.9, 0.6, 0.74, Math.PI), // pod 4 from the north
-  ramp(-3.4, -9.2, 1.8, 0.6, 0.92, Math.PI / 2), // dustpan onto the kitchen island
-  ramp(4.9, -11.35, 1.8, 0.6, 0.92, -Math.PI / 2), // counter run-up — drive the kitchen top!
-  ramp(14.2, 1.5, 1.8, 0.6, 0.74, Math.PI / 2), // binder ramp onto the meeting table
-  ramp(18.5, 8.85, 1.7, 0.55, 0.78, 0), // book-stack ramp onto the CEO desk
-  ramp(-2.1, 11.3, 1.6, 0.6, 0.75, -Math.PI / 2), // clipboard onto the lounge sofa
-  ramp(14.05, -4.5, 1.7, 0.55, 0.85, Math.PI / 2), // ruler ramp onto the foosball table
-  ramp(-17.5, -9.3, 1.8, 0.6, 1.05, Math.PI), // reception desk jump (tall!)
+  ramp(-4.5, -2.85, 1.9, 0.6, 0.74, 0, 'plank'), // shelf plank onto open-office pod 1 (south)
+  ramp(2.5, 5.85, 1.9, 0.6, 0.74, Math.PI, 'plank'), // pod 4 from the north
+  ramp(-3.4, -9.2, 1.8, 0.6, 0.92, Math.PI / 2, 'dustpan'), // dustpan onto the kitchen island
+  ramp(4.9, -11.35, 1.8, 0.6, 0.92, -Math.PI / 2, 'steel'), // counter run-up — drive the kitchen top!
+  ramp(14.2, 1.5, 1.8, 0.6, 0.74, Math.PI / 2, 'binder'), // binder ramp onto the meeting table
+  ramp(18.5, 8.85, 1.7, 0.55, 0.78, 0, 'books'), // book-stack ramp onto the CEO desk
+  ramp(-2.1, 11.3, 1.6, 0.6, 0.75, -Math.PI / 2, 'clipboard'), // clipboard onto the lounge sofa
+  ramp(14.05, -4.5, 1.7, 0.55, 0.85, Math.PI / 2, 'ruler'), // ruler ramp onto the foosball table
+  ramp(-17.5, -9.3, 1.8, 0.6, 1.05, Math.PI, 'plank'), // reception desk jump (tall!)
 ];
 
 // Dynamic props: everything here is a physics body the cars can smash.
