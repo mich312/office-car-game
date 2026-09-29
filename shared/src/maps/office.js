@@ -198,7 +198,9 @@ export const FURNITURE = [
   // Cafeteria — kitchen along the south wall, island, tables, vending
   f('counter', -1, -11.39, 10, 1, 0.92),
   f('island', -1, -9.2, 3, 1.1, 0.92),
-  f('fridge', 5.3, -11.4, 1, 0.8, 1.9),
+  // at the run's west end: at its east end (5.3) it stood on the bottom half
+  // of the steel ramp, which came out of its door and couldn't be driven
+  f('fridge', -6.9, -11.4, 1, 0.8, 1.9),
   f('vending', 12.4, -11.5, 1, 0.8, 1.9),
   f('bartop', -6.8, -5.42, 0.6, 2.6, 1.1),
   f('table', 6.5, -6.5, 1.2, 1.2, 0.74),
@@ -308,7 +310,7 @@ export const PROPS = [
   p('bottle', -6.7, -4.6, 1.1), p('bottle', 3.4, -6.8), p('bottle', 11.6, -6.2, 0, 0.9),
   p('marble', 11.2, -10.6), p('marble', 11.7, -10.2), p('marble', 12.1, -10.9), p('marble', 10.8, -11.1),
   p('marble', 12.5, -10.4), p('marble', 11.4, -11.3), p('marble', 12.8, -11), p('marble', 10.5, -10.3),
-  p('trash', -7.5, -11.3), p('stack', -5.9, -5), p('pen', 1, -7, 0, 0.2), p('pen', 8, -11, 0, 1.9),
+  p('trash', -7.55, -10.5), p('stack', -5.9, -5), p('pen', 1, -7, 0, 0.2), p('pen', 8, -11, 0, 1.9),
   // ---- games corner
   p('basketball', 18.5, -8.2), p('basketball', 19.6, -9.4), p('basketball', 16.8, -7.6), p('basketball', 20, -3.4),
   p('mug', 17.7, -10.4, 0.4), p('book', 14.8, -9.8, 0, 0.6), p('pen', 16, -8.8, 0, 2.5),
