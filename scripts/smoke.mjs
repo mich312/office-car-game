@@ -78,7 +78,8 @@ await playMode('tag', async (a, b) => {
   const itBefore = a.snaps[a.snaps.length - 1].it;
   a.send({ t: 'bump', target: b.id });
   await sleep(300);
-  const hit = a.all('fx').find((m) => m.type === 'bump' && m.kind === 'hit');
+  // (between these two cars: the room's bots bump too)
+  const hit = a.all('fx').find((m) => m.type === 'bump' && m.kind === 'hit' && m.a === a.id && m.b === b.id);
   check('tag: high-rel-speed bump classified as hit', !!hit);
   snap = a.snaps[a.snaps.length - 1];
   const tagged = a.all('fx').some((m) => m.type === 'tag');
@@ -115,7 +116,9 @@ await playMode('tag', async (a, b) => {
   await sleep(150);
   o.send({ t: 'bump', target: r.id });
   await sleep(300);
-  check('respawn: protected car ignores bumps', !r.all('fx').some((m) => m.type === 'bump' && m.kind === 'hit'));
+  // only hits on the protected car count: bots bump each other in the same
+  // room, and their hits reach every client too
+  check('respawn: protected car ignores bumps', !r.all('fx').some((m) => m.type === 'bump' && m.kind === 'hit' && (m.a === r.id || m.b === r.id)));
 
   // …once: pressing R again inside the cooldown renews nothing
   await sleep(1300); // respawn requests are rate limited
