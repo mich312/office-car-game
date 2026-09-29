@@ -51,5 +51,37 @@ const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + na
   }
 }
 
+// ------------------------ a swapped or unstuck bot picks up where it is
+// Legs timed from a Position Swap or a stuck hop to the bot's next
+// checkpoint. A normal leg takes ~2 s and never much over 10; a bot that
+// kept its old line waypoint drove back to it — a whole lap on the cellar.
+for (const map of ['cellar', 'office']) {
+  for (const variant of ['classic', 'reverse']) {
+    const legs = [];
+    for (let seed = 1; seed <= 6; seed++) {
+      const sim = await createSim({ seed, mode: 'desk_dash', map, variant });
+      const last = new Map(), pending = new Map();
+      let seen = 0;
+      sim.run(200, (s) => {
+        const t = s.now();
+        for (const e of s.events.slice(seen)) {
+          if (e.type === 'swap') for (const id of [e.a, e.b]) pending.set(id, { t, cp: s.room.players.get(id).nextCp });
+        }
+        seen = s.events.length;
+        for (const b of s.bots) {
+          const prev = last.get(b.id);
+          if (prev && Math.hypot(b.p[0] - prev[0], b.p[2] - prev[1]) > 4 && !pending.has(b.id)) pending.set(b.id, { t, cp: b.nextCp });
+          last.set(b.id, [b.p[0], b.p[2]]);
+          const pd = pending.get(b.id);
+          if (pd && (b.nextCp !== pd.cp || b.finished)) { legs.push((t - pd.t) / 1000); pending.delete(b.id); }
+        }
+      });
+    }
+    const worst = Math.max(0, ...legs);
+    check(`${map} ${variant}: after a swap or a stuck hop the next checkpoint comes quickly (${legs.length} legs, worst ${worst.toFixed(1)} s)`,
+      legs.length > 0 && worst < 12);
+  }
+}
+
 console.log(fails ? `\n${fails} race check(s) failed` : '\nall race checks passed');
 process.exit(fails ? 1 : 0);

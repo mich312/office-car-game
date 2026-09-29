@@ -660,6 +660,13 @@ export class Room {
         if (!other) break;
         const pa = [...player.p], pb = [...other.p];
         player.p = pb; other.p = pa;
+        // …facing the way the other car was facing (it used to be north)
+        const yaw = (c) => (c.bot ? c.heading : 2 * Math.atan2(c.q[1], c.q[3]));
+        const ya = yaw(player), yb = yaw(other);
+        for (const [c, h] of [[player, yb], [other, ya]]) {
+          c.q = [0, Math.sin(h / 2), 0, Math.cos(h / 2)];
+          if (c.bot) c.heading = h;
+        }
         if (this.modeId === 'desk_dash') {
           // Trading places has to trade RACE places too. Swapping bodies but
           // not progress left a car that was swapped forward with its next
@@ -667,10 +674,12 @@ export class Room {
           // a bot — so "trade places" never traded places.
           for (const k of ['lap', 'nextCp', 'score']) [player[k], other[k]] = [other[k], player[k]];
           player.poseRing = []; other.poseRing = []; // old ground is no longer "ours" to respawn on
+          // a bot's line waypoint belongs to its old spot on the lap
+          for (const c of [player, other]) if (c.bot) this.bots.resync(c);
           this.scoreChanged();
         }
         player.allowTeleportUntil = other.allowTeleportUntil = t + 1500;
-        this.broadcast({ t: MSG.EFFECT, type: 'swap', a: player.id, b: other.id, pa: pb, pb: pa });
+        this.broadcast({ t: MSG.EFFECT, type: 'swap', a: player.id, b: other.id, pa: pb, pb: pa, ra: r2(yb), rb: r2(ya) });
         this.feed(`🔀 ${player.name} swapped with ${other.name}`);
         break;
       }

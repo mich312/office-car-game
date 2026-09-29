@@ -295,9 +295,15 @@ export default function LocalCar() {
             }
             break;
           case 'swap':
-            if (fx.a === me) teleport(fx.pa[0], fx.pa[1] + 0.5, fx.pa[2], 0);
-            if (fx.b === me) teleport(fx.pb[0], fx.pb[1] + 0.5, fx.pb[2], 0);
-            if (fx.a === me || fx.b === me) S.shake = 0.6;
+            if (fx.a === me) teleport(fx.pa[0], fx.pa[1] + 0.5, fx.pa[2], fx.ra || 0);
+            if (fx.b === me) teleport(fx.pb[0], fx.pb[1] + 0.5, fx.pb[2], fx.rb || 0);
+            if (fx.a === me || fx.b === me) {
+              S.shake = 0.6;
+              // the server dropped its record of our old ground; so do we, or
+              // the next respawn proposes a spot it can't match (→ the grid)
+              S.safePoses.length = 0;
+              S.lastSafeAt = 0;
+            }
             break;
           case 'shield':
             if (fx.id === me) S.shieldUntil = performance.now() + (fx.until - Date.now());
