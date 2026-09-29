@@ -2,7 +2,8 @@
 // each mode *starts* and snapshots correctly; this proves a mode taken all the
 // way to its win condition pays out what it says it does.
 import {
-  CHECKPOINTS, MODES, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
+  CHECKPOINTS, MODES, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS, BEAN_SPAWNS, PICKUP_RADIUS, MAP_IDS,
+  clearDropSpot, groundAt, M,
   raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
@@ -106,6 +107,7 @@ const N = CHECKPOINTS.length;
   const mode = createMode('coffee_run', room);
   const base = mode.beans.length;
   a.beans = 5;
+  a.poseRing = [[BEAN_SPAWNS[6].x, BEAN_SPAWNS[6].z]]; // last floor it drove on
   a.p = [0, -20, 0];
   mode.onFall(a); // spill everything → 5 dropped beans, each with an expiry
   a.p = [500, 0, 500]; // park far away so nothing gets re-collected
@@ -117,6 +119,104 @@ const N = CHECKPOINTS.length;
   mode.update();
   check('coffee: expired spills are swept up', mode.beans.every((b) => b.id < 1000));
   check('coffee: base beans survive the sweep', mode.beans.length === base);
+}
+
+// Spills land beyond the victim's reach, never in or through a wall, and
+// the victim can't scoop its own spill straight back up.
+for (const mapId of MAP_IDS) {
+  const map = MAPS[mapId];
+  const a = player('p1', 'Alice');
+  const room = stubRoom([a]);
+  room.map = map;
+  const mode = createMode('coffee_run', room);
+  let total = 0, inReach = 0, bad = 0, spots = 0;
+  for (const r of map.ROOMS) {
+    for (let k = 0; k < 12; k++) {
+      const x = r.x + ((k % 4) / 3 - 0.5) * r.w * 0.85, z = r.z + (Math.floor(k / 4) / 2 - 0.5) * r.d * 0.85;
+      if (!clearDropSpot(map, x, z, x, z)) continue;
+      spots++;
+      a.p = [x, 0.24, z]; a.beans = 5;
+      const before = mode.beans.length;
+      mode.spill(a, 'test');
+      for (const b of mode.beans.slice(before)) {
+        total++;
+        if (Math.hypot(b.x - x, b.z - z) < PICKUP_RADIUS) inReach++;
+        else if (!clearDropSpot(map, x, z, b.x, b.z, { pad: 0 })) bad++;
+      }
+      mode.beans.length = before;
+    }
+  }
+  check(`${mapId} coffee: spills land beyond the victim's reach (${inReach}/${total} in reach)`, inReach / total < 0.1);
+  check(`${mapId} coffee: no spilled bean lands in or through a wall (${bad}/${total})`, bad === 0 && spots > 20);
+  // the victim sits on its own spill: nothing comes back for a second
+  a.p = [map.BEAN_SPAWNS[0].x, 0.24, map.BEAN_SPAWNS[0].z]; a.beans = 5;
+  mode.spill(a, 'test');
+  const left = a.beans;
+  for (const b of mode.beans.filter((q) => q.id >= 1000)) { b.x = a.p[0]; b.z = a.p[2]; }
+  mode.beans = mode.beans.filter((q) => q.id >= 1000);
+  mode.update();
+  check(`${mapId} coffee: the victim can't scoop its own spill back up`, a.beans === left);
+  for (const b of mode.beans) b.noPickup.until = Date.now() - 1;
+  mode.update();
+  check(`${mapId} coffee: …for long`, a.beans > left);
+}
+
+{
+  // a fall off the balcony rings the beans round the last floor driven on;
+  // with no such floor they're gone rather than floating past the railing
+  const a = player('p1', 'Alice');
+  const room = stubRoom([a]);
+  const mode = createMode('coffee_run', room);
+  const base = mode.beans.length;
+  a.beans = 5; a.p = [-21.5 * M, -12, 5 * M]; a.poseRing = [];
+  mode.onFall(a);
+  check('coffee: a fall with no floor on record spills nowhere', a.beans === 0 && mode.beans.length === base);
+  a.beans = 5; a.poseRing = [[-20.6 * M, 5 * M]];
+  mode.onFall(a);
+  const fallen = mode.beans.filter((b) => b.id >= 1000);
+  check('coffee: a fall spill lands on the floor, inside the building', fallen.length === 5
+    && fallen.every((b) => b.y === 0 && room.map.roomAt(b.x, b.z) && b.x > room.map.MAP_BOUNDS.minX));
+}
+
+// Capture the Battery: a hit knocks it clear and the victim can't grab it back.
+for (const mapId of MAP_IDS) {
+  const map = MAPS[mapId];
+  const v = player('p1', 'Vic'), r = player('p2', 'Ram');
+  const room = stubRoom([v, r]); // Vic joined first: first in Map order
+  room.map = map;
+  const mode = createMode('battery', room);
+  const s = map.BATTERY_SPAWN;
+  v.p = [s.x - 0.9, 0.24, s.z]; r.p = [s.x, 0.24, s.z];
+  mode.update(0.05);
+  check(`${mapId} battery: the nearest car grabs it, not the first to join`, mode.battery.carrier === 'p2');
+  mode.battery.carrier = 'p1'; r.hasBattery = false; v.hasBattery = true;
+  v.p = [s.x, 0.24, s.z]; r.p = [s.x - 0.9, 0.24, s.z];
+  mode.onHit(r, v);
+  check(`${mapId} battery: a hit knocks it clear of the victim`, mode.battery.carrier === null
+    && Math.hypot(mode.battery.x - v.p[0], mode.battery.z - v.p[2]) > PICKUP_RADIUS
+    && clearDropSpot(map, v.p[0], v.p[2], mode.battery.x, mode.battery.z, { pad: 0 }));
+  v.p = [mode.battery.x, 0.24, mode.battery.z]; r.p = [s.x - 20, 0.24, s.z];
+  mode.update(0.05);
+  check(`${mapId} battery: the victim can't grab it straight back`, mode.battery.carrier === null);
+  mode.battery.noPickup.until = Date.now() - 1;
+  mode.update(0.05);
+  check(`${mapId} battery: …for long`, mode.battery.carrier === 'p1');
+}
+{
+  // dropped on the cellar's loading dock, it sits on the dock, not inside it
+  const map = MAPS.cellar;
+  const dock = map.FURNITURE.find((f) => f.type === 'dock');
+  const v = player('p1', 'Vic');
+  const room = stubRoom([v]);
+  room.map = map;
+  const mode = createMode('battery', room);
+  v.p = [dock.x, dock.h + 0.24, dock.z];
+  mode.battery.carrier = 'p1'; v.hasBattery = true;
+  mode.onHit(null, v);
+  const onDock = Math.abs(mode.battery.x - dock.x) < dock.w / 2 && Math.abs(mode.battery.z - dock.z) < dock.d / 2;
+  check('battery: a drop on the loading dock lands on top of it', onDock && Math.abs(mode.battery.y - dock.h) < 0.01);
+  check('battery: the dock top is a surface groundAt knows', Math.abs(groundAt(map, dock.x, dock.z, dock.h + 1) - dock.h) < 1e-9
+    && groundAt(map, dock.x, dock.z, 0.5) === 0);
 }
 
 // --------------------------------------------------------------- Sumo

@@ -60,6 +60,17 @@ check('lcs warn', d.lcs.warn.room === 'games' && approx(d.lcs.warn.until, t + 50
 check('lcs alive', d.lcs.alive === 4);
 check('min no lcs', decodeSnapshot(encodeSnapshot({ t: 'ss', time: t, players: {}, puddles: [] })).lcs === undefined);
 
+// dropped things on furniture carry their height (a tail section)
+check('no drop heights on the floor', d.battery.y === undefined && d.beans[0][3] === undefined);
+{
+  const up = decodeSnapshot(encodeSnapshot({ ...snap, battery: { x: 1, z: 2, y: 4.05, carrier: null }, beans: [[1001, 2.5, -3.5, 2.0], [4, -60.2, 39.9, 0]] }));
+  check('battery y', approx(up.battery.y, 4.05, 0.011) && up.battery.carrier === null);
+  check('bean y', approx(up.beans[0][3], 2.0, 0.011) && up.beans[1][3] === 0);
+  check('drop heights leave the other sections intact', up.lcs.alive === 4 && up.it === 'bot2');
+  const noBattery = decodeSnapshot(encodeSnapshot({ t: 'ss', time: t, players: {}, puddles: [], beans: [[3, 1, 1, 1.5]] }));
+  check('bean y without a battery section', approx(noBattery.beans[0][3], 1.5, 0.011));
+}
+
 // minimal snapshot (lobby phase: players only)
 const min = { t: 'ss', time: t, players: { p1: { p: [0, 1, 0], q: [0, 0, 0, 1], f: 0, c: 0 } }, puddles: [] };
 const dm = decodeSnapshot(encodeSnapshot(min));

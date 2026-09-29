@@ -447,6 +447,9 @@ export class Room {
 
   endMatch() {
     this.phase = PHASE.PODIUM;
+    // the final whistle takes the loads off: a carrier kept the roof battery
+    // (and its speed penalty) through the podium and into the lobby
+    for (const p of this.players.values()) { p.hasBattery = false; p.beans = 0; }
     // Cup intermissions are brisk; the grand ceremony gets the full podium
     const cupFinal = this.cup ? this.cup.round >= MODES.office_cup.rounds - 1 : false;
     this.phaseUntil = now() + (this.cup && !cupFinal ? 7 : PODIUM_SECONDS) * 1000;
@@ -502,7 +505,7 @@ export class Room {
     this.pendingEvent = null;
     this.robot = null;
     this.bots.clear();
-    for (const p of this.players.values()) p.ready = false;
+    for (const p of this.players.values()) { p.ready = false; p.hasBattery = false; p.beans = 0; }
     if (!silent) this.sendLobby();
   }
 

@@ -5,10 +5,33 @@ import {
   KOTH_RADIUS,
   GRAVITY, M, LCS, COUNTDOWN_SECONDS, isDecor,
   raceCheckpoints, raceLaps, sumoTarget, sumoCenter, kothHopSeconds,
+  groundAt, clearDropSpot, wallBetween,
 } from '@rc/shared';
 
 const now = () => Date.now();
 const r2 = (n) => Math.round(n * 100) / 100;
+
+// What a car is standing on: its reported height less the ride height. A
+// dropped battery or spill lands on that surface (the loading dock, a
+// pallet stack), not inside it.
+const RIDE_Y = 0.24;
+const standY = (p) => Math.max(0, p.p[1] - RIDE_Y) + 0.5;
+
+// Somewhere to drop a thing `dist` from (x, z) in direction a (radians),
+// shortened until it's clear of walls and furniture and on this side of
+// any wall; `min` is as close as it may come. Against a wall it swings
+// round (nearest direction first) rather than land in the car's lap.
+// Null if nowhere fits.
+function dropSpot(map, x, z, a, dist, min, maxY) {
+  for (let k = 0; k < 12; k++) {
+    const ak = a + Math.ceil(k / 2) * (k % 2 ? 1 : -1) * (Math.PI / 6);
+    for (let d = dist; d >= min - 1e-9; d -= 0.4) {
+      const nx = x + Math.cos(ak) * d, nz = z + Math.sin(ak) * d;
+      if (clearDropSpot(map, x, z, nx, nz, { maxY })) return [nx, nz];
+    }
+  }
+  return null;
+}
 
 export function createMode(id, room) {
   switch (id) {
@@ -194,11 +217,14 @@ class RaceMode {
 }
 
 // -------------------------------------------------------------- Coffee Run
+const SPILL_R0 = 2.2, SPILL_R1 = 3.2; // spill ring, beyond PICKUP_RADIUS + a tick of driving
+const SPILL_NO_PICKUP_MS = 1000;
+
 class CoffeeMode {
   constructor(room) {
     this.room = room;
     this.max = MODES.coffee_run.maxCarry;
-    this.beans = this.room.map.BEAN_SPAWNS.map((b, i) => ({ id: i, x: b.x, z: b.z, alive: true, respawnAt: 0 }));
+    this.beans = this.room.map.BEAN_SPAWNS.map((b, i) => ({ id: i, x: b.x, z: b.z, y: 0, alive: true, respawnAt: 0 }));
     this.dropId = 1000;
   }
   update() {
@@ -214,6 +240,8 @@ class CoffeeMode {
       if (p.beans < this.max) {
         for (const b of this.beans) {
           if (!b.alive) continue;
+          // your own spill isn't yours to scoop straight back up
+          if (b.noPickup && b.noPickup.id === p.id && t < b.noPickup.until) continue;
           if (Math.hypot(p.p[0] - b.x, p.p[2] - b.z) < PICKUP_RADIUS) {
             b.alive = false;
             b.respawnAt = b.id < 1000 ? t + 9000 : 0; // dropped beans don't respawn
@@ -224,8 +252,11 @@ class CoffeeMode {
           }
         }
       }
-      // deliver
-      if (p.beans > 0 && Math.hypot(p.p[0] - this.room.map.COFFEE_MACHINE.deliverX, p.p[2] - this.room.map.COFFEE_MACHINE.deliverZ) < this.room.map.COFFEE_MACHINE.radius * 2) {
+      // deliver — in sight of the machine: the zone is a circle, and on the
+      // cellar it reached through the boiler-room wall into the corridor
+      const cm = this.room.map.COFFEE_MACHINE;
+      if (p.beans > 0 && Math.hypot(p.p[0] - cm.deliverX, p.p[2] - cm.deliverZ) < cm.radius * 2
+          && !wallBetween(this.room.map, cm.deliverX, cm.deliverZ, p.p[0], p.p[2])) {
         p.score += p.beans * MODES.coffee_run.beanScore;
         this.room.feed(`☕ ${p.name} delivered ${p.beans} bean${p.beans > 1 ? 's' : ''}`);
         this.room.broadcast({ t: MSG.EFFECT, type: 'deliver', id: p.id, count: p.beans });
@@ -237,17 +268,33 @@ class CoffeeMode {
   }
   // Bumps spill about half your beans (min 3) — proportional loss keeps the
   // leader a target without zeroing them out; falls still spill everything.
+  // The ring lands outside the victim's pickup radius (it used to catch a
+  // third of every spill straight back) and the victim can't scoop its own
+  // spill for a second; beans that would land in a wall, in furniture or
+  // through a wall come in closer, or stay in the victim's tyre tracks.
   spill(p, cause, all = false) {
     if (p.beans <= 0) return;
     const n = all ? p.beans : Math.min(p.beans, Math.max(3, Math.ceil(p.beans / 2)));
     p.beans -= n;
+    const t = now();
+    const map = this.room.map;
+    let cx = p.p[0], cz = p.p[2], maxY = standY(p);
+    if (all && p.p[1] < -6) {
+      // a fall: ring the beans round the last floor it drove on, not in
+      // mid-air past the balcony railing — and with no such floor, they're gone
+      const last = p.poseRing?.[p.poseRing.length - 1];
+      if (!last) { this.room.feed(`💥 ${p.name} spilled ${n} bean${n > 1 ? 's' : ''} (${cause})`); return; }
+      [cx, cz] = last; maxY = 0.5;
+    }
+    const a0 = Math.random() * Math.PI * 2;
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
+      const a = a0 + (i / n) * Math.PI * 2;
+      const [x, z] = dropSpot(map, cx, cz, a, SPILL_R0 + Math.random() * (SPILL_R1 - SPILL_R0), PICKUP_RADIUS + 0.2, maxY) || [cx, cz];
       this.beans.push({
         id: this.dropId++, alive: true, respawnAt: 0,
-        expiresAt: now() + MODES.coffee_run.spillTtlS * 1000,
-        x: r2(p.p[0] + Math.cos(a) * (1.2 + Math.random())),
-        z: r2(p.p[2] + Math.sin(a) * (1.2 + Math.random())),
+        expiresAt: t + MODES.coffee_run.spillTtlS * 1000,
+        x: r2(x), z: r2(z), y: r2(groundAt(map, x, z, maxY)),
+        noPickup: { id: p.id, until: t + SPILL_NO_PICKUP_MS },
       });
     }
     this.room.feed(`💥 ${p.name} spilled ${n} bean${n > 1 ? 's' : ''}${cause ? ` (${cause})` : ''}`);
@@ -261,15 +308,18 @@ class CoffeeMode {
     return order[0] || null;
   }
   snapshot() {
-    return { beans: this.beans.filter((b) => b.alive).map((b) => [b.id, r2(b.x), r2(b.z)]) };
+    return { beans: this.beans.filter((b) => b.alive).map((b) => [b.id, r2(b.x), r2(b.z), b.y]) };
   }
 }
 
 // ---------------------------------------------------- Capture the Battery
+const BATTERY_KNOCK = 2.5; // how far a hit knocks the battery from its carrier
+const BATTERY_NO_PICKUP_MS = 1500;
+
 class BatteryMode {
   constructor(room) {
     this.room = room;
-    this.battery = { x: this.room.map.BATTERY_SPAWN.x, z: this.room.map.BATTERY_SPAWN.z, carrier: null };
+    this.battery = { x: this.room.map.BATTERY_SPAWN.x, z: this.room.map.BATTERY_SPAWN.z, y: 0, carrier: null, noPickup: null };
     this.scoreAcc = 0;
   }
   update(dt) {
@@ -283,30 +333,49 @@ class BatteryMode {
       this.scoreAcc += dt;
       if (this.scoreAcc > 2) { this.scoreAcc = 0; this.room.scoreChanged(); }
     } else {
-      for (const p of this.room.players.values()) {
-        if (p.stunUntil > t) continue;
-        if (Math.hypot(p.p[0] - b.x, p.p[2] - b.z) < PICKUP_RADIUS) {
-          b.carrier = p.id;
-          p.hasBattery = true;
-          this.room.feed(`🔋 ${p.name} grabbed the battery!`);
-          this.room.broadcast({ t: MSG.EFFECT, type: 'battery_grab', id: p.id });
-          break;
-        }
+      // the nearest car in reach takes it (not the first one to have joined
+      // the room), and the car that just lost it has to wait a moment
+      let p = null, pd = PICKUP_RADIUS;
+      for (const q of this.room.players.values()) {
+        if (q.stunUntil > t || q.eliminated) continue;
+        if (b.noPickup && b.noPickup.id === q.id && t < b.noPickup.until) continue;
+        const d = Math.hypot(q.p[0] - b.x, q.p[2] - b.z);
+        if (d < pd) { pd = d; p = q; }
+      }
+      if (p) {
+        b.carrier = p.id;
+        b.noPickup = null;
+        p.hasBattery = true;
+        this.room.feed(`🔋 ${p.name} grabbed the battery!`);
+        this.room.broadcast({ t: MSG.EFFECT, type: 'battery_grab', id: p.id });
       }
     }
   }
-  drop(p) {
-    if (this.battery.carrier !== p.id) return;
-    this.battery.carrier = null;
+  // A hit knocks the battery a couple of units along the hit, clear of any
+  // wall, and the victim can't grab it back for a moment — it used to stay
+  // under the victim, who picked it straight up again on the next tick.
+  drop(p, from = null) {
+    const b = this.battery;
+    if (b.carrier !== p.id) return;
+    b.carrier = null;
     p.hasBattery = false;
-    this.battery.x = p.p[0]; this.battery.z = p.p[2];
-    // If it fell out of the world, respawn it home
-    if (p.p[1] < -8) { this.battery.x = this.room.map.BATTERY_SPAWN.x; this.battery.z = this.room.map.BATTERY_SPAWN.z; }
+    const map = this.room.map;
+    if (p.p[1] < -8) {
+      // it fell out of the world: respawn it home
+      b.x = map.BATTERY_SPAWN.x; b.z = map.BATTERY_SPAWN.z; b.y = 0; b.noPickup = null;
+    } else {
+      let a = from ? Math.atan2(p.p[2] - from.p[2], p.p[0] - from.p[0]) : Math.random() * Math.PI * 2;
+      if (from && from.p[0] === p.p[0] && from.p[2] === p.p[2]) a = Math.random() * Math.PI * 2;
+      const maxY = standY(p);
+      const [x, z] = dropSpot(map, p.p[0], p.p[2], a, BATTERY_KNOCK, 0.4, maxY) || [p.p[0], p.p[2]];
+      b.x = x; b.z = z; b.y = r2(groundAt(map, x, z, maxY));
+      b.noPickup = { id: p.id, until: now() + BATTERY_NO_PICKUP_MS };
+    }
     this.room.broadcast({ t: MSG.EFFECT, type: 'battery_drop', id: p.id });
   }
   onHit(attacker, victim) {
     if (this.battery.carrier === victim.id) {
-      this.drop(victim);
+      this.drop(victim, attacker);
       this.room.feed(`🔋 ${attacker ? attacker.name : 'The office'} made ${victim.name} drop the battery`);
     }
   }
@@ -318,7 +387,7 @@ class BatteryMode {
     return null;
   }
   snapshot() {
-    return { battery: { x: r2(this.battery.x), z: r2(this.battery.z), carrier: this.battery.carrier } };
+    return { battery: { x: r2(this.battery.x), z: r2(this.battery.z), y: this.battery.carrier ? 0 : this.battery.y, carrier: this.battery.carrier } };
   }
 }
 
