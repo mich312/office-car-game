@@ -414,7 +414,7 @@ export class Room {
         spawnProtectUntil: 0, sumoDead: false,
         spawnIndex: i++, finished: false, finishBonus: 0, finishPlace: 0, rejects: 0, rejectAnchor: null,
         poseRing: [], lastPoseAt: 0, eliminated: false, zapT: 0,
-        abilityReadyAt: 0, ramUntil: 0,
+        abilityReadyAt: 0, ramUntil: 0, lastProtectAt: 0,
         // everyone teleports to the spawn grid client-side — sanction it
         allowTeleportUntil: now() + (COUNTDOWN_SECONDS + 2) * 1000,
       });
