@@ -420,9 +420,12 @@ function OutsideGlows({ map }) {
     if (t > flood.current.until) flood.current.on = false;
     const want = flood.current.on ? 0.22 : 0;
     mats.flood.opacity += (want - mats.flood.opacity) * Math.min(1, dt * (flood.current.on ? 12 : 1.5));
+    // by day there's nothing to draw
+    if (group.current) group.current.visible = mats.sodium.opacity > 0.005 || mats.flood.opacity > 0.005;
   });
+  const group = useRef();
   return (
-    <group>
+    <group ref={group}>
       <mesh rotation-x={-Math.PI / 2} position={[13.2 * M, 0.03, -13.6 * M]} material={mats.sodium}>
         <planeGeometry args={[11 * M, 9 * M]} />
       </mesh>

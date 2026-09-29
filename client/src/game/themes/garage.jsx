@@ -335,7 +335,7 @@ function PlankRamp({ r, len, angle }) {
     const a = Math.atan2(rise, l), L = Math.hypot(l, rise);
     // a sheet of ply, its layered edge showing, and a 2×4 cleat at the foot
     k.box('wood', [w, 0.02, L], [0, rise / 2 + 0.005, 0], '#dcc091', [-a, 0, 0]);
-    for (const sx of [-1, 1]) k.box('matte', [0.004, 0.02, L], [sx * (w / 2 + 0.002), rise / 2 + 0.005, 0], '#b89a68', [-a, 0, 0]);
+    for (const sx of [-1, 1]) k.box('wood', [0.004, 0.02, L], [sx * (w / 2 + 0.002), rise / 2 + 0.005, 0], '#b89a68', [-a, 0, 0]);
     k.box('wood', [w, 0.04, 0.09], [0, 0.02, -l / 2 + 0.05], '#caa874');
     // propped up on paint tins — as many as it takes to reach half way
     const n = Math.max(1, Math.round((rise * 0.5) / 0.19));
@@ -344,7 +344,7 @@ function PlankRamp({ r, len, angle }) {
       for (let i = 0; i < n; i++) {
         const y = 0.095 + i * 0.19;
         k.cyl('metal', 0.085, 0.085, 0.188, [sx * w * 0.28, y, z], '#c2c7cc', null, 14);
-        k.cyl('matte', 0.086, 0.086, 0.08, [sx * w * 0.28, y - 0.01, z], ['#e6c34a', '#3e7d57', '#b5473a', '#f2f2f2'][(i + (sx > 0 ? 1 : 0)) % 4], null, 14);
+        k.cyl('metal', 0.086, 0.086, 0.08, [sx * w * 0.28, y - 0.01, z], ['#e6c34a', '#3e7d57', '#b5473a', '#f2f2f2'][(i + (sx > 0 ? 1 : 0)) % 4], null, 14);
       }
     }
     return k.build();
@@ -370,13 +370,13 @@ function SkateRamp({ r }) {
     k.add('satin', wedge(l, w - 0.04, rise - 0.015), '#3a3d42');
     k.box('wood', [w, 0.018, L], [0, rise / 2, 0], '#cfae7a', [-a, 0, 0]);
     // the steel kicker plate at the foot, and scuffs
-    k.box('metal', [w, 0.006, 0.22], [0, 0.012 + 0.11 * Math.sin(a), -l / 2 + 0.11], '#9aa0a6', [-a, 0, 0]);
+    k.box('satin', [w, 0.006, 0.22], [0, 0.012 + 0.11 * Math.sin(a), -l / 2 + 0.11], '#9aa0a6', [-a, 0, 0]);
     const rr = rng(Math.round(l * 100 + w));
     for (let i = 0; i < 6; i++) {
       const t = rr();
-      k.box('matte', [0.1 + rr() * 0.3, 0.001, 0.015], [(rr() - 0.5) * w * 0.7, rise * t + 0.012, -l / 2 + l * t], '#2a2622', [-a, (rr() - 0.5) * 0.5, 0]);
+      k.box('wood', [0.1 + rr() * 0.3, 0.001, 0.015], [(rr() - 0.5) * w * 0.7, rise * t + 0.012, -l / 2 + l * t], '#2a2622', [-a, (rr() - 0.5) * 0.5, 0]);
     }
-    k.box('matte', [0.002, rise * 0.4, l * 0.3], [w / 2 - 0.018, rise * 0.25, 0.1], '#ff3d8b');
+    k.box('satin', [0.002, rise * 0.4, l * 0.3], [w / 2 - 0.018, rise * 0.25, 0.1], '#ff3d8b');
     return k.build();
   });
   return <KitMeshes geos={geos} />;
@@ -520,15 +520,23 @@ function FloorPools({ map }) {
     }
     return by;
   }, [tex]);
+  const group = useRef();
   useFrame((_, dt) => {
     const want = Math.max(0, level - 0.3) * 0.32;
-    for (const m of Object.values(mats)) m.opacity += (want - m.opacity) * Math.min(1, dt * 2);
+    let o = 0;
+    for (const m of Object.values(mats)) { m.opacity += (want - m.opacity) * Math.min(1, dt * 2); o = m.opacity; }
+    // an invisible additive quad still costs a draw: by day they're off
+    if (group.current) group.current.visible = o > 0.005;
   });
-  return POOLS.map(([x, z, sz, c], i) => (
-    <mesh key={i} rotation-x={-Math.PI / 2} position={[x * M, 0.035, z * M]} material={mats[c]}>
-      <planeGeometry args={[sz * M, sz * M]} />
-    </mesh>
-  ));
+  return (
+    <group ref={group}>
+      {POOLS.map(([x, z, sz, c], i) => (
+        <mesh key={i} rotation-x={-Math.PI / 2} position={[x * M, 0.035, z * M]} material={mats[c]}>
+          <planeGeometry args={[sz * M, sz * M]} />
+        </mesh>
+      ))}
+    </group>
+  );
 }
 
 // ---- house ceilings: flat drywall over every indoor room but the garage,
@@ -665,17 +673,15 @@ function GarageInterior({ map }) {
     slowMat.color.setScalar(on ? 2.2 : 0.08);
   });
   const battenMat = useMemo(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.25, 2.4), toneMapped: false }), []);
+  const battenGeo = useMemo(() => mergeGeometries([[-17, 2.2], [-10.8, -1.5], [-10.8, 2.2]].map(([x, z]) =>
+    new THREE.BoxGeometry(0.07 * M, 0.012 * M, 1.44 * M).translate(x * M, 2.44 * M, z * M))), []);
   return (
     <group>
       {Object.entries(truss).map(([slot, g]) => (
         <instancedMesh key={slot} ref={(m) => { refs.current[slot] = m; }} args={[g, slotMat(slot), xs.length]} castShadow frustumCulled={false} />
       ))}
       {/* the batten tubes themselves */}
-      {[[-17, 2.2], [-10.8, -1.5], [-10.8, 2.2]].map(([x, z], i) => (
-        <mesh key={i} position={[x * M, 2.44 * M, z * M]} material={battenMat}>
-          <boxGeometry args={[0.07 * M, 0.012 * M, 1.44 * M]} />
-        </mesh>
-      ))}
+      <mesh geometry={battenGeo} material={battenMat} />
       <mesh ref={slow} position={[-17 * M, 2.44 * M, -1.5 * M]} material={slowMat}>
         <boxGeometry args={[0.07 * M, 0.012 * M, 1.44 * M]} />
       </mesh>

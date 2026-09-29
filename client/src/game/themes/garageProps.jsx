@@ -29,7 +29,7 @@ function Can({ p }) {
   return (
     <Body p={p} mass={0.35} restitution={0.35} angularDamping={0.05}>
       <CylinderCollider args={[u(0.076), u(0.033)]} />
-      <KitMeshes geos={geos} />
+      <KitMeshes geos={geos} shadow={false} />
     </Body>
   );
 }
@@ -266,7 +266,7 @@ function Keyboard({ p }) {
       }
     }
     k.box('satin', [0.2, 0.012, 0.022], [0, 0.03, 0.053], '#2e3034');
-    k.box('glow', [0.42, 0.004, 0.004], [0, 0.004, 0.071], '#b04dff');
+    k.box('satin', [0.42, 0.006, 0.004], [0, 0.004, 0.071], '#b04dff'); // the RGB strip, on standby
     return k.build();
   });
   return (
@@ -341,7 +341,81 @@ function MovingBox({ p }) {
   );
 }
 
+// Mugs, bottles, plants, a bin: one merged mesh each (the office's are
+// three or four), so a desk's worth of clutter doesn't cost a desk's worth
+// of draws.
+const MUG_COLS = ['#e8503a', '#f5f2ea', '#2f7fe0', '#1b1b1b'];
+function Mug({ p }) {
+  const v = (p.i ?? 0) % 4;
+  const geos = cached(`mug${v}`, () => {
+    const k = kit();
+    k.cyl('gloss', 0.045, 0.04, 0.1, [0, 0, 0], MUG_COLS[v], null, 14);
+    k.torus('gloss', 0.028, 0.008, [0.05, 0, 0], MUG_COLS[v], null, 10);
+    k.cyl('gloss', 0.039, 0.039, 0.002, [0, 0.042, 0], '#4a2c14', null, 12);
+    return k.build();
+  });
+  return (
+    <Body p={p} mass={0.5}>
+      <CylinderCollider args={[u(0.05), u(0.045)]} />
+      <KitMeshes geos={geos} />
+    </Body>
+  );
+}
+function Bottle({ p }) {
+  const geos = cached('bottle', () => {
+    const k = kit();
+    k.cyl('gloss', 0.035, 0.035, 0.2, [0, 0, 0], '#3f8f5a', null, 12);
+    k.cyl('gloss', 0.012, 0.03, 0.06, [0, 0.13, 0], '#3f8f5a', null, 10);
+    k.cyl('gloss', 0.036, 0.036, 0.07, [0, -0.01, 0], '#f2efe6', null, 12);
+    return k.build();
+  });
+  return (
+    <Body p={{ ...p, y: p.y + u(0.08) }} mass={0.5} restitution={0.3}>
+      <CylinderCollider args={[u(0.13), u(0.035)]} position={[0, u(0.03), 0]} />
+      <KitMeshes geos={geos} />
+    </Body>
+  );
+}
+function Plant({ p }) {
+  const geos = cached('plant', () => {
+    const k = kit();
+    k.cyl('satin', 0.12, 0.09, 0.2, [0, 0, 0], '#c8683a', null, 14);
+    k.cyl('satin', 0.11, 0.11, 0.01, [0, 0.095, 0], '#3b2a1e', null, 12);
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      k.box('satin', [0.05, 0.36, 0.012], [Math.cos(a) * 0.05, 0.28, Math.sin(a) * 0.05], i % 2 ? '#4f8a3f' : '#5f9a44', [Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35]);
+    }
+    return k.build();
+  });
+  return (
+    <Body p={{ ...p, y: p.y + u(0.1) }} mass={2}>
+      <CylinderCollider args={[u(0.1), u(0.12)]} />
+      <KitMeshes geos={geos} />
+    </Body>
+  );
+}
+function Bin({ p }) {
+  const geos = cached('bin', () => {
+    const k = kit();
+    k.cyl('satin', 0.15, 0.12, 0.34, [0, 0, 0], '#3a3d42', null, 16, true);
+    k.cyl('satin', 0.12, 0.12, 0.01, [0, -0.165, 0], '#3a3d42', null, 16);
+    k.sphere('matte', 0.07, [0.02, 0.16, 0.01], '#f2f0ea', [1, 0.8, 1], 8); // a screwed-up spec
+    k.box('matte', [0.12, 0.2, 0.004], [-0.04, 0.12, 0.05], '#b98a54', [0.3, 0.4, 0]); // a pizza-box lid
+    return k.build();
+  });
+  return (
+    <Body p={{ ...p, y: p.y + u(0.17) }} mass={1}>
+      <CylinderCollider args={[u(0.17), u(0.14)]} />
+      <KitMeshes geos={geos} />
+    </Body>
+  );
+}
+
 export const PROPS = {
+  garage_mug: Mug,
+  garage_bottle: Bottle,
+  garage_plant: Plant,
+  garage_bin: Bin,
   garage_box: MovingBox,
   garage_monitor: Monitor,
   garage_keyboard: Keyboard,

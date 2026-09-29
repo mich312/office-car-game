@@ -224,24 +224,24 @@ const PROPS = [
   // and the debris of day 400
   p('garage_monitor', -5.8, -3.7, 0.74), p('garage_monitor', -5.0, -3.72, 0.74, -0.2), p('garage_keyboard', -5.5, -3.25, 0.74),
   p('garage_monitor', -3.5, -3.7, 0.74), p('garage_keyboard', -3.5, -3.25, 0.74),
-  p('garage_monitor', -1.8, -3.72, 0.74, 0.15), p('garage_monitor', -1.1, -3.72, 0.74, -0.15), p('garage_keyboard', -1.45, -3.25, 0.74),
+  p('garage_monitor', -1.45, -3.72, 0.74), p('garage_keyboard', -1.45, -3.25, 0.74),
   p('garage_monitor', 0.5, -3.7, 0.74), p('garage_keyboard', 0.5, -3.25, 0.74),
   p('garage_chair', -5.5, -2.45, 0, Math.PI + 0.3), p('garage_chair', -3.4, -2.5, 0, Math.PI - 0.2), p('garage_chair', -1.4, -2.4, 0, Math.PI), p('garage_chair', 0.7, -2.5, 0, Math.PI + 0.5),
   p('garage_can', -6.3, -3.3, 0.74), p('garage_can', -4.4, -3.6, 0.74), p('garage_can', -2.3, -3.35, 0.74), p('garage_can', 1.2, -3.5, 0.74),
-  p('garage_pizza', -4.5, -3.3, 0.74, 0.3), p('mug', -0.4, -3.3, 0.74), p('mug', -6.1, -3.6, 0.74), p('lamp', 1.3, -3.7, 0.74),
+  p('garage_pizza', -4.5, -3.3, 0.74, 0.3), p('garage_mug', -0.4, -3.3, 0.74), p('garage_mug', -6.1, -3.6, 0.74), p('lamp', 1.3, -3.7, 0.74),
   p('garage_pizza', -7.3, -3.4, 0, 1.1), p('garage_pizza', -7.3, -3.4, 0.05, 0.6), // the stack by the wall
   // ---- dev pit floor: beanbags to bounce off, a bin, boxes of swag
   p('garage_beanbag', -6.4, 3.4), p('garage_beanbag', -5.2, 4.1, 0, 1), p('garage_beanbag', 4.8, 3.9, 0, 2),
-  p('trash', 5.4, -3.4), p('garage_box', 3.3, 4.4), p('garage_box', 3.8, 4.5, 0, 0.3), p('garage_box', 3.55, 4.45, 0.34, 0.1),
+  p('garage_bin', 5.4, -3.4), p('garage_box', 3.3, 4.4), p('garage_box', 3.8, 4.5, 0, 0.3), p('garage_box', 3.55, 4.45, 0.34, 0.1),
   // ---- server room: dead towers waiting to be "repurposed"
   p('garage_tower', 9.7, 4.35, 0, Math.PI + 0.1), p('garage_tower', 10.25, 4.2, 0, Math.PI - 0.3), p('garage_tower', 10.5, 3.4, 0, Math.PI + 0.5),
-  p('garage_box', 10.4, -3.4), p('bottle', 6.6, -3.5, 0.85), p('trash', 8.2, -3.5),
+  p('garage_box', 10.4, -3.4), p('garage_bottle', 6.6, -3.5, 0.85), p('garage_bin', 8.2, -3.5),
   // ---- kitchen: pizza on the island, cans everywhere, stools
   p('garage_pizza', 14.6, 0.35, 0.92, 0.2), p('garage_pizza', 15.9, 0.45, 0.92, -0.4),
   p('garage_can', 15.3, 0.2, 0.92), p('garage_can', 14.1, 0.6, 0.92), p('garage_can', 16.3, 0.1, 0.92), p('garage_can', 17.6, -3.55, 0.92),
-  p('mug', 18.3, -3.5, 0.92), p('mug', 19.5, 0.5, 0.92), p('bottle', 19.55, 2.0, 0.92), p('bottle', 17.2, -3.6, 0.92),
+  p('garage_mug', 18.3, -3.5, 0.92), p('garage_mug', 19.5, 0.5, 0.92), p('garage_bottle', 19.55, 2.0, 0.92), p('garage_bottle', 17.2, -3.6, 0.92),
   p('garage_stool', 14.3, 1.35), p('garage_stool', 15.2, 1.4, 0, 0.4), p('garage_stool', 16.1, 1.3, 0, -0.3),
-  p('plant', 11.6, 4.4), p('trash', 12.0, -3.4),
+  p('garage_plant', 11.6, 4.4), p('garage_bin', 12.0, -3.4),
   // ---- founder's room: three screens, a lamp, boxes never unpacked
   p('garage_monitor', 12.0, 11.7, 0.74, Math.PI + 0.25), p('garage_monitor', 12.6, 11.75, 0.74, Math.PI), p('garage_monitor', 13.2, 11.7, 0.74, Math.PI - 0.25),
   p('garage_keyboard', 12.6, 11.25, 0.74, Math.PI), p('garage_chair', 12.6, 10.6), p('lamp', 13.4, 11.4, 0.74), p('garage_can', 11.8, 11.3, 0.74),
@@ -251,8 +251,8 @@ const PROPS = [
   // facing the TV
   p('garage_chair', 3.6, 8.2, 0, Math.PI / 2), p('garage_chair', 6.1, 8.2, 0, -Math.PI / 2), p('garage_chair', 4.4, 7.0), p('garage_chair', 5.3, 9.4, 0, Math.PI),
   p('garage_beanbag', 7.9, 6.3), p('garage_beanbag', 8.2, 8.3, 0, 1.5),
-  p('garage_can', 4.2, 8.0, 0.76), p('mug', 5.4, 8.5, 0.76), p('stack', 4.8, 8.1, 0.76), p('pen', 4.4, 8.35, 0.76, 0.7),
-  p('glass', 2.0, 10.1, 0.5), p('book', 2.5, 10.0, 0.5, 0.3), p('plant', 9.5, 5.5), p('plant', -5.4, 5.5),
+  p('garage_can', 4.2, 8.0, 0.76), p('garage_mug', 5.4, 8.5, 0.76), p('stack', 4.8, 8.1, 0.76), p('pen', 4.4, 8.35, 0.76, 0.7),
+  p('glass', 2.0, 10.1, 0.5), p('book', 2.5, 10.0, 0.5, 0.3), p('garage_plant', 9.5, 5.5), p('garage_plant', -5.4, 5.5),
   // ---- garage: paint cans, cones, moving boxes, a skateboard
   p('garage_paintcan', -18.9, 3.9), p('garage_paintcan', -18.6, 4.0), p('garage_paintcan', -18.75, 3.95, 0.2),
   p('garage_cone', -10.4, 1.6), p('garage_cone', -10.6, -1.2),
@@ -366,10 +366,10 @@ const KOTH_SPOTS = [
 const SUMO_ZONE = { x: u(-7), z: u(-8), r0: u(24), r1: u(1.5) };
 
 const POWERUP_PADS = [
-  cp(-5.5, -6.6), cp(4, -7.6), cp(11.8, -8.2), cp(-6, -10.6),
+  cp(-5.5, -6.6), cp(4, -7.6), cp(11.8, -8.2),
   cp(17.9, 0), cp(13.5, 2.9),
   cp(8.5, 1.2), cp(1.5, 1.5),
-  cp(-3.6, 7.2), cp(6.8, 6.3), cp(14.5, 8.2),
+  cp(-3.6, 7.2), cp(14.5, 8.2),
   cp(-9.6, 9.3), cp(-17, 9),
   cp(-12.2, 0.2),
 ];
@@ -415,7 +415,7 @@ export const GARAGE = {
     server_overload: { name: 'Laundry Overload', desc: 'The "server room" is also the laundry. Somebody started a hot wash.', icon: '🧺' },
   },
   // oil and coffee on the concrete and epoxy: [x, z, size] in meters
-  STAINS: [[-14, 2.6, 2.4], [-13.2, -1.8, 1.8], [-16.8, -2, 1.6], [-11.5, -6.2, 2.4], [-3, -9.5, 1.8], [-2, 1.8, 1.3], [4.2, -2.4, 1.2]],
+  STAINS: [[-14, 2.6, 2.4], [-13.2, -1.8, 1.8], [-11.5, -6.2, 2.4], [-3, -9.5, 1.8], [-2, 1.8, 1.3]],
   LOOK: {
     // what Office.jsx paints plain walls with (every wall here is styled)
     wall: '#efe8dc', skirt: '#caa874',
