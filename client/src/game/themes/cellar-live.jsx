@@ -17,7 +17,7 @@ import { glowTex } from '../textures.js';
 import { pieceFrame, mobile } from './cellar-pieces.js';
 import { Kit, rng } from './cellar-kit.js';
 import { cellarMats, WORLD_UV, decalTex, decalUV } from './cellar-tex.js';
-import { tubeLayout, tubeLevel } from './cellar-tubes.jsx';
+import { tubeLayout, tubeLevel, cellarNow } from './cellar-tubes.jsx';
 import { labelsFor } from './cellar-labels.js';
 import { useMap } from '../activeMap.js';
 
@@ -42,6 +42,17 @@ function carSpots() {
   return _cars;
 }
 const serverSeconds = () => (performance.now() + net.clockOffset) / 1000;
+// What a component builds for itself (geometry, materials, canvas textures)
+// is handed back to the GPU when it unmounts: quick play changes the map
+// every round, and R3F only disposes what it created from JSX.
+export function useDispose(...things) {
+  useEffect(() => () => {
+    for (const t of things) {
+      if (t?.dispose) t.dispose();
+      else if (t) for (const v of Object.values(t)) v?.dispose?.();
+    }
+  }, things);
+}
 const additive = (color, opacity = 1) => new THREE.MeshBasicMaterial({
   map: glowTex(), color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
 });
@@ -76,6 +87,7 @@ export function RackLeds({ map }) {
   }, [map]);
   const geo = useMemo(() => new THREE.PlaneGeometry(0.016 * M, 0.011 * M), []);
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ toneMapped: false }), []);
+  useDispose(geo, mat);
   useLayoutEffect(() => {
     leds.forEach((l, i) => {
       _o.position.copy(l.p);
@@ -90,10 +102,10 @@ export function RackLeds({ map }) {
   }, [leds]);
   const lightsOut = useStore((s) => s.event?.id === 'lights_out');
   const frame = useRef(0);
-  useFrame(({ clock }) => {
+  useFrame(() => {
     // the UPS carries the racks through a blackout: they keep blinking
     if (!ref.current || (frame.current++ & 1)) return;
-    const t = clock.elapsedTime;
+    const t = cellarNow();
     leds.forEach((l, i) => {
       const on = l.steady || Math.sin(t * l.speed + l.phase) + Math.sin(t * l.speed * 2.7 + l.phase) > -0.2;
       ref.current.setColorAt(i, _c.copy(l.color).multiplyScalar(on ? (lightsOut ? 1.4 : 1) : 0.06));
@@ -128,10 +140,11 @@ export function Boiler({ map }) {
     lamp: new THREE.MeshBasicMaterial({ color: '#ff2a1a', toneMapped: false }),
     pool: additive('#ff8a3c', 0.5),
   }), []);
+  useDispose(mats);
   const lit = useRef(false);
-  useFrame(({ clock }) => {
+  useFrame(() => {
     if (!spots) return;
-    const t = clock.elapsedTime;
+    const t = cellarNow();
     const burn = burnerCycle(t);
     if (burn > 0 && !lit.current) audio.hiss([spots.flame.x, spots.flame.y, spots.flame.z], 0.5, 0.5);
     lit.current = burn > 0;
@@ -166,6 +179,7 @@ export function Dock({ map }) {
   const spin = useRef();
   const dome = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffae2a', toneMapped: false, transparent: true, opacity: 0.9 }), []);
   const beam = useMemo(() => additive('#ffae2a', 0.5), []);
+  useDispose(dome, beam);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
     if (spin.current) spin.current.rotation.y = t * 4.2;
@@ -221,6 +235,7 @@ export function NowServing({ map }) {
     return t;
   }, [canvas]);
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, color: new THREE.Color(1.6, 1.6, 1.6) }), [tex]);
+  useDispose(tex, mat);
   // laps banked across the room, goals scored: the queue
   const served = useStore((s) => {
     let n = 0;
@@ -258,6 +273,7 @@ export function Scope({ map }) {
   const canvas = useMemo(() => { const c = document.createElement('canvas'); c.width = 128; c.height = 96; return c; }, []);
   const tex = useMemo(() => { const t = new THREE.CanvasTexture(canvas); t.colorSpace = THREE.SRGBColorSpace; return t; }, [canvas]);
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, color: new THREE.Color(1.5, 1.5, 1.5) }), [tex]);
+  useDispose(tex, mat);
   const acc = useRef(0);
   useFrame(({ clock }, dt) => {
     acc.current += dt;
@@ -313,6 +329,7 @@ export function Curtains({ map }) {
   const mat = useMemo(() => new THREE.MeshStandardMaterial({
     color: '#b8d8e6', transparent: true, opacity: 0.38, roughness: 0.15, metalness: 0, side: THREE.DoubleSide, depthWrite: false, envMapIntensity: 1.4,
   }), []);
+  useDispose(geo, mat);
   useFrame((_, dt) => {
     if (!ref.current) return;
     const cars = carSpots();
@@ -386,6 +403,7 @@ export function RollingShelf({ f }) {
 export function Badge({ map }) {
   const door = (map.DOORS || []).find((d) => map.DOOR_DRESS?.[d.id]?.badge);
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff2020', toneMapped: false }), []);
+  useDispose(mat);
   const until = useRef(0);
   const spot = useMemo(() => {
     if (!door) return null;
@@ -423,6 +441,7 @@ export function Sprinklers({ heads }) {
   const drops = useMemo(() => Array.from({ length: SPRAY }, (_, i) => ({ h: 0, t: (i * 0.618) % 1, a: i * 2.39996, r: 0.3 + ((i * 0.37) % 1) })), []);
   const geo = useMemo(() => new THREE.BoxGeometry(0.007 * M, 0.16 * M, 0.007 * M), []);
   const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#d8f0ff', transparent: true, opacity: 0.7, depthWrite: false }), []);
+  useDispose(geo, mat);
   const near = useRef([]);
   const acc = useRef(9);
   useFrame(({ camera }, dt) => {
@@ -461,6 +480,7 @@ export function Drips({ map }) {
   const drop = useRef(), ring = useRef();
   const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#cfe8ff', roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.8 }), []);
   const ringMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#cfe8ff', transparent: true, opacity: 0.5, depthWrite: false }), []);
+  useDispose(mat, ringMat);
   const top = 2.36, bottom = 0.25;
   const last = useRef(0);
   useFrame(({ clock }) => {
@@ -511,6 +531,7 @@ export function Puddles({ map }) {
     for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * (u1 - u0), v0 + uv.getY(i) * (v1 - v0));
     return g;
   }, []);
+  useDispose(mat, geo);
   return (
     <group>
       {(map.PUDDLES || []).map(([x, z, w, d], i) => (
@@ -588,7 +609,7 @@ export function CellarSound({ map }) {
       const g = ctx.createGain(); g.gain.value = 0;
       const p = pan(ctx, [crac.x, 1 * M, crac.z], bus.amb);
       src.connect(lp); lp.connect(lp2); lp2.connect(g); g.connect(p); src.start();
-      out.crac = { src, g, lp2 };
+      out.crac = { src, g, lp2, p };
     }
     {
       const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = 100;
@@ -604,6 +625,7 @@ export function CellarSound({ map }) {
     return () => {
       try { out.crac?.src.stop(); out.buzz?.o.stop(); } catch { /* already stopped */ }
       out.crac?.g.disconnect(); out.buzz?.g.disconnect();
+      out.crac?.p.disconnect(); out.buzz?.p.disconnect();
       nodes.current = null;
     };
   }, [map, crac]);
@@ -613,7 +635,7 @@ export function CellarSound({ map }) {
   useFrame(({ camera, clock }, dt) => {
     const N = nodes.current;
     if (!N) return;
-    const t = clock.elapsedTime;
+    const t = cellarNow(), tl = clock.elapsedTime;
     const G = N.G;
     const now = G.ctx.currentTime;
     // the buzz follows the nearest bad tube, as loud as it is lit
@@ -641,8 +663,8 @@ export function CellarSound({ map }) {
     const burn = burnerCycle(t);
     if (boiler && burn > 0 && lastBurn.current === 0) whoomp(G, [boiler.x, 0.5 * M, boiler.z]);
     lastBurn.current = burn;
-    if (t > next.current.flush) {
-      next.current.flush = t + 40 + Math.random() * 30;
+    if (tl > next.current.flush) {
+      next.current.flush = tl + 40 + Math.random() * 30;
       flush(G, [(Math.random() * 30 - 15) * M, map.WALL_HEIGHT, 2.5 * M]);
     }
   });
