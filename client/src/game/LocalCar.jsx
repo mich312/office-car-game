@@ -470,6 +470,8 @@ export default function LocalCar() {
           len -= floorHeight(surf, wx, wz);
           if (wi === 0) S.wheelSurf = surf; // front-left wheel: seam clicks
         } else if (wi === 0) S.wheelSurf = null;
+        // the drawn wheel follows the floor it's really on — into the grout too
+        wheelYRef.current[wi] = wy - Math.min(len, SUSPENSION_REST + 0.1) + wheelR;
         groundedWheels++;
         if (hit.normal && hit.normal.y > 0.3) { gnX += hit.normal.x; gnY += hit.normal.y; gnZ += hit.normal.z; }
         const compression = 1 - len / SUSPENSION_REST;
