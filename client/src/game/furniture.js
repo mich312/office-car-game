@@ -1150,11 +1150,12 @@ function planter(f, ctx) {
         const rr = 0.2 + r() * 0.08;
         p.add('foliage', bush(rr, 1, (ctx.seed + i) % 7), [x, H - 0.05 + rr * 0.8, (r() - 0.5) * 0.06], [0, r() * 3, 0], null, green);
       } else {
-        for (let b = 0; b < 16; b++) {
-          const a = b / 16 * Math.PI * 2 + r();
-          const lean = 0.15 + r() * 0.35;
-          const h = 0.35 + r() * 0.3;
-          p.add('foliage', cyl(0.001, 0.009, h, 3), [x + Math.cos(a) * 0.03, H - 0.05 + h / 2 * Math.cos(lean), Math.sin(a) * 0.03], [Math.sin(a) * lean, 0, -Math.cos(a) * lean], null, b % 3 ? '#8fa84a' : '#b8b25a');
+        // ornamental grass: a fountain of blades, green at heart, straw tips
+        for (let b = 0; b < 28; b++) {
+          const a = b / 28 * Math.PI * 2 + r();
+          const lean = 0.1 + r() * 0.5;
+          const h = 0.25 + r() * 0.3;
+          p.add('foliage', cyl(0.001, 0.008, h, 3), [x + Math.cos(a) * 0.04, H - 0.05 + h / 2 * Math.cos(lean), Math.sin(a) * 0.04], [Math.sin(a) * lean, 0, -Math.cos(a) * lean], null, b % 4 === 0 ? '#b8b25a' : b % 2 ? '#6f9a3e' : '#86a84a');
         }
       }
     }

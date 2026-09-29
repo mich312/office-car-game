@@ -11,7 +11,7 @@ import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
-import { mat, castsShadow, receivesShadow } from './materials.js';
+import { mat, castsShadow, receivesShadow, foldTint } from './materials.js';
 import { bake, placeMatrix } from './kit.js';
 import { buildPiece, pieceContext, rampParts } from './furniture.js';
 import { buildArchitecture } from './architecture.js';
@@ -376,7 +376,7 @@ function StaticBatch({ map, built }) {
   const groups = useMemo(() => {
     const all = [];
     const push = (parts, world) => {
-      for (const part of parts) all.push({ ...part, m: world.clone().multiply(part.m) });
+      for (const part of parts) all.push({ ...foldTint(part), m: world.clone().multiply(part.m) });
     };
     for (const b of built) if (b) push(b.parts, placeMatrix(b.f.x, b.f.z, b.f.rotY, M));
     for (const r of map.RAMPS) if (!RAMP_SKINS[r.skin]) push(rampParts(r), placeMatrix(r.x, r.z, r.rotY, M));

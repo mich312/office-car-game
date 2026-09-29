@@ -144,6 +144,18 @@ MAKERS.wall = wallPaint;
 const trim = (c) => std({ color: c, normalMap: orangePeel('paint', 0.55, [0.7, 0.7]), normalScale: V(0.25), roughness: 0.55 });
 const PARAM = { fabric, paint, trim };
 
+// In the static batch every colour of fabric, trim and paint is one
+// material: the colour rides in the vertices. mat('fabric:#3f6fa8') still
+// works for a component that wants its own; batch() folds the keys.
+MAKERS.fabric = () => std({ vertexColors: true, normalMap: tiled(fabricNormal([1, 1]), 8), normalScale: V(0.9), roughness: 1 });
+MAKERS.trim = () => std({ vertexColors: true, normalMap: orangePeel('paint', 0.55, [0.7, 0.7]), normalScale: V(0.25), roughness: 0.55 });
+MAKERS.paint = () => std({ vertexColors: true, normalMap: peel(), normalScale: V(0.25), roughness: 0.7 });
+export function foldTint(part) {
+  const i = part.mat.indexOf(':');
+  if (i < 0 || !MAKERS[part.mat.slice(0, i)]) return part;
+  return { ...part, mat: part.mat.slice(0, i), color: part.mat.slice(i + 1) };
+}
+
 const cache = new Map();
 export function mat(key) {
   let m = cache.get(key);
