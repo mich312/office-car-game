@@ -179,6 +179,16 @@ for (const [mode, variant] of [['sumo', 'drift'], ['koth', 'rush']]) {
       report(sim, h, bot);
       check(`${map} contact: the rammed car spills, not the rammer`, h.beans < 5 && bot.beans === 2);
     }
+    {
+      // Open Office's bump point goes to the rammer, not to whoever reported
+      const sim = await createSim({ seed: 1, mode: 'free_roam', map, bots: 1 });
+      const bot = sim.bots[0];
+      const h = human(sim, 'h1');
+      Object.assign(h, { p: [0, 0.24, 0], v: [0, 0, 0], score: 0 });
+      Object.assign(bot, { p: [-0.9, 0.24, 0], v: [20, 0, 0], score: 0 });
+      report(sim, h, bot);
+      check(`${map} free roam: the bump point goes to the rammer`, bot.score > 0 && h.score === 0);
+    }
     for (const first of ['rammer', 'victim']) {
       // between two humans, report order used to pick the victim
       const sim = await createSim({ seed: 1, mode: 'coffee_run', map, bots: 0 });
