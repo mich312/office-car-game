@@ -277,8 +277,8 @@ const POWERUP_PADS = [
   cp(-12, -8.6), cp(-2, -9.2), cp(6.5, -4), cp(10, -8.8), cp(16.6, -1.8),
 ];
 
-const VENDING = { x: u(17.5), z: u(1.9), radius: u(1.5), minSpeed: 12, cooldownS: 8, goldenChance: 0.3 };
-const PRINTER = { x: u(17.3), z: u(9.6), radius: u(5), minIntervalS: 22, maxIntervalS: 42, blindS: 1.4 };
+const VENDING = { x: u(17.5), z: u(1.9), rotY: -Math.PI / 2, radius: u(1.5), minSpeed: 12, cooldownS: 8, goldenChance: 0.3 };
+const PRINTER = { x: u(17.3), z: u(9.6), rotY: -Math.PI / 2, radius: u(5), minIntervalS: 22, maxIntervalS: 42, blindS: 1.4 };
 
 // The cleaning robot patrols Corridor B-1, round both columns.
 const ROBOT_PATH = [cp(-15, 0.2), cp(0, 0.2), cp(15, 0.2), cp(15, 2.2), cp(0, 2.2), cp(-15, 2.2)];

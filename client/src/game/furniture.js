@@ -42,7 +42,7 @@ function barHandle(p, mat, x, y, z, len = 0.16, vertical = false) {
 function cableRun(p, pts, strands = 3, r = 0.006, seed = 0) {
   for (let i = 0; i < strands; i++) {
     const o = (i - (strands - 1) / 2) * r * 2.1;
-    p.add('tint', tube(pts.map(([x, y, z]) => [x + o * 0.3, y, z + o]), r, 4, true, 12), [0, 0, 0], null, null, CABLES[(i + seed) % CABLES.length]);
+    p.add('tint', tube(pts.map(([x, y, z]) => [x + o * 0.3, y, z + o]), r, 4, true, 8), [0, 0, 0], null, null, CABLES[(i + seed) % CABLES.length]);
   }
 }
 
@@ -449,8 +449,8 @@ function rack(f, ctx) {
         // the back: the servers' rear ends, cable waterfalls in front of
         // them and a blue-lit power strip
         p.add('serverFaces', card(W - 0.14, faceH, atlasRect('servers')), [0, pl + 0.05 + faceH / 2, -0.13]);
-        for (let k = 0; k < 3; k++) {
-          const x = -0.2 + k * 0.2;
+        for (let k = 0; k < 2; k++) {
+          const x = -0.12 + k * 0.24;
           cableRun(p, [[x, H - 0.1, -0.1], [x + 0.02, H * 0.6, -0.08], [x - 0.01, 0.25, -0.09], [x, pl + 0.03, -0.14]], 3, 0.007, k + ctx.index);
         }
         p.add('plasticBlack', rbox(0.05, faceH - 0.1, 0.04, 0.005, 1), [W / 2 - 0.1, pl + 0.05 + faceH / 2, -0.09]);

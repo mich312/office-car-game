@@ -59,11 +59,56 @@ export const box = (w, h, d) => cached(k('box', [w, h, d]), () => metreUV(new TH
 
 // Nothing has a razor edge: a rounded box, radius clamped to what the
 // thinnest side allows. The deliberately oversized 0.5–1 cm bevel is what
-// catches a highlight at 18 cm car scale.
+// catches a highlight at 18 cm car scale. seg 1 is a single 45° chamfer
+// (44 triangles — handles, trim, rails: the highlight is all that shows);
+// seg 2+ rounds properly (300+) for what the camera studies up close.
 export const rbox = (w, h, d, r = 0.006, seg = 2) => {
   const rr = Math.min(r, Math.min(w, h, d) * 0.48);
+  if (seg <= 1) return cached(k('cbox', [w, h, d, rr]), () => metreUV(chamferBox(w, h, d, rr)));
   return cached(k('rbox', [w, h, d, rr, seg]), () => metreUV(new RoundedBoxGeometry(w, h, d, seg, rr)));
 };
+
+// A box with every edge cut at 45° by c: 6 faces, 12 edge strips, 8 corner
+// triangles, flat-shaded so each chamfer is a crisp line of light.
+function chamferBox(w, h, d, c) {
+  const X = w / 2, Y = h / 2, Z = d / 2;
+  // vertex of the corner (sx, sy, sz), pulled in by c along two axes: the
+  // one on the face whose normal is `axis`
+  const v = (sx, sy, sz, axis) => [
+    sx * (axis === 0 ? X : X - c), sy * (axis === 1 ? Y : Y - c), sz * (axis === 2 ? Z : Z - c),
+  ];
+  const pos = [];
+  const tri = (a, b, e) => pos.push(...a, ...b, ...e);
+  const quad = (a, b, e, f) => { tri(a, b, e); tri(a, e, f); };
+  const S = [-1, 1];
+  // the six faces, wound outward
+  for (const s of S) {
+    quad(v(s, -1, -1, 0), v(s, 1, -1, 0), v(s, 1, 1, 0), v(s, -1, 1, 0));
+    quad(v(-1, s, -1, 1), v(-1, s, 1, 1), v(1, s, 1, 1), v(1, s, -1, 1));
+    quad(v(-1, -1, s, 2), v(1, -1, s, 2), v(1, 1, s, 2), v(-1, 1, s, 2));
+  }
+  // edge strips between each pair of faces, then the corner triangles
+  for (const a of S) for (const b of S) {
+    quad(v(-1, a, b, 1), v(1, a, b, 1), v(1, a, b, 2), v(-1, a, b, 2)); // along x
+    quad(v(a, -1, b, 0), v(a, 1, b, 0), v(a, 1, b, 2), v(a, -1, b, 2)); // along y
+    quad(v(a, b, -1, 0), v(a, b, 1, 0), v(a, b, 1, 1), v(a, b, -1, 1)); // along z
+    for (const e of S) tri(v(a, b, e, 0), v(a, b, e, 1), v(a, b, e, 2));
+  }
+  // winding: make every triangle face away from the centre
+  for (let i = 0; i < pos.length; i += 9) {
+    const ax = pos[i], ay = pos[i + 1], az = pos[i + 2];
+    const ux = pos[i + 3] - ax, uy = pos[i + 4] - ay, uz = pos[i + 5] - az;
+    const wx = pos[i + 6] - ax, wy = pos[i + 7] - ay, wz = pos[i + 8] - az;
+    const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    if (nx * (ax + ux / 3 + wx / 3) + ny * (ay + uy / 3 + wy / 3) + nz * (az + uz / 3 + wz / 3) < 0) {
+      for (let j = 0; j < 3; j++) { const t = pos[i + 3 + j]; pos[i + 3 + j] = pos[i + 6 + j]; pos[i + 6 + j] = t; }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
 
 // Cylinders: u = arc length round the side, v = height; caps project flat.
 export const cyl = (rt, rb, h, seg = 16, open = false, arc = TAU) => cached(k('cyl', [rt, rb, h, seg, open, arc]), () => {
