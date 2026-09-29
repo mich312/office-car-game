@@ -9,6 +9,7 @@ import { telemetry } from '../game/LocalCar.jsx';
 import { touchInput } from '../game/useControls.js';
 import { audio } from '../audio.js';
 import { inviteLink, copyText } from '../rooms.js';
+import { DrivingTest, MatchHints } from './Coach.jsx';
 import Icon, { MODE_ICON, EVENT_ICON } from './Icon.jsx';
 
 export default function HUD() {
@@ -60,6 +61,8 @@ export default function HUD() {
         </div>
       )}
       {connected && phase === PHASE.LOBBY && <Lobby />}
+      {connected && phase === PHASE.LOBBY && <DrivingTest />}
+      {connected && phase === PHASE.PLAYING && <MatchHints />}
       {connected && phase === PHASE.COUNTDOWN && <Countdown />}
       {connected && (phase === PHASE.PLAYING || phase === PHASE.COUNTDOWN) && <MatchHUD />}
       {connected && phase === PHASE.PODIUM && <Podium />}
@@ -105,6 +108,7 @@ function Lobby() {
   const players = useStore((s) => s.players);
   const votes = useStore((s) => s.votes);
   const myId = useStore((s) => s.myId);
+  const testStatus = useStore((s) => s.drivingTest);
   const [ready, setReady] = useState(false);
   const [vote, setVote] = useState(null);
   const list = Object.values(players);
@@ -165,7 +169,12 @@ function Lobby() {
       <button className={`btn btn-primary ready-btn ${ready ? 'is-ready' : ''}`} onClick={toggleReady}>
         {ready ? <><Icon name="check" size={16} /> READY — waiting for others</> : 'READY UP'}
       </button>
-      <p className="hint">drive around while you wait — the office is live</p>
+      <p className="hint">
+        drive around while you wait — the office is live
+        {testStatus !== 'todo' && (
+          <> · <button className="hint-link" onClick={() => useStore.setState({ drivingTest: 'todo' })}>take the driving test</button></>
+        )}
+      </p>
     </div>
   );
 }

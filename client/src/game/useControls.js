@@ -10,6 +10,15 @@ import { audio } from '../audio.js';
 // left). Read and merged by poll() below.
 export const touchInput = { steer: 0, throttle: 0, brake: 0, drift: false, boost: false };
 
+// Which device is driving — 'keys' | 'pad' | 'touch' — so prompts name the
+// button you'd actually press. Whatever was used last wins; the store only
+// hears about a change.
+const setInputMode = (m) => { if (useStore.getState().inputMode !== m) useStore.setState({ inputMode: m }); };
+if (typeof window !== 'undefined') {
+  window.addEventListener('keydown', () => setInputMode('keys'), true);
+  window.addEventListener('touchstart', () => setInputMode('touch'), { capture: true, passive: true });
+}
+
 const KEYMAP = {
   KeyW: 'fwd', ArrowUp: 'fwd',
   KeyS: 'back', ArrowDown: 'back',
@@ -26,10 +35,10 @@ export function useControls() {
   });
   useEffect(() => {
     // Gamepad: standard mapping — left stick / d-pad steer, RT gas, LT brake,
-    // A/B boost, X/LB/RB drift, Y item, Start respawn. Polled per
+    // A/B boost, X/LB drift, Y item, RB car special, Start respawn. Polled per
     // physics step from LocalCar via keys.current.poll(). The on-screen
     // touch controls merge into the same channels.
-    let prevUse = false, prevRespawn = false;
+    let prevUse = false, prevRespawn = false, prevAbility = false;
     keys.current.poll = () => {
       const k = keys.current;
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -38,10 +47,15 @@ export function useControls() {
       let steer = 0, thr = 0, brk = 0, drift = false, boost = false;
       if (gp) {
         const btn = (i) => !!gp.buttons[i]?.pressed;
+        if (gp.buttons.some((b) => b.pressed) || Math.abs(gp.axes[0] || 0) > 0.3) setInputMode('pad');
         steer = (gp.axes[0] || 0) + (btn(14) ? -1 : 0) + (btn(15) ? 1 : 0);
         thr = Math.max(gp.buttons[7]?.value || 0, btn(12) ? 1 : 0);
         brk = Math.max(gp.buttons[6]?.value || 0, btn(13) ? 1 : 0);
-        drift = btn(2) || btn(4) || btn(5);
+        drift = btn(2) || btn(4);
+        // RB used to be a third drift button, which left the car special
+        // (Q on keyboard) with no button on a pad at all
+        if (btn(5) && !prevAbility) send({ t: MSG.ABILITY });
+        prevAbility = btn(5);
         boost = btn(0) || btn(1);
         if (btn(3) && !prevUse) send({ t: MSG.USE_POWERUP });
         prevUse = btn(3);

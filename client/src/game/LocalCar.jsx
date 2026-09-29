@@ -56,7 +56,7 @@ const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _chase = [0, 1];
 
-export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0 }; // read by HUD/minimap/controller
+export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0, boostHeld: false, miniTurbos: 0 }; // read by HUD/minimap/controller
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
 
 export default function LocalCar() {
@@ -699,6 +699,7 @@ export default function LocalCar() {
         burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2 });
         audio.boostFire();
         rumble(0.3 + tier * 0.15, 150);
+        telemetry.miniTurbos++;
       }
       // tire smoke + skid marks on the floor
       if (S.slipping) {
@@ -821,6 +822,7 @@ export default function LocalCar() {
     }
     S.lastFwdSpeed = fwdSpeed;
     telemetry.boosting = S.boosting || freeBoost;
+    telemetry.boostHeld = S.boosting; // the meter, not a free burst (driving test)
     telemetry.boost = S.boost;
     telemetry.speed = S.speed;
     telemetry.x = pos.x;
