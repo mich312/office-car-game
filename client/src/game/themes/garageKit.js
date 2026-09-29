@@ -8,6 +8,7 @@
 // piece is authored as a list of primitives in METERS, each tagged with a
 // material slot and a colour, and merged into one geometry per slot (colour
 // rides in the vertex colours). A workbench with forty parts is three draws.
+import { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -202,6 +203,22 @@ export function cached(key, make) {
   let g = built.get(key);
   if (!g) { g = make(); built.set(key, g); }
   return g;
+}
+
+// What a component builds for itself (not `cached`, not a slot material, not
+// a textures.js canvas) goes with it: quick play changes floor every round,
+// and each garage visit used to leave ~265 GPU buffers and ~10 textures
+// behind. `useOwned` is useMemo whose value — geometries, materials and
+// textures, however nested in arrays and objects — is disposed on unmount.
+function disposeDeep(x) {
+  if (!x || typeof x !== 'object') return;
+  if (x.isBufferGeometry || x.isMaterial || x.isTexture) { x.dispose(); return; }
+  for (const v of Array.isArray(x) ? x : Object.values(x)) disposeDeep(v);
+}
+export function useOwned(make, deps) {
+  const v = useMemo(make, deps);
+  useEffect(() => () => disposeDeep(v), [v]);
+  return v;
 }
 
 // --------------------------------------------------------------- canvases

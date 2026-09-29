@@ -31,7 +31,7 @@ import { audio } from '../../audio.js';
 import { useMap } from '../activeMap.js';
 import { lightingFor } from '../daylight.js';
 import { glowTex } from '../textures.js';
-import { kit, cached, slotMat, FINISH_TEX, BOARD_TEX, neonTex, chalkTex, rng } from './garageKit.js';
+import { kit, cached, slotMat, useOwned, FINISH_TEX, BOARD_TEX, neonTex, chalkTex, rng } from './garageKit.js';
 import { KitMeshes, PIECES, FurnitureBatch } from './garagePieces.jsx';
 import { PROPS, tickScreens } from './garageProps.jsx';
 import { World, addNeighbourhood, addRoofs, addTurf } from './garageWorld.jsx';
@@ -253,7 +253,7 @@ function doorParts(k, L, P, lines, d, a0, a1) {
 function HouseWalls({ walls }) {
   const map = useMap();
   const H = map.WALL_HEIGHT / M;
-  const built = useMemo(() => buildHouseWalls(walls, map.DOORS || [], H), [walls, map, H]);
+  const built = useOwned(() => buildHouseWalls(walls, map.DOORS || [], H), [walls, map, H]);
   return (
     <group>
       {Object.entries(built.faces).map(([fin, g]) => (
@@ -279,7 +279,7 @@ function picketGeo() {
 }
 const _o = new THREE.Object3D();
 function PicketFence({ walls }) {
-  const { pickets, geos } = useMemo(() => {
+  const { pickets, geos } = useOwned(() => {
     const out = [];
     const k = kit();
     for (const w of walls) {
@@ -306,8 +306,8 @@ function PicketFence({ walls }) {
     return { pickets: out, geos: k.build() };
   }, [walls]);
   const ref = useRef();
-  const geo = useMemo(picketGeo, []);
-  const mat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#f1efe8', roughness: 0.7 }), []);
+  const geo = useOwned(picketGeo, []);
+  const mat = useOwned(() => new THREE.MeshStandardMaterial({ color: '#f1efe8', roughness: 0.7 }), []);
   useLayoutEffect(() => {
     pickets.forEach(({ p, rotY, s }, i) => {
       _o.position.set(p[0] * M, 0, p[2] * M);
@@ -337,9 +337,12 @@ function PlankRamp({ r, len, angle }) {
     k.box('wood', [w, 0.02, L], [0, rise / 2 + 0.005, 0], '#dcc091', [-a, 0, 0]);
     for (const sx of [-1, 1]) k.box('wood', [0.004, 0.02, L], [sx * (w / 2 + 0.002), rise / 2 + 0.005, 0], '#b89a68', [-a, 0, 0]);
     k.box('wood', [w, 0.04, 0.09], [0, 0.02, -l / 2 + 0.05], '#caa874');
-    // propped up on paint tins — as many as it takes to reach half way
+    // propped up on paint tins — as many as it takes to reach half way —
+    // set where the sheet's underside clears the stack at the tin's low
+    // (foot-side) rim, so the plank rests on it rather than the lids
+    // punching up through the ply
     const n = Math.max(1, Math.round((rise * 0.5) / 0.19));
-    const z = -l / 2 + l * ((n * 0.19) / rise) - 0.06;
+    const z = -l / 2 + l * ((n * 0.19 + 0.006) / rise) + 0.085;
     for (const sx of [-1, 1]) {
       for (let i = 0; i < n; i++) {
         const y = 0.095 + i * 0.19;
@@ -433,7 +436,7 @@ export function Dressing({ map }) {
   // casts shadows, one flat on the ground that doesn't — so the neighbourhood,
   // the roofs, the trusses' company, the ceilings and the chalk cost a draw
   // per material, not per thing.
-  const statics = useMemo(() => {
+  const statics = useOwned(() => {
     const H = map.WALL_HEIGHT / M;
     const lit = kit(), flat = kit();
     addNeighbourhood(lit);
@@ -511,7 +514,7 @@ function FloorPools({ map }) {
   const lightsOut = event?.id === 'lights_out';
   const level = lightingFor(hour, lightsOut, map).practical;
   const tex = useMemo(() => glowTex(), []);
-  const mats = useMemo(() => {
+  const mats = useOwned(() => {
     const by = {};
     for (const [, , , c] of POOLS) {
       by[c] ||= new THREE.MeshBasicMaterial({
@@ -520,11 +523,12 @@ function FloorPools({ map }) {
     }
     return by;
   }, [tex]);
+  const list = useMemo(() => Object.values(mats), [mats]);
   const group = useRef();
   useFrame((_, dt) => {
     const want = Math.max(0, level - 0.3) * 0.32;
     let o = 0;
-    for (const m of Object.values(mats)) { m.opacity += (want - m.opacity) * Math.min(1, dt * 2); o = m.opacity; }
+    for (const m of list) { m.opacity += (want - m.opacity) * Math.min(1, dt * 2); o = m.opacity; }
     // an invisible additive quad still costs a draw: by day they're off
     if (group.current) group.current.visible = o > 0.005;
   });
@@ -641,7 +645,7 @@ function addGarageBits(k, H) {
 
 function GarageInterior({ map }) {
   const H = map.WALL_HEIGHT / M;
-  const truss = useMemo(() => buildTruss(H), [H]);
+  const truss = useOwned(() => buildTruss(H), [H]);
   const xs = useMemo(() => {
     const out = [];
     for (let x = GAR.x0 + 0.3; x < GAR.x1 - 0.1; x += 0.6) out.push(x);
@@ -665,15 +669,15 @@ function GarageInterior({ map }) {
   // one batten is slow to come on: it stutters for the first few seconds
   const slow = useRef();
   const t0 = useRef(null);
-  const slowMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#f4f8ff', toneMapped: false }), []);
+  const slowMat = useOwned(() => new THREE.MeshBasicMaterial({ color: '#f4f8ff', toneMapped: false }), []);
   useFrame(({ clock }) => {
     if (t0.current === null) t0.current = clock.elapsedTime;
     const t = clock.elapsedTime - t0.current;
     const on = t > 5.5 || (Math.sin(t * 23) > 0.3 && Math.sin(t * 3.7) > -0.2);
     slowMat.color.setScalar(on ? 2.2 : 0.08);
   });
-  const battenMat = useMemo(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.25, 2.4), toneMapped: false }), []);
-  const battenGeo = useMemo(() => mergeGeometries([[-17, 2.2], [-10.8, -1.5], [-10.8, 2.2]].map(([x, z]) =>
+  const battenMat = useOwned(() => new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.25, 2.4), toneMapped: false }), []);
+  const battenGeo = useOwned(() => mergeGeometries([[-17, 2.2], [-10.8, -1.5], [-10.8, 2.2]].map(([x, z]) =>
     new THREE.BoxGeometry(0.07 * M, 0.012 * M, 1.44 * M).translate(x * M, 2.44 * M, z * M))), []);
   return (
     <group>
@@ -770,7 +774,7 @@ function StringLights({ map }) {
     bulbRef.current.instanceMatrix.needsUpdate = true;
     capRef.current.instanceMatrix.needsUpdate = true;
   }, [bulbs]);
-  const bulbGeo = useMemo(() => {
+  const bulbGeo = useOwned(() => {
     const g = new THREE.SphereGeometry(0.028 * M, 8, 6);
     const n = g.attributes.position.count;
     const col = new Float32Array(n * 3);
@@ -794,9 +798,15 @@ function StringLights({ map }) {
 const BOARD_FRAME = { arch: '#b9bec4', demo: '#b9bec4', burndown: '#b9bec4', kanban: '#6d4a26', pegboard: '#8a6a4a', hq: '#8a6a4a', poster: '#1b1b1b' };
 function WallBoards({ map }) {
   const boards = map.BOARDS_ON_WALLS || [];
-  const mats = useMemo(() => boards.map((b) => new THREE.MeshStandardMaterial({
-    map: BOARD_TEX[b.kind](), roughness: ['kanban', 'pegboard', 'hq', 'server'].includes(b.kind) ? 0.9 : 0.35,
-  })), [boards]);
+  const { mats } = useOwned(() => {
+    const texs = boards.map((b) => BOARD_TEX[b.kind]());
+    return {
+      texs,
+      mats: boards.map((b, i) => new THREE.MeshStandardMaterial({
+        map: texs[i], roughness: ['kanban', 'pegboard', 'hq', 'server'].includes(b.kind) ? 0.9 : 0.35,
+      })),
+    };
+  }, [boards]);
   return (
     <group>
       {boards.map((b, i) => {
@@ -844,13 +854,21 @@ function addBoardFrames(k, boards) {
 // "IT" stutters
 function Neon({ map }) {
   const n = map.NEON;
-  const glowMat = useMemo(() => n && new THREE.MeshBasicMaterial({
-    map: neonTex(n.text, n.color), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
-    color: new THREE.Color(1.6, 1.6, 1.6),
-  }), [n]);
-  const wash = useMemo(() => n && new THREE.MeshBasicMaterial({
-    map: glowTex(), color: n.color, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false,
-  }), [n]);
+  // the neon's canvas is this mount's; the wash's glow is textures.js's
+  const { glowMat, wash } = useOwned(() => {
+    if (!n) return {};
+    const tex = neonTex(n.text, n.color);
+    return {
+      tex,
+      glowMat: new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+        color: new THREE.Color(1.6, 1.6, 1.6),
+      }),
+      wash: new THREE.MeshBasicMaterial({
+        map: glowTex(), color: n.color, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    };
+  }, [n]);
   useFrame(({ clock }) => {
     if (!glowMat) return;
     const t = clock.elapsedTime;
@@ -918,9 +936,10 @@ function addGround(k) {
 
 function Chalk({ map }) {
   const c = map.CHALK || {};
-  const mats = useMemo(() => {
+  const { mats } = useOwned(() => {
+    const texs = { grid: chalkTex('grid'), finish: chalkTex('finish'), hop: chalkTex('hopscotch') };
     const m = (tex) => new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, opacity: 0.9 });
-    return { grid: m(chalkTex('grid')), finish: m(chalkTex('finish')), hop: m(chalkTex('hopscotch')) };
+    return { texs, mats: { grid: m(texs.grid), finish: m(texs.finish), hop: m(texs.hop) } };
   }, []);
   return (
     <group>
@@ -946,6 +965,13 @@ function Soundscape({ map }) {
   const hour = useStore((s) => s.timeOfDay);
   const next = useRef(3);
   useEffect(() => { next.current = 2 + Math.random() * 3; }, [hour]);
+  // the chirps queued for the next half second don't outlive the floor
+  const timers = useRef(new Set());
+  useEffect(() => () => { for (const id of timers.current) clearTimeout(id); }, []);
+  const later = (fn, ms) => {
+    const id = setTimeout(() => { timers.current.delete(id); fn(); }, ms);
+    timers.current.add(id);
+  };
   useFrame((_, dt) => {
     next.current -= dt;
     if (next.current > 0) return;
@@ -955,12 +981,12 @@ function Soundscape({ map }) {
     const at = spots[Math.floor(Math.random() * spots.length)].map((v) => v * M);
     if (night) {
       next.current = 1.5 + Math.random() * 3;
-      for (let i = 0; i < 3; i++) setTimeout(() => audio.ding(at, 0.035, 4400 + Math.random() * 200), i * 70);
+      for (let i = 0; i < 3; i++) later(() => audio.ding(at, 0.035, 4400 + Math.random() * 200), i * 70);
     } else {
       next.current = 4 + Math.random() * 7;
       const n = 2 + Math.floor(Math.random() * 3);
       const base = 2600 + Math.random() * 1200;
-      for (let i = 0; i < n; i++) setTimeout(() => audio.ding(at, 0.07, base * (1 + (i % 2 ? 0.18 : 0) + i * 0.03)), i * (90 + Math.random() * 60));
+      for (let i = 0; i < n; i++) later(() => audio.ding(at, 0.07, base * (1 + (i % 2 ? 0.18 : 0) + i * 0.03)), i * (90 + Math.random() * 60));
     }
   });
   void map;

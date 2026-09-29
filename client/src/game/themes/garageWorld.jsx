@@ -14,7 +14,7 @@ import { useStore } from '../../store.js';
 import { audio } from '../../audio.js';
 import { lightingFor } from '../daylight.js';
 import { glowTex } from '../textures.js';
-import { kit, slotMat, defineSlot, FINISH_TEX, canvasTex, rng } from './garageKit.js';
+import { kit, slotMat, defineSlot, useOwned, FINISH_TEX, canvasTex, rng } from './garageKit.js';
 import { buildTree } from './garagePieces.jsx';
 
 // ------------------------------------------------------------ slots
@@ -99,7 +99,7 @@ function Sky({ map }) {
   const hour = useStore((s) => s.timeOfDay);
   const mesh = useRef();
   const { scene } = useThree();
-  const mat = useMemo(() => new THREE.ShaderMaterial({
+  const mat = useOwned(() => new THREE.ShaderMaterial({
     vertexShader: skyVert, fragmentShader: skyFrag, side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: {
       uTop: { value: new THREE.Color() }, uHor: { value: new THREE.Color() }, uGlow: { value: new THREE.Color() },
@@ -266,7 +266,7 @@ const TREES = [
 ];
 const _o = new THREE.Object3D();
 function Trees() {
-  const geos = useMemo(() => buildTree(6.5, 5), []);
+  const geos = useOwned(() => buildTree(6.5, 5), []);
   const refs = useRef({});
   useLayoutEffect(() => {
     for (const m of Object.values(refs.current)) {
@@ -315,7 +315,10 @@ function farTex() {
   }, { srgb: true });
 }
 function FarRing() {
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ map: farTex(), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide, fog: true }), []);
+  const { mat } = useOwned(() => {
+    const tex = farTex();
+    return { tex, mat: new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.4, side: THREE.DoubleSide, fog: true }) };
+  }, []);
   return (
     <mesh position={[0, 5.5 * M, 0]} material={mat}>
       <cylinderGeometry args={[70 * M, 70 * M, 11 * M, 48, 1, true]} />
@@ -403,7 +406,7 @@ function OutsideGlows({ map }) {
   const level = lightingFor(hour, lightsOut, map).practical;
   const tex = useMemo(() => glowTex(), []);
   const mk = (color) => new THREE.MeshBasicMaterial({ map: tex, color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
-  const mats = useMemo(() => ({ sodium: mk('#ffae4a'), porch: mk('#ffcf8a'), flood: mk('#dfe8f4') }), [tex]);
+  const mats = useOwned(() => ({ sodium: mk('#ffae4a'), porch: mk('#ffcf8a'), flood: mk('#dfe8f4') }), [tex]);
   const flood = useRef({ until: 0, on: false });
   useFrame(({ clock }, dt) => {
     const t = clock.elapsedTime;
@@ -470,7 +473,7 @@ function Tufts() {
     return out;
   }, []);
   const ref = useRef();
-  const tuftGeo = useMemo(() => {
+  const tuftGeo = useOwned(() => {
     // three crossed blades of grass
     const k = kit();
     for (let i = 0; i < 3; i++) {
@@ -481,7 +484,7 @@ function Tufts() {
     }
     return k.build().matte;
   }, []);
-  const tuftMat = useMemo(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }), []);
+  const tuftMat = useOwned(() => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }), []);
   useLayoutEffect(() => {
     tufts.forEach(([x, z, s, a], i) => {
       _o.position.set(x * M, 0, z * M);
