@@ -507,7 +507,7 @@ export class Room {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup, pad: pad.i });
-          else p.botUseAt = t + 1500 + Math.random() * 4000;
+          else p.itemAt = t; // bots decide when (botbrain.js)
           this.broadcast({ t: MSG.EFFECT, type: 'pad_taken', pad: pad.i, until: pad.readyAt });
           break;
         }
@@ -596,10 +596,21 @@ export class Room {
         break;
       }
       case 'swap': {
-        const other = others[Math.floor(Math.random() * others.length)];
-        if (!other) break;
+        // a car that has already finished its race is out of the running
+        const pool = this.modeId === 'desk_dash' ? others.filter((p) => !p.finished) : others;
+        const other = pool[Math.floor(Math.random() * pool.length)];
+        if (!other || (this.modeId === 'desk_dash' && player.finished)) break;
         const pa = [...player.p], pb = [...other.p];
         player.p = pb; other.p = pa;
+        if (this.modeId === 'desk_dash') {
+          // Trading places has to trade RACE places too. Swapping bodies but
+          // not progress left a car that was swapped forward with its next
+          // checkpoint behind it — a U-turn for a human, a whole lost lap for
+          // a bot — so "trade places" never traded places.
+          for (const k of ['lap', 'nextCp', 'score']) [player[k], other[k]] = [other[k], player[k]];
+          player.poseRing = []; other.poseRing = []; // old ground is no longer "ours" to respawn on
+          this.scoreChanged();
+        }
         player.allowTeleportUntil = other.allowTeleportUntil = t + 1500;
         this.broadcast({ t: MSG.EFFECT, type: 'swap', a: player.id, b: other.id, pa: pb, pb: pa });
         this.feed(`🔀 ${player.name} swapped with ${other.name}`);
@@ -609,6 +620,7 @@ export class Room {
         this.broadcast({ t: MSG.EFFECT, type: 'fake', id: player.id });
         break;
     }
+    if (player.bot) this.bots.onItemUsed(player, pw, t);
   }
 
   updateRockets(dt, t) {
@@ -785,7 +797,7 @@ export class Room {
         if (golden && !p.powerup) {
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup });
-          else p.botUseAt = t + 1500 + Math.random() * 4000;
+          else p.itemAt = t; // bots decide when (botbrain.js)
         }
         this.broadcast({ t: MSG.EFFECT, type: 'vending', id: p.id, golden });
         this.feed(golden ? `🥇 ${p.name} rammed the vending machine — golden can!` : `🥤 ${p.name} rammed the vending machine`);

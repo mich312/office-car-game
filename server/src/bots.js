@@ -2,9 +2,12 @@
 // chase beans/batteries/balls with a poor-man's navmesh (the racing line
 // doubles as a corridor graph), grab powerups and generally cause trouble.
 import {
-  BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER,
+  BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER, CHECKPOINTS, CHECKPOINT_RADIUS,
   ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
+  POWERUP_EFFECT as FX, BATTERY_SPEED_PENALTY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN, BOOST_TOP_MULT,
+  DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState,
 } from '@rc/shared';
+import { shouldUseItem, padWorthDetour } from './botbrain.js';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -12,6 +15,11 @@ const BOT_NAMES = [
 ];
 
 const now = () => Date.now();
+
+const BOT_TURBO_S = 1.5; // how long a turbo item surges a bot
+const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
+const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
+const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
 
 const wallBoxes = WALLS.filter((w) => !w.low).map((w) => ({
   minX: w.x - w.w / 2 - 0.35, maxX: w.x + w.w / 2 + 0.35,
@@ -69,6 +77,8 @@ export class Bots {
     p.skill = 0.62 + Math.random() * 0.26; // beatable by humans learning the map
     p.stuckT = 0;
     p.kick = { x: 0, z: 0 }; // knockback velocity from bumps/rockets
+    p.boost = BOOST_MAX;
+    p.drift = newDriftState();
     this.room.players.set(id, p);
   }
 
@@ -103,9 +113,12 @@ export class Bots {
       if (p.stunUntil > t) { p.speed *= 0.9; continue; }
       const target = this.pickTarget(p);
       this.drive(p, target, dt);
-      if (p.powerup && p.botUseAt && t > p.botUseAt) {
-        p.botUseAt = 0;
-        this.room.usePowerup(p);
+      if (p.powerup) {
+        if (!p.itemAt) p.itemAt = t;
+        if (shouldUseItem(p.powerup, this.situation(p, t))) {
+          p.itemAt = 0;
+          this.room.usePowerup(p);
+        }
       }
     }
     this.separate();
@@ -138,6 +151,19 @@ export class Bots {
         }
         b.p[0] = px; b.p[2] = pz;
       }
+    }
+  }
+
+  // The room calls this after a bot fires an item: the effects that humans
+  // get from their own client physics (turbo surge, spring launch) have to be
+  // applied here, or a bot's turbo is a sound effect and nothing else.
+  onItemUsed(p, item, t) {
+    if (item === 'turbo') {
+      p.boost = BOOST_MAX;
+      p.boostUntil = Math.max(p.boostUntil || 0, t + BOT_TURBO_S * 1000);
+      p.speed += 6;
+    } else if (item === 'spring') {
+      p.hopAt = t;
     }
   }
 
@@ -211,7 +237,21 @@ export class Bots {
         const r = Math.min(z.r * 0.5, 6);
         goal = { x: z.x + Math.cos(a) * r, z: z.z + Math.sin(a) * r };
       }
+    } else if (modeId === 'desk_dash' && !p.finished) {
+      // The race line is a driving line, not the checkpoint list: bots swap
+      // to the next waypoint 5 units out, so on a tight corner they cut
+      // inside a checkpoint and miss it — the balcony corner (#15) cost every
+      // bot every lap, and races ended with the bots still on lap one.
+      // Once the next checkpoint is close and in sight, drive through it.
+      const cp = CHECKPOINTS[p.nextCp % CHECKPOINTS.length];
+      if (Math.hypot(cp.x - p.p[0], cp.z - p.p[2]) < CHECKPOINT_RADIUS + 6
+          && !lineBlocked(p.p[0], p.p[2], cp.x, cp.z)) goal = cp;
     }
+    // Every item pad sits 2-29 units off the race line and the pickup radius
+    // is 1.6, so a bot that only follows the line never holds an item.
+    // Grab one when it's close, ahead and roughly on the way.
+    const pad = this.padTarget(p, goal);
+    if (pad) return pad;
     if (!goal) return this.followRaceLine(p);
     // Navigate: direct if clear, else route along the path loop
     if (!lineBlocked(p.p[0], p.p[2], goal.x, goal.z)) return goal;
@@ -231,6 +271,58 @@ export class Bots {
     return BOT_PATH[next];
   }
 
+  // The world as the item logic needs it, in the bot's own frame.
+  situation(p, t) {
+    const fx = Math.sin(p.heading), fz = Math.cos(p.heading);
+    const pv = p.v || [0, 0, 0];
+    const rivals = [];
+    for (const o of this.room.players.values()) {
+      if (o === p || o.eliminated) continue;
+      if (this.room.modeId === 'soccer' && o.team === p.team) continue;
+      const dx = o.p[0] - p.p[0], dz = o.p[2] - p.p[2];
+      const dist = Math.hypot(dx, dz) || 1e-3;
+      const ov = o.v || [0, 0, 0];
+      rivals.push({
+        ahead: dx * fx + dz * fz,
+        lateral: dx * fz - dz * fx,
+        dist,
+        closing: ((ov[0] - pv[0]) * -dx + (ov[2] - pv[2]) * -dz) / dist,
+        exposed: !(o.shieldUntil > t) && !(o.spawnProtectUntil > t),
+      });
+    }
+    let incomingRocketDist = Infinity;
+    for (const r of this.room.rockets) {
+      if (r.target !== p.id || r.dead) continue;
+      incomingRocketDist = Math.min(incomingRocketDist, Math.hypot(r.p[0] - p.p[0], r.p[2] - p.p[2]));
+    }
+    const order = [...this.room.players.values()].filter((o) => !o.eliminated).sort((a, b) => b.score - a.score);
+    const rank = order.length > 1 ? order.indexOf(p) / (order.length - 1) : 0;
+    const top = p.tuned?.topSpeed || 16;
+    return {
+      held: (t - (p.itemAt || t)) / 1000,
+      rivals,
+      incomingRocketDist,
+      rank,
+      aligned: Math.abs(p.lastDh || 0) < 0.2,
+      speedFrac: p.speed / top,
+    };
+  }
+
+  // A ready pad worth the detour, if the bot's hands are empty.
+  padTarget(p, goal) {
+    if (p.powerup || p.hasBattery) return null;
+    const t = now();
+    const me = { x: p.p[0], z: p.p[2], heading: p.heading };
+    let best = null, bd = Infinity;
+    for (const pad of this.room.pads) {
+      if (t < pad.readyAt) continue;
+      if (!padWorthDetour(me, pad, goal)) continue;
+      const d = Math.hypot(pad.x - me.x, pad.z - me.z);
+      if (d < bd && !lineBlocked(me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
+    }
+    return best;
+  }
+
   // stable per-bot angle so zone-seeking bots spread out instead of stacking
   botAngle(p) {
     const seed = parseInt(p.id.replace(/\D/g, ''), 10) || 1;
@@ -238,8 +330,18 @@ export class Bots {
   }
 
   followRaceLine(p) {
-    const wp = BOT_PATH[p.wp % BOT_PATH.length];
-    if (Math.hypot(wp.x - p.p[0], wp.z - p.p[2]) < 5) p.wp = (p.wp + 1) % BOT_PATH.length;
+    // Advance past a waypoint once within 5 units of it — or once we're
+    // already beyond it along the line (a detour to a checkpoint or a pad
+    // can carry a bot past its waypoint without touching it, and aiming back
+    // at it would turn the bot round).
+    for (let k = 0; k < 3; k++) {
+      const wp = BOT_PATH[p.wp % BOT_PATH.length];
+      const nx = BOT_PATH[(p.wp + 1) % BOT_PATH.length];
+      const tox = wp.x - p.p[0], toz = wp.z - p.p[2];
+      const passed = tox * (nx.x - wp.x) + toz * (nx.z - wp.z) < 0 && Math.hypot(tox, toz) < 12;
+      if (Math.hypot(tox, toz) < 5 || passed) p.wp = (p.wp + 1) % BOT_PATH.length;
+      else break;
+    }
     return BOT_PATH[p.wp % BOT_PATH.length];
   }
 
@@ -247,17 +349,65 @@ export class Bots {
     // bots run their own setup sheet, so a ballasted bot really is slower.
     // Resolved once per bot — car and sheet are fixed for its lifetime.
     const car = p.tuned || (p.tuned = tunedStats(CARS[p.car] || CARS.balanced, p.tune));
+    const t = now();
     const desired = Math.atan2(target.x - p.p[0], target.z - p.p[2]);
     let dh = desired - p.heading;
     while (dh > Math.PI) dh -= Math.PI * 2;
     while (dh < -Math.PI) dh += Math.PI * 2;
-    const turnRate = car.handling * 1.15 * p.skill;
+    p.lastDh = dh;
+
+    // ---- what the floor and the items are doing to us: the same penalties
+    // a human's client applies (LocalCar), which bots otherwise never felt —
+    // an oil slick dropped on a bot did nothing at all
+    let speedMul = p.hasBattery ? BATTERY_SPEED_PENALTY : 1;
+    if (p.shrinkUntil > t) speedMul *= 0.85;
+    for (const pu of this.room.puddles) {
+      if (Math.hypot(p.p[0] - pu.x, p.p[2] - pu.z) >= FX.PUDDLE_RADIUS) continue;
+      if (pu.kind === 'oil') p.oilUntil = t + OIL_SLIDE_S * 1000;
+      else speedMul = Math.min(speedMul, 0.55);
+    }
+    const oiled = p.oilUntil > t;
+    const airborne = p.hopAt && t - p.hopAt < HOP_S * 1000;
+
+    // ---- drift: commit to a slide through real corners, hold it while the
+    // corner lasts, cash the charge in as a mini-turbo on the way out — the
+    // same state machine the player's car runs (shared/src/handling.js)
+    if (!p.drift) p.drift = newDriftState();
+    // Only for a corner on the way somewhere: a bot circling a nearby target
+    // (the ball, a zone slot) has a big heading error too, and drifting there
+    // turned sumo and soccer into doughnut contests.
+    const targetDist = Math.hypot(target.x - p.p[0], target.z - p.p[2]);
+    const wantDrift = !oiled && targetDist > BOT_DRIFT_MIN_DIST && Math.abs(dh) > (p.drift.active ? 0.22 : 0.5);
+    const drifting = isDrifting(p.drift, wantDrift, !airborne, p.speed, p.speed);
+    const dr = driftStep(p.drift, { drifting, driftHeld: wantDrift, grounded: !airborne, steering: true, overdrift: false }, dt);
+    if (dr.release) p.boostUntil = Math.max(p.boostUntil || 0, t + DRIFT_TIER_BOOST_S[dr.release - 1] * 1000);
+
+    // ---- steering: a drift turns tighter (×1.45, as for players); oil
+    // takes the steering away and the car wanders
+    let turnRate = car.handling * 1.15 * p.skill * (drifting ? 1.45 : 1);
+    if (oiled) {
+      turnRate *= 0.35;
+      p.heading += (Math.random() - 0.5) * 2.4 * dt;
+    }
+    if (airborne) turnRate = 0;
     p.heading += Math.max(-turnRate * dt, Math.min(turnRate * dt, dh));
-    // slow down for corners, add a little human wobble
-    const cornerFactor = 1 - Math.min(0.62, Math.abs(dh) * 0.85);
-    const top = car.topSpeed * p.skill * (p.hasBattery ? 0.72 : 1);
+
+    // ---- boost: spend the meter on straights, never into a corner
+    if (p.boost === undefined) p.boost = BOOST_MAX;
+    if (!p.boosting && Math.abs(dh) < 0.12 && p.speed > car.topSpeed * p.skill * 0.8 && p.boost > 45) p.boosting = true;
+    if (p.boosting && (p.boost < 5 || Math.abs(dh) > 0.35)) p.boosting = false;
+    if (p.boosting) p.boost = Math.max(0, p.boost - BOOST_DRAIN * dt);
+    else if (!airborne) p.boost = Math.min(BOOST_MAX, p.boost + BOOST_REGEN * dt);
+    const boosting = p.boosting || p.boostUntil > t;
+    p.boostingNow = boosting;
+
+    // slow down for corners (a drift carries more speed through), add a
+    // little human wobble
+    const cornerFactor = 1 - Math.min(drifting ? 0.38 : 0.62, Math.abs(dh) * 0.85);
+    const top = car.topSpeed * p.skill * speedMul * (boosting ? BOOST_TOP_MULT : 1);
     const targetSpeed = top * cornerFactor;
-    p.speed += Math.max(-60 * dt, Math.min(car.accel * 0.9 * dt, targetSpeed - p.speed));
+    const accel = car.accel * 0.9 + (boosting ? car.boost * 0.6 : 0);
+    if (!airborne) p.speed += Math.max(-60 * dt, Math.min(accel * dt, targetSpeed - p.speed));
     const nx = p.p[0] + Math.sin(p.heading) * p.speed * dt;
     const nz = p.p[2] + Math.cos(p.heading) * p.speed * dt;
     // wall pushout so they never clip through
@@ -280,9 +430,15 @@ export class Bots {
       p.wp = nearestWp(px, pz);
     }
     p.v = [(px - p.p[0]) / dt, 0, (pz - p.p[2]) / dt];
-    p.p[0] = px; p.p[2] = pz; p.p[1] = 0.24; // matches suspension sag ride height
-    p.drifting = Math.abs(dh) > 0.7 && p.speed > 20;
-    p.grounded = true;
+    // ride height matches suspension sag; a spring item arcs it
+    let y = 0.24;
+    if (airborne) {
+      const k = (t - p.hopAt) / (HOP_S * 1000);
+      y += 4 * HOP_H * k * (1 - k);
+    }
+    p.p[0] = px; p.p[2] = pz; p.p[1] = y;
+    p.drifting = drifting;
+    p.grounded = !airborne;
     const half = p.heading / 2;
     p.q = [0, Math.sin(half), 0, Math.cos(half)];
   }
