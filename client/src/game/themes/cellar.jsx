@@ -122,7 +122,7 @@ export const PIECES = Object.fromEntries([
   'cellar_rack', 'cellar_crac', 'cellar_ups', 'cellar_cylinder', 'cellar_tiles', 'cellar_boiler', 'cellar_heater',
   'cellar_counter', 'cellar_shelf', 'cellar_pallet', 'cellar_cage', 'cellar_bin', 'cellar_heap', 'cellar_bench',
   'cellar_mobile', 'cellar_cabinet', 'cellar_ticketpost', 'cellar_trolley', 'cellar_cooler', 'cellar_leaf',
-  'cellar_dock', 'cellar_palletjack', 'cellar_bollard', 'cellar_radiator',
+  'cellar_dock', 'cellar_palletjack', 'cellar_bollard', 'cellar_radiator', 'cellar_waitchairs',
 ].map((t) => [t, Piece]));
 
 // Walls are drawn by the batch above; the styles only tell Office.jsx not to.

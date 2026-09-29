@@ -167,6 +167,7 @@ export function paintLabels(atlas, map) {
   dp('collection', 160, 112, 'COLLECTION THURS', 3, { bg: '#fff59b' });
   dp('fireDoor', 160, 56, 'FIRE DOOR KEEP SHUT', 0, { bg: '#1d4fa0', fg: '#fff' });
   dp('fireHold', 256, 48, 'FIRE DOOR — KEEP CLEAR', 0, { bg: '#1d4fa0', fg: '#fff' });
+  dp('waitHere', 256, 86, 'PLEASE WAIT HERE', 0, { bg: '#e6c229', fg: '#1a1a1a' });
   dp('returns', 160, 64, 'RETURNS — DO NOT TAKE', 0, { bg: '#f4f1e6' });
   dp('takeNumber', 96, 56, 'TAKE A NUMBER', 0, { bg: '#fff', fg: '#c62828' });
   dp('helpdeskFront', 320, 72, 'HAVE YOU TRIED TURNING IT OFF AND ON AGAIN?', 0, { bg: '#5f7488', fg: '#fff' });

@@ -140,6 +140,7 @@ const FURNITURE = [
   f('cellar_ticketpost', 13.0, 4.3, 0.3, 0.3, 1.1),
   f('cellar_trolley', 6.75, 3.65, 0.9, 0.55, 0.95, N, { kind: 'laptops' }),
   ff('cellar_leaf', 15.875, 3.55, 0.05, 0.9, 2.05, E),
+  ff('cellar_waitchairs', 17.55, 6.4, 0.5, 1.8, 0.8, W),
   // Corridor — the vending machine at the end of the straight, a water
   // cooler, and the fire doors held back against both walls
   f('vending', 17.4, 1.9, 1, 0.8, 1.9, -Math.PI / 2),

@@ -417,6 +417,24 @@ export function buildFixtures(k, map, slots) {
       for (const z of [z1, z2]) k.rod('steel', 0.008, [x, 2.25, z], [x, map.WALL_HEIGHT / M, z], { c: '#777', seg: 4 });
     }
   }
+  // a wall shelf of component bins over the lab (above the ball)
+  k.cell = 'lab';
+  for (const [x1, x2] of [[4.4, 8.4]]) {
+    const z = -1.1 - 0.15, y = 1.45;
+    k.box('steel', [x2 - x1, 0.02, 0.3], [(x1 + x2) / 2, y, z], { c: C.galv });
+    for (const x of [x1 + 0.1, x2 - 0.1]) k.box('steel', [0.02, 0.2, 0.28], [x, y - 0.1, z], { c: '#777' });
+    for (let x = x1 + 0.1; x < x2 - 0.2; x += 0.2) {
+      const c = ['#2f6fd6', '#e0762a', '#e6c229', '#3d8b4f', '#2f6fd6', '#c43b2f'][Math.round(x * 5) % 6];
+      k.block('plastic', [0.17, 0.12, 0.26], [x + 0.085, y + 0.01, z], { c });
+      k.box('plastic', [0.1, 0.04, 0.002], [x + 0.085, y + 0.07, z - 0.131], { c: '#f0f0e8' });
+    }
+  }
+  // "please wait here", on the helpdesk carpet in front of the counter
+  const counterF = map.FURNITURE.find((f) => f.kind === 'helpdesk');
+  if (counterF) {
+    k.cell = 'helpdesk';
+    k.quad('label', [0.9, 0.3], [counterF.x / M, DECAL_Y + 0.001, counterF.z / M - 1.25], { r: [-Math.PI / 2, 0, Math.PI], uv: slots.waitHere });
+  }
   // the helpdesk's queue display frame (the digits are live)
   const NS = map.NOW_SERVING;
   if (NS) {

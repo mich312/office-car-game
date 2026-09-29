@@ -637,6 +637,27 @@ function radiator(k, { w, d, h }) {
   k.block('matt', [w + 0.2, 0.004, d + 0.06], [0, 0, 0], { c: '#2a2622' }); // a dusty shadow line under it
 }
 
+// Linked waiting-room chairs on a steel beam: moulded seats, chrome legs —
+// the leg forest is what you see from a car.
+function waitchairs(k, { w, d }, f, r) {
+  const n = Math.max(2, Math.round(w / 0.55));
+  const sw = w / n;
+  k.box('steel', [w - 0.1, 0.05, 0.06], [0, 0.4, -0.05], { c: '#3a3d42' });
+  for (const sx of [-1, 1]) {
+    const x = sx * (w / 2 - 0.12);
+    k.rod('steel', 0.016, [x, 0, d / 2 - 0.08], [x, 0.4, -0.05], { c: C.chrome, seg: 6 });
+    k.rod('steel', 0.016, [x, 0, -d / 2 + 0.06], [x, 0.4, -0.05], { c: C.chrome, seg: 6 });
+    k.block('steel', [0.06, 0.012, d - 0.1], [x, 0, -0.01], { c: '#3a3d42' });
+  }
+  const cols = ['#c0573f', '#c0573f', '#3f6e8c', '#c0573f'];
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + (i + 0.5) * sw;
+    if (f.kind !== 'full' && r() < 0.15) continue; // one's been taken for spares
+    k.rbox('plastic', [sw - 0.06, 0.03, d * 0.8], 0.012, [x, 0.45, 0.02], { c: cols[i % cols.length] });
+    k.rbox('plastic', [sw - 0.06, 0.38, 0.03], 0.012, [x, 0.66, -d / 2 + 0.06], { r: [-0.15, 0, 0], c: cols[i % cols.length] });
+  }
+}
+
 function bollard(k, { h }) {
   k.cyl('steel', 0.1, 0.012, [0, 0.006, 0], { c: '#555', seg: 12 });
   k.cyl('paint', 0.055, h, [0, h / 2, 0], { c: C.yellow, seg: 14 });
@@ -649,7 +670,7 @@ export const BUILDERS = {
   cellar_boiler: boiler, cellar_heater: heater, cellar_counter: counter, cellar_shelf: shelf, cellar_pallet: pallet,
   cellar_cage: cage, cellar_bin: bin, cellar_heap: heap, cellar_bench: bench, cellar_mobile: mobile,
   cellar_cabinet: cabinet, cellar_ticketpost: ticketpost, cellar_trolley: trolley, cellar_cooler: cooler,
-  cellar_leaf: leaf, cellar_dock: dock, cellar_palletjack: palletjack, cellar_bollard: bollard, cellar_radiator: radiator,
+  cellar_leaf: leaf, cellar_dock: dock, cellar_palletjack: palletjack, cellar_bollard: bollard, cellar_radiator: radiator, cellar_waitchairs: waitchairs,
 };
 
 // Build one furniture entry into the kit (skipping the rolling shelf — it
