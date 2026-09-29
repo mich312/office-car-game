@@ -98,10 +98,13 @@ function PaperStorm() {
   );
 }
 
+// the server racks of every floor (the factory's racking holds pallets)
+const SERVER_RACKS = new Set(['rack', 'cellar_rack', 'garage_serverrack']);
+
 function ServerSparks() {
   const acc = useRef(0);
   // sparks fly off whichever server racks this map has
-  const racks = useMemo(() => currentMap().FURNITURE.filter((f) => f.type === 'rack'), []);
+  const racks = useMemo(() => currentMap().FURNITURE.filter((f) => SERVER_RACKS.has(f.type)), []);
   const mid = useMemo(() => racks.reduce((a, r) => [a[0] + r.x / racks.length, a[1] + r.z / racks.length], [0, 0]), [racks]);
   useFrame((_, dt) => {
     acc.current += dt;
@@ -113,9 +116,10 @@ function ServerSparks() {
       burst([x, 2.2 * M * Math.random() + 2, z], { count: 8, color: ['#ffe27a', '#ff9d3c', '#fff'], speed: 7, size: 0.06, ttl: 0.6 });
     }
   });
-  return (
+  // no racks, no glow (it used to hang at the world origin)
+  return racks.length ? (
     <pointLight position={[mid[0], 6, mid[1]]} intensity={10} distance={30} color="#ff7733" />
-  );
+  ) : null;
 }
 
 function WindStreaks() {
