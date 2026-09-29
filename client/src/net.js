@@ -130,6 +130,7 @@ function handleMessage(msg) {
         // mid-countdown joiners get the remaining time; everyone else gets 0
         countdownEnd: msg.countdownMs ? Date.now() + msg.countdownMs : 0,
         mutator: msg.mutator || null,
+        variant: msg.variant || 'classic',
         powerup: null, spectating: false, spectateTarget: null,
         event: null, eventWarn: null, podium: null,
         scores: {}, raceProgress: {}, myBeans: 0,
@@ -173,7 +174,7 @@ function handleMessage(msg) {
         raceProgress: {}, myBeans: 0, event: null,
         itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false,
         spectating: false, spectateTarget: null, lcs: null, rivalry: null, nemesis: null,
-        mutator: msg.mutator || null, cup: msg.cup || null,
+        mutator: msg.mutator || null, cup: msg.cup || null, variant: msg.variant || 'classic',
         abilityReadyAt: 0, printerFlashUntil: 0,
       });
       emit('match_start', msg);

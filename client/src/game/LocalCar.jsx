@@ -17,7 +17,7 @@ import {
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
-  landingStrength, impactStrength, chaseHeading,
+  landingStrength, impactStrength, chaseHeading, raceSpawn,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
@@ -200,7 +200,8 @@ export default function LocalCar() {
           const sp = spots[(ord >= 0 ? ord : net.spawnIndex) % spots.length] || SOCCER.kickoff[0];
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         } else {
-          const sp = SPAWNS[net.spawnIndex % SPAWNS.length];
+          // the grid faces the lap's first checkpoint: north for a reverse race
+          const sp = raceSpawn(net.spawnIndex, st.modeId === 'desk_dash' ? st.variant : 'classic');
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         }
         S.boost = BOOST_MAX;

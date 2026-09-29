@@ -15,6 +15,7 @@ import {
   PROPS, VENDING, PRINTER, ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
   MUTATORS, MUTATOR_CHANCE, CUP_POOL,
   encodeSnapshot,
+  rollVariant, variantOf, MODE_VARIANTS,
 } from '@rc/shared';
 import { createMode } from './modes.js';
 import { Bots } from './bots.js';
@@ -142,6 +143,7 @@ export class Room {
           // joiners need the active mutator — neither is in START for them
           countdownMs: this.phase === PHASE.COUNTDOWN ? Math.max(0, this.phaseUntil - now()) : 0,
           mutator: this.mutator?.id || null,
+          variant: this.variant || 'classic',
         }));
         this.broadcast({ t: MSG.PLAYER_JOIN, player: this.publicPlayer(p) }, id);
         this.sendLobby();
@@ -332,7 +334,7 @@ export class Room {
     this.startCountdown();
   }
 
-  startCountdown(forceMode = null) {
+  startCountdown(forceMode = null, forceVariant = null) {
     this.phase = PHASE.COUNTDOWN;
     this.phaseUntil = now() + COUNTDOWN_SECONDS * 1000;
     if (forceMode) {
@@ -365,6 +367,14 @@ export class Room {
       const pool = Object.values(MUTATORS).filter((m) => (!m.soccerOnly || this.modeId === 'soccer') && !(this.modeId === 'free_roam' && m.id === 'tiny_cars'));
       this.mutator = pool[Math.floor(Math.random() * pool.length)] || null;
       if (this.mutator) this.feed(`${this.mutator.icon} MUTATOR: ${this.mutator.name} — ${this.mutator.desc}`);
+    }
+    // Variant roll: the same mode on a different layout (variants.js)
+    // RC_VARIANT=reverse (etc.) pins a layout for playtesting, when this mode has it
+    const pinned = MODE_VARIANTS[this.modeId]?.some((v) => v.id === process.env.RC_VARIANT) ? process.env.RC_VARIANT : null;
+    this.variant = forceVariant || pinned || rollVariant(this.modeId);
+    if (this.variant !== 'classic') {
+      const v = variantOf(this.modeId, this.variant);
+      this.feed(`${MODES[this.modeId].icon} ${v.name.toUpperCase()} — ${v.desc}`);
     }
     // Fill with bots
     this.bots.fillTo(BOTS_FILL_TO);
@@ -411,6 +421,7 @@ export class Room {
       spawns: Object.fromEntries([...this.players.values()].map((p) => [p.id, p.spawnIndex])),
       teams: Object.fromEntries([...this.players.values()].map((p) => [p.id, p.team])),
       mutator: this.mutator?.id || null,
+      variant: this.variant,
       cup: this.cup ? { round: this.cup.round + 1, total: MODES.office_cup.rounds } : null,
     });
   }

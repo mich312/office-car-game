@@ -5,7 +5,7 @@ import {
   BOT_PATH, WALLS, CARS, CAR_IDS, COFFEE_MACHINE, SOCCER, CHECKPOINTS, CHECKPOINT_RADIUS,
   ROOMS, roomAt, COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
   POWERUP_EFFECT as FX, BATTERY_SPEED_PENALTY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN, BOOST_TOP_MULT,
-  DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState,
+  DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
 
@@ -39,10 +39,10 @@ function lineBlocked(x1, z1, x2, z2) {
   return false;
 }
 
-function nearestWp(x, z) {
+function nearestWp(x, z, path = BOT_PATH) {
   let best = 0, bd = Infinity;
-  for (let i = 0; i < BOT_PATH.length; i++) {
-    const d = Math.hypot(BOT_PATH[i].x - x, BOT_PATH[i].z - z);
+  for (let i = 0; i < path.length; i++) {
+    const d = Math.hypot(path[i].x - x, path[i].z - z);
     if (d < bd) { bd = d; best = i; }
   }
   return best;
@@ -171,8 +171,15 @@ export class Bots {
     }
   }
 
+  // The racing line this round: reversed for a Reverse Desk Dash, the
+  // classic loop otherwise (it doubles as the corridor graph for every mode).
+  path() {
+    return raceBotPath(this.room.modeId === 'desk_dash' ? this.room.variant : 'classic');
+  }
+
   // Where does this bot want to go, given the mode?
   pickTarget(p) {
+    const PATH = this.path();
     const mode = this.room.mode;
     const modeId = this.room.modeId;
     let goal = null;
@@ -205,11 +212,11 @@ export class Bots {
         if (best) goal = { x: best.x, z: best.z };
       } else {
         // cruise the racing line, skipping waypoints inside closed rooms
-        for (let k = 0; k < BOT_PATH.length; k++) {
-          const wp = BOT_PATH[p.wp % BOT_PATH.length];
+        for (let k = 0; k < PATH.length; k++) {
+          const wp = PATH[p.wp % PATH.length];
           const rm = roomAt(wp.x, wp.z);
           if (!rm || !bad(rm.id)) break;
-          p.wp = (p.wp + 1) % BOT_PATH.length;
+          p.wp = (p.wp + 1) % PATH.length;
         }
       }
     } else if (modeId === 'soccer' && mode) {
@@ -247,7 +254,8 @@ export class Bots {
       // inside a checkpoint and miss it — the balcony corner (#15) cost every
       // bot every lap, and races ended with the bots still on lap one.
       // Once the next checkpoint is close and in sight, drive through it.
-      const cp = CHECKPOINTS[p.nextCp % CHECKPOINTS.length];
+      const cps = mode?.cps || CHECKPOINTS;
+      const cp = cps[p.nextCp % cps.length];
       if (Math.hypot(cp.x - p.p[0], cp.z - p.p[2]) < CHECKPOINT_RADIUS + 6
           && !lineBlocked(p.p[0], p.p[2], cp.x, cp.z)) goal = cp;
     }
@@ -259,9 +267,9 @@ export class Bots {
     if (!goal) return this.followRaceLine(p);
     // Navigate: direct if clear, else route along the path loop
     if (!lineBlocked(p.p[0], p.p[2], goal.x, goal.z)) return goal;
-    const wpB = nearestWp(goal.x, goal.z);
-    let wpA = nearestWp(p.p[0], p.p[2]);
-    const N = BOT_PATH.length;
+    const wpB = nearestWp(goal.x, goal.z, PATH);
+    let wpA = nearestWp(p.p[0], p.p[2], PATH);
+    const N = PATH.length;
     const fwd = (wpB - wpA + N) % N;
     const dir = fwd <= N / 2 ? 1 : -1;
     let next = (wpA + dir + N) % N;
@@ -269,10 +277,10 @@ export class Bots {
     for (let k = 0; k < 3; k++) {
       const peek = (next + dir + N) % N;
       if (peek === wpB) break;
-      if (!lineBlocked(p.p[0], p.p[2], BOT_PATH[peek].x, BOT_PATH[peek].z)) next = peek;
+      if (!lineBlocked(p.p[0], p.p[2], PATH[peek].x, PATH[peek].z)) next = peek;
       else break;
     }
-    return BOT_PATH[next];
+    return PATH[next];
   }
 
   // The world as the item logic needs it, in the bot's own frame.
@@ -334,19 +342,20 @@ export class Bots {
   }
 
   followRaceLine(p) {
+    const PATH = this.path();
     // Advance past a waypoint once within 5 units of it — or once we're
     // already beyond it along the line (a detour to a checkpoint or a pad
     // can carry a bot past its waypoint without touching it, and aiming back
     // at it would turn the bot round).
     for (let k = 0; k < 3; k++) {
-      const wp = BOT_PATH[p.wp % BOT_PATH.length];
-      const nx = BOT_PATH[(p.wp + 1) % BOT_PATH.length];
+      const wp = PATH[p.wp % PATH.length];
+      const nx = PATH[(p.wp + 1) % PATH.length];
       const tox = wp.x - p.p[0], toz = wp.z - p.p[2];
       const passed = tox * (nx.x - wp.x) + toz * (nx.z - wp.z) < 0 && Math.hypot(tox, toz) < 12;
-      if (Math.hypot(tox, toz) < 5 || passed) p.wp = (p.wp + 1) % BOT_PATH.length;
+      if (Math.hypot(tox, toz) < 5 || passed) p.wp = (p.wp + 1) % PATH.length;
       else break;
     }
-    return BOT_PATH[p.wp % BOT_PATH.length];
+    return PATH[p.wp % PATH.length];
   }
 
   drive(p, target, dt) {
@@ -429,9 +438,10 @@ export class Bots {
     if (moved < p.speed * dt * 0.3 && p.speed > 5) p.stuckT += dt; else p.stuckT = Math.max(0, p.stuckT - dt);
     if (p.stuckT > 2.5) {
       // recover: hop to the nearest racing-line waypoint
-      const wp = BOT_PATH[nearestWp(p.p[0], p.p[2])];
+      const PATH = this.path();
+      const wp = PATH[nearestWp(p.p[0], p.p[2], PATH)];
       px = wp.x; pz = wp.z; p.stuckT = 0; p.speed = 0;
-      p.wp = nearestWp(px, pz);
+      p.wp = nearestWp(px, pz, PATH);
     }
     p.v = [(px - p.p[0]) / dt, 0, (pz - p.p[2]) / dt];
     // ride height matches suspension sag; a spring item arcs it

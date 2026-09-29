@@ -1,7 +1,10 @@
 // Mode scoring, driven directly against a stub room. The ws smoke test proves
 // each mode *starts* and snapshots correctly; this proves a mode taken all the
 // way to its win condition pays out what it says it does.
-import { CHECKPOINTS, MODES } from '../shared/src/index.js';
+import {
+  CHECKPOINTS, MODES, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
+  raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH,
+} from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
 
 let fails = 0;
@@ -129,6 +132,94 @@ const N = CHECKPOINTS.length;
   check('sumo: last car rolling banks places + win bonus',
     c.score === MODES.sumo.placeScore * 2 + MODES.sumo.winBonus);
 }
+
+// ----------------------------------------------------------- variants
+check('variants: every variant list starts with the classic layout', Object.values(MODE_VARIANTS).every((l) => l[0].id === 'classic'));
+check('variants: modes without variants always roll classic', rollVariant('coffee_run', () => 0) === 'classic');
+check('variants: a variant mode rolls classic about half the time', (() => {
+  let n = 0;
+  for (let i = 0; i < 1000; i++) if (rollVariant('desk_dash', Math.random) !== 'classic') n++;
+  return n > 400 && n < 600;
+})());
+check('variants: an unknown id falls back to classic', variantOf('sumo', 'nope').id === 'classic');
+
+const rev = raceCheckpoints('reverse');
+check('reverse: the same checkpoints, the other way round', rev.length === CHECKPOINTS.length
+  && rev.every((c, i) => c === CHECKPOINTS[CHECKPOINTS.length - 1 - i]));
+check('reverse: the finish stays on the start straight (checkpoint 0 closes the lap)', rev[rev.length - 1] === CHECKPOINTS[0]);
+check('reverse: the bots\' line is the classic loop reversed', (() => {
+  const r = raceBotPath('reverse');
+  return r.length === BOT_PATH.length && r[0] === BOT_PATH[0] && r[1] === BOT_PATH[BOT_PATH.length - 1] && r[r.length - 1] === BOT_PATH[1];
+})());
+// The grid lines up in parallel like a real one, beside checkpoint 0 rather
+// than behind it, so the classic grid's worst slot is ~73° off its first
+// checkpoint. The reverse grid must face ITS first checkpoint (north, 17)
+// at least as well — pointing it east like the classic grid would send
+// every car the wrong way off the line.
+const worstOff = (variant) => {
+  const first = raceCheckpoints(variant)[0];
+  return Math.max(...SPAWNS.map((_, i) => {
+    const s = raceSpawn(i, variant);
+    let d = Math.atan2(first.x - s.x, first.z - s.z) - s.rotY;
+    while (d > Math.PI) d -= 2 * Math.PI;
+    while (d < -Math.PI) d += 2 * Math.PI;
+    return Math.abs(d);
+  }));
+};
+const deg = (r) => (r * 180 / Math.PI).toFixed(0);
+check(`reverse: the grid faces its first checkpoint at least as well as classic does (${deg(worstOff('reverse'))}° vs ${deg(worstOff('classic'))}°)`,
+  worstOff('reverse') <= worstOff('classic'));
+check('reverse: the classic grid heading would point the reverse race the wrong way', (() => {
+  const first = raceCheckpoints('reverse')[0];
+  const s = SPAWNS[0];
+  let d = Math.atan2(first.x - s.x, first.z - s.z) - s.rotY;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return Math.abs(d) > worstOff('reverse');
+})());
+{
+  // a full reverse lap scores exactly like a forward one; forward order does nothing
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob');
+  const room = stubRoom([a, b]);
+  room.variant = 'reverse';
+  const mode = createMode('desk_dash', room);
+  for (let i = 0; i < N; i++) { const cp = rev[a.nextCp % N]; a.p = [cp.x, 0, cp.z]; mode.update(); }
+  check('reverse: a lap driven backwards counts as a lap', a.lap === 1 && a.score === 200);
+  b.p = [CHECKPOINTS[1].x, 0, CHECKPOINTS[1].z]; mode.update();
+  check('reverse: driving the classic way round does not progress', b.nextCp === 0);
+  check('reverse: the race progress points into the reversed list', mode.snapshot().race.p1[1] === 0);
+}
+{
+  // Moving Meeting: the ring lands on a standup spot as the round runs out
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob');
+  const room = stubRoom([a, b]);
+  room.modeId = 'sumo';
+  room.variant = 'drift';
+  const mode = createMode('sumo', room);
+  mode.update(); // round 1
+  const target = mode.target;
+  check('moving meeting: each round picks a standup spot to close in on', KOTH_SPOTS.includes(target));
+  check('moving meeting: the ring starts where it always does', mode.zone.x === SUMO_ZONE.x && mode.zone.z === SUMO_ZONE.z);
+  a.p = [target.x, 0, target.z]; b.p = [target.x, 0, target.z];
+  mode.roundEndsAt = Date.now() + 5; // the last moment of the round
+  mode.update();
+  check('moving meeting: …and ends the round on it', Math.hypot(mode.zone.x - target.x, mode.zone.z - target.z) < 0.5);
+  check('moving meeting: the slide is continuous (eases in from the start centre)', (() => {
+    let prev = sumoCenter(SUMO_ZONE, target, 0);
+    for (let f = 0.01; f <= 1; f += 0.01) {
+      const c = sumoCenter(SUMO_ZONE, target, f);
+      if (Math.hypot(c.x - prev.x, c.z - prev.z) > 5) return false;
+      prev = c;
+    }
+    return true;
+  })());
+  const classicRoom = stubRoom([player('p1', 'A'), player('p2', 'B')]);
+  classicRoom.modeId = 'sumo';
+  const classic = createMode('sumo', classicRoom);
+  classic.update();
+  check('classic sumo: the ring never moves', classic.target === null && classic.zone.x === SUMO_ZONE.x);
+}
+check('rush hour: the meeting moves twice as often', kothHopSeconds(MODES.koth.hopSeconds, 'rush') === MODES.koth.hopSeconds / 2
+  && kothHopSeconds(MODES.koth.hopSeconds, 'classic') === MODES.koth.hopSeconds);
 
 console.log(fails ? `\n${fails} mode check(s) failed` : '\nall mode checks passed');
 process.exit(fails ? 1 : 0);
