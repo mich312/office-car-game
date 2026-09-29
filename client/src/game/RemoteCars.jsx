@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, POWERUP_EFFECT } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, sampleRemote } from '../net.js';
-import CarModel, { CarProxy } from './CarModel.jsx';
+import CarModel, { CarMid, CarProxy } from './CarModel.jsx';
 import { puff } from './particles.jsx';
 import { skid } from './SkidMarks.jsx';
 
@@ -121,8 +121,9 @@ const RemoteCar = memo(function RemoteCar({ player }) {
     <RigidBody ref={rb} type="kinematicPosition" colliders={false} userData={userData} position={[0, -50, 0]}>
       <CuboidCollider args={[CAR_WIDTH / 2, CAR_HEIGHT / 2, CAR_LENGTH / 2]} />
       <group ref={group}>
-        {/* LOD: full model near, 3-box proxy past ~28 units */}
-        <Detailed distances={[0, 28]}>
+        {/* LOD: full model near, merged mid model (baked wheels, no
+            suspension or driver) past 12 units, 2-draw proxy past 28 */}
+        <Detailed distances={[0, 12, 28]}>
           <CarModel
             carId={player.car}
             paint={player.paint}
@@ -136,6 +137,14 @@ const RemoteCar = memo(function RemoteCar({ player }) {
             boostingRef={boostingRef}
             flagsRef={flagsRef}
             leanRef={leanRef}
+          />
+          <CarMid
+            carId={player.car}
+            paint={player.paint}
+            style={player.style}
+            tune={player.tune}
+            name={player.bot ? `🤖 ${player.name}` : player.name}
+            team={useStore.getState().modeId === 'soccer' ? player.team : undefined}
           />
           <CarProxy carId={player.car} paint={player.paint} />
         </Detailed>
