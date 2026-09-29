@@ -4,7 +4,7 @@
 // orchids on the assistants' desks, a brass bar cart that rolls when you hit
 // it. Each type is one merged geometry per material, shared by every copy:
 // a chair is two draws, a golf ball one.
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
@@ -119,7 +119,6 @@ function Laptop({ p }) {
 
 // name tents: CEO, CFO, COO, HEAD OF SYNERGY — in turn round the table
 const NAMES = ['CEO', 'CFO', 'COO', 'HEAD OF SYNERGY'];
-let placardN = 0;
 const placardMat = (name) => new THREE.MeshStandardMaterial({
   roughness: 0.5,
   map: canvas(`tplacard-${name}`, 256, 80, (g, w, h) => {
@@ -131,12 +130,12 @@ const placardMat = (name) => new THREE.MeshStandardMaterial({
 });
 const placardMats = {};
 function Placard({ p }) {
-  const name = useMemo(() => NAMES[placardN++ % NAMES.length], []);
+  // by the prop's index, so every client (and every visit) seats the same
+  // names — a mount counter drifted on each trip back to the tower
+  const name = NAMES[(p.i ?? 0) % NAMES.length];
   const m = placardMats[name] || (placardMats[name] = placardMat(name));
-  const geo = useMemo(() => {
-    const g = new THREE.BoxGeometry(u(0.24), u(0.08), u(0.004));
-    return g;
-  }, []);
+  const geo = useMemo(() => new THREE.BoxGeometry(u(0.24), u(0.08), u(0.004)), []);
+  useEffect(() => () => geo.dispose(), [geo]);
   return (
     <Body p={p} mass={0.1} friction={0.6}>
       <CuboidCollider args={[u(0.12), u(0.035), u(0.03)]} position={[0, u(B0 + 0.035), 0]} />

@@ -14,7 +14,7 @@
 // themselves: the Dressing has already drawn them, in a dozen draw calls.
 // What moves (lifts, screens, fire, trees, the gondola) lives in
 // tower/live.jsx.
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import * as THREE from 'three';
@@ -75,12 +75,14 @@ function bakeFloor(map) {
   return { meshes: mergeGroups(groups), lamps };
 }
 
-function StaticFloor({ baked }) {
+function StaticFloor({ baked, map }) {
   const lampRef = useRef(1);
   const onyxRef = useRef(0.9);
+  // the merged floor is megabytes of vertices: free it when quick play moves on
+  useEffect(() => () => baked.meshes.forEach((m) => m.geometry.dispose()), [baked]);
   useFrame((_, dt) => {
     const st = useStore.getState();
-    const L = lightingFor(st.timeOfDay, st.event?.id === 'lights_out');
+    const L = lightingFor(st.timeOfDay, st.event?.id === 'lights_out', map);
     const k = Math.min(1, dt * 1.8);
     lampRef.current += (0.45 + L.panel * 0.75 - lampRef.current) * k;
     mat('lamp').color.setScalar(lampRef.current);
@@ -103,15 +105,15 @@ export function Dressing({ map }) {
   const fire = map.FURNITURE.find((f) => f.type === 'tower_fireplace');
   return (
     <group>
-      <StaticFloor baked={baked} />
-      <CityView />
+      <StaticFloor baked={baked} map={map} />
+      <CityView map={map} />
       <Lifts map={map} />
       {map.VIDEO_WALL && <VideoWall map={map} />}
       <Signs map={map} />
       {map.TICKER && <Ticker map={map} />}
-      {fire && <Fire at={[fire.x / M, fire.z / M]} len={fire.d / M - 0.4} />}
+      {fire && <Fire at={[fire.x / M, fire.z / M]} len={fire.d / M - 0.4} map={map} />}
       <Terrace map={map} />
-      <Pools spots={baked.lamps} />
+      <Pools spots={baked.lamps} map={map} />
       <FloorSounds map={map} />
       <RainGlass map={map} />
     </group>
@@ -148,6 +150,7 @@ export function Robot() {
   const body = useMemo(() => new THREE.MeshStandardMaterial({ color: '#f2c21a', roughness: 0.4 }), []);
   const grey = useMemo(() => new THREE.MeshStandardMaterial({ color: '#3a3d44', roughness: 0.5, metalness: 0.3 }), []);
   const amber = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffaa22', toneMapped: false }), []);
+  useEffect(() => () => { body.dispose(); grey.dispose(); amber.dispose(); }, [body, grey, amber]);
   useFrame(({ clock }) => {
     if (beacon.current) beacon.current.intensity = 3 + Math.sin(clock.elapsedTime * 12) * 2.5;
   });
