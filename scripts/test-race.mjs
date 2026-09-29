@@ -230,5 +230,44 @@ for (const map of ['office', 'cellar']) {
   }
 }
 
+// ------------------------------------------------------------ Office Cup
+for (const map of ['office', 'cellar']) {
+  for (const seed of [1, 3]) {
+    const sim = await createSim({ seed, mode: 'desk_dash', map });
+    const room = sim.room;
+    const h = human(sim);
+    // vote the cup in (and stay on this map), then let the room run it
+    for (const id of room.players.keys()) { room.votes.set(id, 'office_cup'); room.mapVotes.set(id, map); }
+    room.startCountdown();
+    const ends = [];
+    let welcome = null;
+    for (let n = 0; n < 20 * 60 * 20 && room.phase !== PHASE.LOBBY; n++) {
+      const was = room.phase;
+      sim.step();
+      if (was === PHASE.PLAYING && room.phase === PHASE.PODIUM) ends.push(sim.events.filter((e) => e.t === MSG.MATCH_END).at(-1));
+      if (!welcome && room.cup?.round === 1 && room.phase === PHASE.PLAYING) welcome = human(sim, 'Latecomer').last(MSG.WELCOME);
+    }
+    const tag = `${map} cup s${seed}`;
+    check(`${tag}: three rounds, the last one final`, ends.length === 3 && ends[2].cup.final && !ends[0].cup.final);
+    check(`${tag}: a mid-cup drop-in hears which round it is`, welcome?.cup?.round === 2 && welcome.cup.total === MODES.office_cup.rounds);
+    const fin = ends[2].cup.standings;
+    // every round pays 10-8-6-5-4-3-2-1 by place, ties sharing the better place
+    const roundOk = ends.every((e) => {
+      const byId = new Map(e.cup.standings.map((s) => [s.id, s.roundPts]));
+      return e.podium.every((p) => {
+        const first = e.podium.findIndex((q) => q.score === p.score);
+        return byId.get(p.id) === ([10, 8, 6, 5, 4, 3, 2, 1][first] ?? 0);
+      });
+    });
+    check(`${tag}: each round pays placement points, not raw score`, roundOk);
+    check(`${tag}: the standings are sorted and numbered`, fin.every((s, i) => s.place === i + 1 && (i === 0 || fin[i - 1].score >= s.score)));
+    check(`${tag}: cup rows carry what the podium plaques draw (car, paint)`, fin.every((s) => 'car' in s && 'paint' in s));
+    const feed = sim.events.filter((e) => e.t === MSG.FEED && /wins the OFFICE CUP/.test(e.text)).at(-1);
+    check(`${tag}: the feed crowns the cup leader`, !!feed && feed.text.includes(fin[0].name) && feed.text.includes(`${fin[0].score} points`));
+    const h3 = fin.find((s) => s.id === h.me.id);
+    check(`${tag}: the human's row is in the final standings (place ${h3?.place})`, !!h3);
+  }
+}
+
 console.log(fails ? `\n${fails} race check(s) failed` : '\nall race checks passed');
 process.exit(fails ? 1 : 0);

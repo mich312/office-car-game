@@ -48,6 +48,9 @@ export async function createSim({ seed = 1, mode = 'desk_dash', bots = 6, varian
     room, events, dt,
     now: () => clock,
     get bots() { return [...room.players.values()].filter((p) => p.bot); },
+    // one tick in any phase (countdown and podium too), for flows that
+    // run past the end of a match — the Office Cup
+    step,
     // advance `seconds` of match time, calling onTick after every tick
     run(seconds, onTick) {
       const n = Math.round(seconds / dt);

@@ -166,7 +166,7 @@ function drawBoard(g, snap) {
     });
     finePrint(g, 'ready up at your desks — bots fill the rest');
   } else if (snap.phase === 'podium') {
-    header(g, 'EMPLOYEE OF THE MATCH');
+    header(g, snap.cup?.final ? 'OFFICE CUP CHAMPION' : snap.cup ? `CUP ROUND ${snap.cup.round}/${snap.cup.total}` : 'EMPLOYEE OF THE MATCH');
     if (snap.winner) {
       // celebratory marker confetti
       const strokes = [[300, 210, 24, -18, RED], [724, 196, -20, -20, BLUE], [258, 330, -22, 14, AMBER],
@@ -187,7 +187,7 @@ function drawBoard(g, snap) {
       markerEllipse(g, W / 2, 278, Math.min(430, g.measureText(snap.winner).width / 2 + 60), 84, AMBER, 7);
       marker(g, `${snap.winnerScore} pts — see HR for your mug`, W / 2, 420, '600 50px "Barlow Condensed", "Arial Narrow", sans-serif', RED, 'center');
     }
-    finePrint(g, 'back to the lobby in a moment…');
+    finePrint(g, snap.cup && !snap.cup.final ? 'next round starts automatically…' : 'back to the lobby in a moment…');
   } else {
     // countdown + playing: live standings — big title, mode in red beside it
     header(g, 'STANDINGS');
@@ -251,7 +251,10 @@ function snapshot() {
     .slice(0, 7);
   const left = st.phase === 'playing' ? Math.max(0, Math.ceil((st.endsAt - Date.now()) / 1000)) : 0;
   const clock = st.phase === 'playing' ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : '';
-  const winner = st.podium?.[0]?.name || null;
+  // the cup final crowns the cup winner, not the last round's
+  const top = st.cup?.final && st.cup.standings ? st.cup.standings[0] : st.podium?.[0];
+  const winner = top?.name || null;
+  const cup = st.cup ? { round: st.cup.round, total: st.cup.total, final: !!st.cup.final } : null;
   return {
     phase: st.phase,
     modeId: st.modeId,
@@ -259,9 +262,10 @@ function snapshot() {
     rows,
     clock,
     winner,
-    winnerScore: st.podium?.[0]?.score ?? 0,
+    winnerScore: top?.score ?? 0,
+    cup,
     hash: [
-      st.phase, st.modeId, clock, winner,
+      st.phase, st.modeId, clock, winner, cup ? `${cup.round}${cup.final ? 'F' : ''}` : '',
       Object.entries(votes).map(([k, n]) => `${k}${n}`).join(''),
       rows.map((r) => `${r.name}${r.score}`).join(''),
     ].join('|'),

@@ -55,6 +55,9 @@ const POS_SLACK = 20;
 
 let nextId = 1;
 
+// Office Cup points for 1st, 2nd, … in a round; nothing past 8th.
+const CUP_POINTS = [10, 8, 6, 5, 4, 3, 2, 1];
+
 export class Room {
   // code/isPrivate come from the RoomManager (rooms.js); a bare Room() is a
   // nameless public room, which is what the tests and harness use.
@@ -159,6 +162,8 @@ export class Room {
           variant: this.variant || 'classic',
           map: this.mapId,
           spawn, spectating: !!p.eliminated,
+          // the cup round chip — START carries it, but a drop-in missed START
+          cup: this.cup ? { round: this.cup.round + 1, total: MODES.office_cup.rounds } : null,
         }));
         this.broadcast({ t: MSG.PLAYER_JOIN, player: this.publicPlayer(p) }, id);
         this.sendLobby();
@@ -469,15 +474,32 @@ export class Room {
     // Cup intermissions are brisk; the grand ceremony gets the full podium
     const cupFinal = this.cup ? this.cup.round >= MODES.office_cup.rounds - 1 : false;
     this.phaseUntil = now() + (this.cup && !cupFinal ? 7 : PODIUM_SECONDS) * 1000;
+    // Office Cup: a round pays placement points, not its raw score. Every
+    // mode scores on its own scale (a Desk Dash spread is ~600, a standup
+    // ~100), so summing raw scores let one round decide the whole cup.
+    // Tied cars share the best place their tie spans (1-2-2-4); round wins
+    // and then the raw total break ties in the standings.
     if (this.cup) {
-      for (const p of this.players.values()) {
-        this.cup.scores.set(p.id, (this.cup.scores.get(p.id) || 0) + Math.round(p.score));
-      }
+      const ranked = [...this.players.values()].sort((a, b) => Math.round(b.score) - Math.round(a.score));
+      let place = 0;
+      ranked.forEach((p, i) => {
+        if (i > 0 && Math.round(p.score) !== Math.round(ranked[i - 1].score)) place = i;
+        const rec = this.cup.scores.get(p.id) || { points: 0, wins: 0, raw: 0 };
+        rec.roundPts = CUP_POINTS[place] ?? 0;
+        rec.points += rec.roundPts;
+        rec.wins += place === 0 ? 1 : 0;
+        rec.raw += Math.round(p.score);
+        this.cup.scores.set(p.id, rec);
+      });
     }
     const cupStandings = this.cup
       ? [...this.players.values()]
-        .map((p) => ({ id: p.id, name: p.name, score: this.cup.scores.get(p.id) || 0, bot: p.bot }))
-        .sort((a, b) => b.score - a.score)
+        .map((p) => {
+          const rec = this.cup.scores.get(p.id) || { points: 0, wins: 0, raw: 0, roundPts: 0 };
+          return { id: p.id, name: p.name, car: p.car, paint: p.paint, bot: p.bot, score: rec.points, roundPts: rec.roundPts, wins: rec.wins, raw: rec.raw };
+        })
+        .sort((a, b) => b.score - a.score || b.wins - a.wins || b.raw - a.raw)
+        .map((s, i) => ({ ...s, place: i + 1 }))
       : null;
     if (cupFinal && cupStandings?.length) {
       this.feed(`🏆 ${cupStandings[0].name} wins the OFFICE CUP with ${cupStandings[0].score} points!`);

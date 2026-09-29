@@ -630,8 +630,12 @@ function Podium() {
     [],
   );
   if (!podium) return null;
-  const top3 = podium.slice(0, 3);
-  const mine = podium.find((p) => p.id === myId);
+  // The grand ceremony honours the cup, not whoever won its last round
+  const rows = cup?.final && cup.standings ? cup.standings : podium;
+  const top3 = rows.slice(0, 3);
+  const mine = rows.find((p) => p.id === myId);
+  // the cup table: the top five, plus your own row wherever you stand
+  const cupRows = cup?.standings ? cup.standings.filter((s, i) => i < 5 || s.id === myId) : null;
   const title = cup?.final ? 'OFFICE CUP CHAMPION'
     : cup ? `ROUND ${cup.round}/${cup.total} DONE`
       : 'EMPLOYEES OF THE MATCH';
@@ -662,19 +666,19 @@ function Podium() {
         {cup?.standings && (
           <div className="cup-standings">
             <span className="label">cup standings</span>
-            {cup.standings.slice(0, 5).map((s, i) => (
+            {cupRows.map((s) => (
               <div key={s.id} className={`score-row ${s.id === myId ? 'me' : ''}`}>
-                <span className="place">{i + 1}</span>
+                <span className="place">{s.place}</span>
                 <span />
                 <span className="pname">{s.name}</span>
-                <b>{s.score}</b>
+                <b>{s.score}{s.roundPts > 0 && <span className="cup-gain">+{s.roundPts}</span>}</b>
               </div>
             ))}
           </div>
         )}
         {mine && (
           <p className="pod-mine">
-            You placed <b>{mine.place}{['st', 'nd', 'rd'][mine.place - 1] || 'th'}</b> · +XP earned
+            You placed <b>{mine.place}{['st', 'nd', 'rd'][mine.place - 1] || 'th'}</b>{cup?.final ? ' in the cup' : ''} · +XP earned
           </p>
         )}
         {rivalry && rivalry.n >= 2 && (

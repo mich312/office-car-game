@@ -87,7 +87,7 @@ export const MODES = {
     id: 'office_cup',
     name: 'Office Cup',
     icon: '🏆',
-    desc: 'Three random modes back-to-back. Cumulative score. Grand ceremony at the end.',
+    desc: 'Three random modes back-to-back. Placement points each round (10-8-6-5…). Grand ceremony at the end.',
     rounds: 3,
   },
 };

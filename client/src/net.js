@@ -139,6 +139,8 @@ function handleMessage(msg) {
         itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, lcs: null,
         // a Last Car Standing drop-in after the first knockout watches
         spectating: !!msg.spectating,
+        // always set, so a reconnect into a non-cup room drops a stale chip
+        cup: msg.cup || null,
       });
       // a drop-in is put down by the server (the respawn policy): LocalCar
       // mounts there, or teleports there if it is already running
