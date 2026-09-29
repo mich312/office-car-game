@@ -13,7 +13,7 @@
 // (propKit.jsx) draws — every mug on the floor in one call.
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { RigidBody, CuboidCollider, CylinderCollider, BallCollider } from '@react-three/rapier';
+import { RigidBody, CuboidCollider, CylinderCollider, BallCollider, CapsuleCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useMap, currentMap } from './activeMap.js';
@@ -119,7 +119,9 @@ function SpawnedProps() {
   const [items, setItems] = useState([]);
   useEffect(() => on('fx', (fx) => {
     if (fx.type === 'mug_drop' && Array.isArray(fx.at)) {
-      setItems((l) => [...l.slice(-17), { kind: 'mug', at: fx.at, key: Math.random() }]);
+      // its prop object is made once, here: a fresh one per render re-rolled
+      // every mug's glaze each time another mug or a can arrived
+      setItems((l) => [...l.slice(-17), { kind: 'mug', p: { x: fx.at[0], y: fx.at[1], z: fx.at[2] }, key: Math.random() }]);
     } else if (fx.type === 'vending') {
       audio.blip(fx.golden ? 990 : 520, 0.12, 0.16);
       const flap = vendingFlap(currentMap());
@@ -131,7 +133,7 @@ function SpawnedProps() {
     }
   }), []);
   return items.map((it) => (it.kind === 'mug'
-    ? <Mug key={it.key} p={{ x: it.at[0], y: it.at[1], z: it.at[2] }} />
+    ? <Mug key={it.key} p={it.p} />
     : <Can key={it.key} golden={it.golden} />));
 }
 
@@ -154,7 +156,9 @@ function Can({ golden }) {
     const side = (Math.random() - 0.5) * 0.3 * M;
     const s = Math.sin(f.rotY), c = Math.cos(f.rotY);
     return {
-      spawn: { x: f.x + side * c, y: 0.15 * M, z: f.z - side * s, rotY: f.rotY + Math.PI / 2 + (Math.random() - 0.5) * 0.5 },
+      // lying across the flap (its axis along the body's x): it rolls out
+      // rather than sliding end-first
+      spawn: { x: f.x + side * c, y: 0.15 * M, z: f.z - side * s, rotY: f.rotY + (Math.random() - 0.5) * 0.5 },
       // rolls out of the flap toward whoever rammed the machine
       v: [s * 1.2 * M, 0.4 * M, c * 1.2 * M],
     };
@@ -323,6 +327,16 @@ function Roll({ p }) {
 // the star base 35 cm inside the floor on spawn). Colliders are the same
 // shapes as ever, lifted with it. Café and meeting-room chairs are moulded
 // shells on dowel legs; the rest are task chairs.
+// the café chair's legs, as its model draws them (propModels.js cafechair):
+// top under the seat, foot splayed out on the floor
+const CAFE_LEGS = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sz]) => {
+  const top = new THREE.Vector3(sx * 0.12, 0.43, sz * 0.11 + 0.02), foot = new THREE.Vector3(sx * 0.21, 0, sz * 0.2 + 0.02);
+  const d = top.clone().sub(foot);
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize());
+  const e = new THREE.Euler().setFromQuaternion(q);
+  const mid = top.clone().add(foot).multiplyScalar(0.5 * m2u);
+  return { at: [mid.x, mid.y, mid.z], rot: [e.x, e.y, e.z], half: (d.length() * m2u) / 2 - 0.013 * m2u };
+});
 const FABRICS = { office: ['#c23b2e', '#c23b2e', '#c23b2e', '#2f4f7e', '#3d4046'], cellar: ['#4a5563', '#3b4a5e', '#5b5f66', '#6b4a3a'] };
 const SHELLS = ['#f2efe8', '#e3b23c', '#2f8f8a', '#e8664d', '#f2efe8', '#3b3d42'];
 function Chair({ p }) {
@@ -337,9 +351,17 @@ function Chair({ p }) {
   }, [p, r]);
   return (
     <Body p={p} mass={3.5} angularDamping={0.08} friction={0.3} base={0}>
-      {/* star base + column + seat + back: colliders */}
-      <CylinderCollider args={[0.04, 0.32 * m2u]} position={[0, 0.04, 0]} />
-      <CylinderCollider args={[seatH / 2, 0.045 * m2u]} position={[0, -seatH / 2 + 0.1 + lift, 0]} />
+      {cafe ? (
+        // four splayed dowel legs, no column
+        CAFE_LEGS.map((l, i) => <CapsuleCollider key={i} args={[l.half, 0.013 * m2u]} position={l.at} rotation={l.rot} />)
+      ) : (
+        <>
+          {/* the star base's arms and casters stand 11 cm tall, the column */}
+          <CylinderCollider args={[0.055 * m2u, 0.31 * m2u]} position={[0, 0.055 * m2u, 0]} />
+          <CylinderCollider args={[seatH / 2, 0.045 * m2u]} position={[0, -seatH / 2 + 0.1 + lift, 0]} />
+        </>
+      )}
+      {/* seat + back */}
       <CuboidCollider args={[0.24 * m2u, 0.05 * m2u, 0.24 * m2u]} position={[0, 0.1 + lift, 0]} />
       <CuboidCollider args={[0.22 * m2u, 0.26 * m2u, 0.04 * m2u]} position={[0, 0.32 * m2u + lift, -0.22 * m2u]} />
       <Inst model={cafe ? 'cafechair' : 'chair'} color={color} />

@@ -317,15 +317,26 @@ function grow(k, need) {
 
 const WHITE = new THREE.Color(1, 1, 1);
 const _frustum = new THREE.Frustum(), _pv = new THREE.Matrix4(), _sphere = new THREE.Sphere(), _v = new THREE.Vector3();
+const _sunDir = new THREE.Vector3(), _end = new THREE.Vector3();
 // Padding on the per-instance cull: a prop just off screen still casts a
 // shadow onto it.
 const CULL_PAD = 0.6 * M;
+// the sun, found once per scene (Lighting's directional light)
+let sun = null;
 
 let frame = 0;
-function sync(camera) {
+function sync(camera, scene) {
   frame++;
   _pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   _frustum.setFromProjectionMatrix(_pv);
+  // The culled list also feeds the shadow pass, and a low sun throws a chair's
+  // shadow metres long: a caster stays in while its shadow reaches the view.
+  if (!sun || !sun.parent) sun = scene.getObjectByProperty('isDirectionalLight', true) || null;
+  let shadowLen = 0;
+  if (sun) {
+    _sunDir.subVectors(sun.target.getWorldPosition(_end), sun.getWorldPosition(_v)).normalize();
+    if (_sunDir.y < -0.05) shadowLen = 1 / -_sunDir.y; // metres of shadow per metre of height
+  }
   for (const k of kinds.values()) {
     if (!k.items.size && !k.mesh) continue;
     grow(k, k.items.size);
@@ -342,7 +353,15 @@ function sync(camera) {
       }
       _sphere.center.copy(bs.center).applyMatrix4(o.matrixWorld);
       _sphere.radius = bs.radius + CULL_PAD;
-      if (!_frustum.intersectsSphere(_sphere)) continue;
+      if (!_frustum.intersectsSphere(_sphere)) {
+        if (!k.cast || !shadowLen || _sphere.center.y <= 0) continue;
+        // the stretch of floor its shadow covers, as one sphere
+        _end.copy(_sphere.center).addScaledVector(_sunDir, _sphere.center.y * shadowLen);
+        const half = _sphere.center.distanceTo(_end) / 2;
+        _sphere.center.lerp(_end, 0.5);
+        _sphere.radius = bs.radius + half;
+        if (!_frustum.intersectsSphere(_sphere)) continue;
+      }
       mesh.setMatrixAt(n, o.matrixWorld);
       mesh.setColorAt(n, it.color || WHITE);
       n++;
@@ -358,7 +377,7 @@ function sync(camera) {
 // subscription order, so this runs after rapier's step has moved the bodies
 // (and after a plant's sway) — the instances never trail their bodies.
 export function PropInstances() {
-  useFrame(({ camera }) => sync(camera));
+  useFrame(({ camera, scene }) => sync(camera, scene));
   return <primitive object={instanceRoot} />;
 }
 
