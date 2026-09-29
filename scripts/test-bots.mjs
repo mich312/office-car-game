@@ -224,6 +224,49 @@ for (const mapId of MAP_IDS) {
   check('sumo: a knocked-out car cannot fire an item', !sim.events.some((e) => e.type === 'swap'));
 }
 
+// ------------------------------------ Last Car Standing, with bots only
+// Bots used to kill themselves in bulk: the stuck-recovery hop dropped them
+// into locked rooms, and they cruised and fled straight at targets behind
+// walls or across closed rooms. The cellar (8 rooms, last closure at 111 s)
+// ended with no crown in a third of matches.
+for (const mapId of MAP_IDS) {
+  let crowned = 0, hops = 0, elims = 0, blunders = 0, ghostsOnFloor = 0;
+  const seeds = [1, 2, 3, 4];
+  for (const seed of seeds) {
+    const sim = await createSim({ seed, mode: 'last_standing', map: mapId });
+    const mode = sim.room.mode;
+    const lockedAt = {};
+    let nLocked = 0;
+    const prev = new Map();
+    const elim = mode.eliminate.bind(mode);
+    mode.eliminate = (p, cause) => {
+      const rm = sim.room.map.roomAt(p.p[0], p.p[2])?.id;
+      // zapped in a room that locked long enough ago that it drove in later
+      if (cause.includes('lingered') && !mode.finale && rm && sim.now() - (lockedAt[rm] || 0) > 2700) blunders++;
+      return elim(p, cause);
+    };
+    sim.run(240, (s) => {
+      if (mode.locked.length !== nLocked) { nLocked = mode.locked.length; lockedAt[mode.locked[nLocked - 1]] = s.now(); }
+      for (const b of s.bots) {
+        const q = prev.get(b.id);
+        if (q && !b.eliminated && Math.hypot(b.p[0] - q[0], b.p[2] - q[1]) > 4) {
+          const rm = s.room.map.roomAt(b.p[0], b.p[2])?.id;
+          if (rm && mode.locked.includes(rm)) hops++;
+        }
+        if (b.eliminated && b.p[1] > -10) ghostsOnFloor++;
+        prev.set(b.id, [b.p[0], b.p[2]]);
+      }
+    });
+    const feed = sim.events.filter((e) => e.t === 'feed').map((e) => e.text);
+    if (feed.some((t) => t.includes('LAST CAR STANDING'))) crowned++;
+    elims += feed.filter((t) => t.startsWith('💀')).length;
+  }
+  check(`${mapId} lcs: a stuck bot is never put down in a locked room (${hops})`, hops === 0);
+  check(`${mapId} lcs: bots don't drive into closed rooms to die (${blunders} of ${elims} eliminations)`, blunders <= elims * 0.25);
+  check(`${mapId} lcs: the match ends with a crown (${crowned}/${seeds.length})`, crowned >= seeds.length - 1);
+  check(`${mapId} lcs: eliminated bots leave the floor (no invisible cars where they died)`, ghostsOnFloor === 0);
+}
+
 // ------------------------------------------ every standup is reachable
 // Bots used to steer for the racing-line point nearest a goal in a straight
 // line, wall or no wall: the cellar's Boiler Room zone was reached by 0% of

@@ -33,7 +33,7 @@ export default function ModeObjects() {
       {active && modeId === 'koth' && <><Zone color="#ffd166" label="📍 STANDUP" standup /><NextZone color="#ffd166" /></>}
       {active && modeId === 'sumo' && <Zone color="#ff5c5c" label="🥋 RING" wall />}
       {active && modeId === 'tag' && <ItCrown />}
-      {active && modeId === 'last_standing' && <LockedRooms />}
+      {active && modeId === 'last_standing' && <><LockedRooms /><Zone color="#ff5f6b" label="⚡ LAST MEETING" wall /></>}
     </group>
   );
 }
@@ -228,9 +228,7 @@ function LockedRooms() {
               <boxGeometry args={[r.w, WALL_HEIGHT, r.d]} />
               <meshBasicMaterial color="#ff2f3d" transparent opacity={0.14} depthWrite={false} side={THREE.DoubleSide} />
             </mesh>
-            <group position={[0, 0, 0]}>
-              <TextSprite text="⛔ CLOSED" size={1.1} y={WALL_HEIGHT + 0.6} color="#ff5f6b" />
-            </group>
+            <ClosedLabel text="⛔ CLOSED" y={WALL_HEIGHT * LABEL_AT} color="#ff5f6b" />
           </group>
         );
       })}
@@ -240,11 +238,19 @@ function LockedRooms() {
             <boxGeometry args={[warnRoom.w, WALL_HEIGHT, warnRoom.d]} />
             <meshBasicMaterial color="#ffb020" transparent opacity={0.12} depthWrite={false} side={THREE.DoubleSide} />
           </mesh>
-          <TextSprite text="🚧 CLOSING" size={1.1} y={WALL_HEIGHT + 0.6} color="#ffcf6b" />
+          <ClosedLabel text="🚧 CLOSING" y={WALL_HEIGHT * LABEL_AT} color="#ffcf6b" />
         </group>
       )}
     </group>
   );
+}
+
+// The room labels hang under the ceiling (above it, where they used to be,
+// the ceiling slab hid them from every camera) and draw over the room's
+// furniture so a label is readable from the doorway.
+const LABEL_AT = 0.62; // of the wall height
+function ClosedLabel({ text, y, color }) {
+  return <TextSprite text={text} size={1.1} y={y} color={color} overlay />;
 }
 
 // ------------------------------------------------------------- race

@@ -8,6 +8,9 @@
 import { M } from '@rc/shared';
 
 const CAR_PAD = 0.35; // a car's half-width: bots keep this far off a wall
+// a node this close counts as reached: a bot at speed turns wider than a
+// car length, and aiming at a node it has just overshot makes it circle
+const NODE_REACHED = 3.5;
 
 // Wall AABBs (padded by a car's half-width) per map, built once.
 const boxCache = new WeakMap();
@@ -108,7 +111,8 @@ export function navOf(map) {
       const a = nodes[i], b = nodes[j];
       const d = Math.hypot(a.x - b.x, a.z - b.z);
       if (d > 30 * M || lineBlocked(boxes, a.x, a.z, b.x, b.z)) continue;
-      adj[i].push([j, d]); adj[j].push([i, d]);
+      const rooms = roomsAlong(map, a, b);
+      adj[i].push([j, d, rooms]); adj[j].push([i, d, rooms]);
     }
   }
   nav = { nodes, adj, boxes, fields: new Map() };
@@ -116,20 +120,38 @@ export function navOf(map) {
   return nav;
 }
 
+// Every room a straight leg passes through (sampled every half metre).
+function roomsAlong(map, a, b) {
+  const out = [];
+  const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / (0.5 * M)) + 1;
+  for (let k = 0; k <= n; k++) {
+    const id = map.roomAt(a.x + ((b.x - a.x) * k) / n, a.z + ((b.z - a.z) * k) / n)?.id;
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+const legWeight = (weight, rooms) => {
+  let w = 1;
+  for (const r of rooms) w = Math.max(w, weight(r));
+  return w;
+};
+
 // Distance from every node to the nearest source, over the graph. `sources`
 // are points; a node that sees a source starts at the straight-line
-// distance. `penalty(node)` makes a node dearer to pass through (Last Car
-// Standing's closed rooms) without forbidding it.
-export function navField(map, sources, penalty = null, key = null) {
+// distance. `weight(roomId)` (≥ 1) scales every leg through that room: Last
+// Car Standing makes a closed room's floor expensive (or impossible) to
+// drive across.
+export function navField(map, sources, weight = null, key = null) {
   const nav = navOf(map);
   if (key && nav.fields.has(key)) return nav.fields.get(key);
   const { nodes, adj, boxes } = nav;
   const dist = new Float64Array(nodes.length).fill(Infinity);
-  const cost = nodes.map((n) => (penalty ? penalty(n) : 0));
   for (let i = 0; i < nodes.length; i++) {
     for (const s of sources) {
-      const d = Math.hypot(nodes[i].x - s.x, nodes[i].z - s.z);
-      if (d + cost[i] < dist[i] && !lineBlocked(boxes, nodes[i].x, nodes[i].z, s.x, s.z)) dist[i] = d + cost[i];
+      let d = Math.hypot(nodes[i].x - s.x, nodes[i].z - s.z);
+      if (d >= dist[i] || lineBlocked(boxes, nodes[i].x, nodes[i].z, s.x, s.z)) continue;
+      if (weight) d *= legWeight(weight, roomsAlong(map, nodes[i], s));
+      if (d < dist[i]) dist[i] = d;
     }
   }
   // Dijkstra with a linear scan — a map has ~100 nodes
@@ -139,8 +161,8 @@ export function navField(map, sources, penalty = null, key = null) {
     for (let i = 0; i < nodes.length; i++) if (!done[i] && dist[i] < Infinity && (u < 0 || dist[i] < dist[u])) u = i;
     if (u < 0) break;
     done[u] = 1;
-    for (const [v, d] of adj[u]) {
-      const nd = dist[u] + d + cost[v];
+    for (const [v, d, rooms] of adj[u]) {
+      const nd = dist[u] + (weight ? d * legWeight(weight, rooms) : d);
       if (nd < dist[v]) dist[v] = nd;
     }
   }
@@ -152,22 +174,40 @@ export function navField(map, sources, penalty = null, key = null) {
 }
 
 // Where to steer from `from` to follow a field downhill: the visible node
-// with the least (distance to it + its field value). Nodes right under the
-// car are skipped so it moves on instead of circling the one it reached.
-export function navStep(map, from, field) {
-  const { nodes, boxes } = navOf(map);
+// with the least (distance to it + its field value). A best node that is
+// already under the car counts as reached: steer for its best visible
+// neighbour instead, so the car carries on through a doorway rather than
+// circling the node it just overshot.
+export function navStep(map, from, field, weight = null) {
+  const { nodes, adj, boxes } = navOf(map);
   const cand = [];
   for (let i = 0; i < nodes.length; i++) {
     if (field[i] === Infinity) continue;
     const d = Math.hypot(nodes[i].x - from.x, nodes[i].z - from.z);
-    if (d < 1.5) continue;
     cand.push([d + field[i], -d, i]);
   }
   cand.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  for (const [, , i] of cand) {
-    if (!lineBlocked(boxes, from.x, from.z, nodes[i].x, nodes[i].z)) return nodes[i];
+  const seen = (i) => !lineBlocked(boxes, from.x, from.z, nodes[i].x, nodes[i].z);
+  // the leg from the car, priced like any other (lazily: only for candidates
+  // good enough to be worth checking)
+  const leg = (i) => (weight ? legWeight(weight, roomsAlong(map, from, nodes[i])) : 1);
+  let best = null, bc = Infinity;
+  for (const [c0, negD, i] of cand) {
+    if (c0 >= bc) break; // the leg weight only ever raises the price
+    if (!seen(i)) continue;
+    const c = -negD * leg(i) + field[i];
+    if (c < bc || (c === bc && best && -negD > best[1])) { bc = c; best = [i, -negD]; }
   }
-  return null;
+  if (!best) return null;
+  const [i, d] = best;
+  if (d >= NODE_REACHED) return nodes[i];
+  let next = null, nb = Infinity;
+  for (const [j] of adj[i]) {
+    if (field[j] >= field[i] || !seen(j)) continue;
+    const c = Math.hypot(nodes[j].x - from.x, nodes[j].z - from.z) * leg(j) + field[j];
+    if (c < nb) { nb = c; next = nodes[j]; }
+  }
+  return next || nodes[i];
 }
 
 // One goal: straight at it when it's in sight, else along the graph.
@@ -176,4 +216,52 @@ export function navTo(map, from, goal) {
   if (!lineBlocked(boxes, from.x, from.z, goal.x, goal.z)) return goal;
   const key = `${Math.round(goal.x * 2)},${Math.round(goal.z * 2)}`;
   return navStep(map, from, navField(map, [goal], null, key)) || goal;
+}
+
+// Which rooms open into which: two rooms are neighbours when some stretch of
+// the boundary they share has no wall on it (a doorway, or open plan).
+const roomGraphCache = new WeakMap();
+export function roomGraph(map) {
+  let g = roomGraphCache.get(map);
+  if (g) return g;
+  const walls = map.WALLS.filter((w) => !w.low);
+  const walled = (x, z) => walls.some((w) => Math.abs(x - w.x) <= w.w / 2 + 0.05 && Math.abs(z - w.z) <= w.d / 2 + 0.05);
+  g = new Map(map.ROOMS.map((r) => [r.id, new Set()]));
+  const R = map.ROOMS;
+  for (let i = 0; i < R.length; i++) {
+    for (let j = i + 1; j < R.length; j++) {
+      const a = R[i], b = R[j];
+      const ax0 = a.x - a.w / 2, ax1 = a.x + a.w / 2, az0 = a.z - a.d / 2, az1 = a.z + a.d / 2;
+      const bx0 = b.x - b.w / 2, bx1 = b.x + b.w / 2, bz0 = b.z - b.d / 2, bz1 = b.z + b.d / 2;
+      const samples = [];
+      const eps = 0.2;
+      // a shared vertical edge (x) or horizontal edge (z)
+      for (const [x, lo, hi] of [[ax1, Math.max(az0, bz0), Math.min(az1, bz1)], [ax0, Math.max(az0, bz0), Math.min(az1, bz1)]]) {
+        if ((Math.abs(x - bx0) < eps || Math.abs(x - bx1) < eps) && hi - lo > 0.4 * M) {
+          for (let z = lo + 0.3 * M; z < hi - 0.3 * M; z += 0.25 * M) samples.push([x, z]);
+        }
+      }
+      for (const [z, lo, hi] of [[az1, Math.max(ax0, bx0), Math.min(ax1, bx1)], [az0, Math.max(ax0, bx0), Math.min(ax1, bx1)]]) {
+        if ((Math.abs(z - bz0) < eps || Math.abs(z - bz1) < eps) && hi - lo > 0.4 * M) {
+          for (let x = lo + 0.3 * M; x < hi - 0.3 * M; x += 0.25 * M) samples.push([x, z]);
+        }
+      }
+      if (samples.some(([x, z]) => !walled(x, z))) { g.get(a.id).add(b.id); g.get(b.id).add(a.id); }
+    }
+  }
+  roomGraphCache.set(map, g);
+  return g;
+}
+
+// Are these rooms all reachable from each other without leaving the set?
+export function roomsConnected(map, ids) {
+  if (ids.length <= 1) return true;
+  const g = roomGraph(map);
+  const want = new Set(ids);
+  const seen = new Set([ids[0]]);
+  const q = [ids[0]];
+  while (q.length) {
+    for (const n of g.get(q.shift()) || []) if (want.has(n) && !seen.has(n)) { seen.add(n); q.push(n); }
+  }
+  return seen.size === want.size;
 }

@@ -883,12 +883,13 @@ export class Room {
   updateEvents(t, dt) {
     if (this.event && t > this.event.until) {
       this.event = null;
-      this.robot = null;
+      if (!this.robot?.mode) this.robot = null; // Last Car Standing's robot is the mode's
     }
     // Events are telegraphed: a warning fires 3 s ahead so chaos is something
     // you play around, not something that just happens to you.
     if (!this.event && !this.pendingEvent && t >= this.nextEventAt - 3000) {
-      const pool = OFFICE_EVENTS.filter((e) => e.id !== this.lastEventId);
+      // Last Car Standing brings its own robot (modes.js) — no event robot
+      const pool = OFFICE_EVENTS.filter((e) => e.id !== this.lastEventId && !(e.id === 'cleaning_robot' && this.modeId === 'last_standing'));
       // a map can rename an event for its floor (map.EVENTS): the factory's
       // server overload is a line stop, its cleaning robot an AGV
       const base = pool[Math.floor(Math.random() * pool.length)];
@@ -907,7 +908,7 @@ export class Room {
       if (ev.id === 'cleaning_robot') this.robot = { x: this.map.ROBOT_PATH[0].x, z: this.map.ROBOT_PATH[0].z, wp: 1 };
       this.broadcast({ t: MSG.OFFICE_EVENT, id: ev.id, duration: ev.duration, name: ev.name, icon: ev.icon, desc: ev.desc });
     }
-    if (this.robot) {
+    if (this.robot && !this.robot.mode) {
       const wp = this.map.ROBOT_PATH[this.robot.wp % this.map.ROBOT_PATH.length];
       const dx = wp.x - this.robot.x, dz = wp.z - this.robot.z;
       const len = Math.hypot(dx, dz);

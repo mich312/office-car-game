@@ -6,7 +6,7 @@ import {
   GRAVITY, M, LCS, COUNTDOWN_SECONDS, isDecor,
   raceCheckpoints, raceLaps, sumoTarget, sumoCenter, kothHopSeconds,
 } from '@rc/shared';
-import { sightBlocked } from './nav.js';
+import { sightBlocked, navOf, navTo, roomsConnected } from './nav.js';
 
 const now = () => Date.now();
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -51,6 +51,7 @@ class FreeRoamMode {
 }
 
 // ------------------------------------------------------ Last Car Standing
+const GHOST_Y = -40; // where an eliminated car is parked (below the floor, out of play)
 // Facilities closes the office room by room (telegraphed like office
 // events). Linger in a locked room and you're zapped; fall off the balcony
 // and you're gone. One refuge room always survives for the final showdown.
@@ -58,7 +59,10 @@ class FreeRoamMode {
 class LastStandingMode {
   constructor(room) {
     this.room = room;
-    // Shuffled closure order — the final entry is the refuge, never locked.
+    // Shuffled closure order. Each closure takes the first room in it whose
+    // loss still leaves the open rooms connected, so a hub (the cellar's
+    // corridor) closes late instead of cutting the floor in half at 15 s.
+    // The last room left is the refuge, never locked.
     this.order = this.room.map.ROOMS.map((r) => r.id);
     for (let i = this.order.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -67,21 +71,43 @@ class LastStandingMode {
     this.locked = [];
     this.warn = null; // { room, until }
     this.nextLockAt = now() + (COUNTDOWN_SECONDS + LCS.FIRST_LOCK_S) * 1000;
+    this.interval = 0; // paced to the match on the first playing tick
+    this.finale = null; // { room, x, z, r0, r, start } — the zap ring in the refuge
+    this.robot = null;
     this.outCount = 0;
     this.over = false;
     for (const p of room.players.values()) { p.eliminated = false; p.zapT = 0; }
   }
   alive() { return [...this.room.players.values()].filter((p) => !p.eliminated); }
+  closures() { return this.room.map.ROOMS.length - 1; }
+  nextRoom() {
+    const open = this.room.map.ROOMS.map((r) => r.id).filter((id) => !this.locked.includes(id));
+    const k = this.order.findIndex((id) => roomsConnected(this.room.map, open.filter((o) => o !== id)));
+    return this.order.splice(Math.max(0, k), 1)[0];
+  }
+  // A car that is somewhere it will be zapped: a locked room, or — in the
+  // finale — outside the ring.
+  zapZone(p) {
+    if (this.finale) {
+      return Math.hypot(p.p[0] - this.finale.x, p.p[2] - this.finale.z) > this.finale.r ? 'the final meeting' : null;
+    }
+    const rm = this.room.map.roomAt(p.p[0], p.p[2]);
+    return rm && this.locked.includes(rm.id) ? `the ${rm.name}` : null;
+  }
   update(dt) {
     // crowned: the wind-down is a victory lap — no more closures, no more
     // survival points for anyone
     if (this.over) return;
     const t = now();
+    if (!this.interval) {
+      const left = (this.room.endsAt - t) / 1000 - LCS.FIRST_LOCK_S - LCS.FINALE_S;
+      this.interval = Math.min(LCS.LOCK_INTERVAL_MAX_S, Math.max(LCS.LOCK_INTERVAL_MIN_S, left / Math.max(1, this.closures() - 1)));
+    }
     const alive = this.alive();
     for (const p of alive) p.score += LCS.SURVIVAL_SCORE_PER_S * dt;
     // telegraph the next closure…
-    if (!this.warn && this.locked.length < this.room.map.ROOMS.length - 1 && t >= this.nextLockAt - LCS.WARN_S * 1000) {
-      const roomId = this.order.shift();
+    if (!this.warn && this.locked.length < this.closures() && t >= this.nextLockAt - LCS.WARN_S * 1000) {
+      const roomId = this.nextRoom();
       this.warn = { room: roomId, until: this.nextLockAt };
       const r = this.room.map.ROOMS.find((rm) => rm.id === roomId);
       this.room.feed(`🚧 Facilities is closing the ${r?.name ?? roomId} — clear out!`);
@@ -90,17 +116,102 @@ class LastStandingMode {
     if (this.warn && t >= this.warn.until) {
       this.locked.push(this.warn.room);
       this.warn = null;
-      this.nextLockAt = t + LCS.LOCK_INTERVAL_S * 1000;
+      this.nextLockAt = t + this.interval * 1000;
+      if (this.locked.length >= this.closures()) this.startFinale(t);
+      else if (!this.robot && this.locked.length >= Math.ceil(this.closures() * LCS.ROBOT_AFTER)) this.deployRobot();
     }
+    if (this.finale) {
+      const F = this.finale;
+      const k = Math.min(1, (t - F.start) / (LCS.FINALE_S * 800)); // closed with a fifth of the finale to spare
+      F.r = F.r0 + (LCS.FINALE_R1_M * M - F.r0) * k;
+    }
+    if (this.robot) this.moveRobot(dt, t);
     // zap loiterers (short grace so a near-miss is escapable)
     for (const p of alive) {
-      const rm = this.room.map.roomAt(p.p[0], p.p[2]);
-      if (rm && this.locked.includes(rm.id)) {
+      const where = this.zapZone(p);
+      if (where) {
         p.zapT = (p.zapT || 0) + dt;
-        if (p.zapT > LCS.ZAP_GRACE_S) this.eliminate(p, `lingered in the ${rm.name}`);
+        if (p.zapT > LCS.ZAP_GRACE_S) this.eliminate(p, `lingered in ${where}`);
       } else {
         p.zapT = 0;
       }
+    }
+  }
+  // The finale: only the refuge is left and nothing else can eliminate a car
+  // in it, so a zap ring closes in on its clearest spot.
+  startFinale(t) {
+    const map = this.room.map;
+    const rm = map.ROOMS.find((r) => !this.locked.includes(r.id));
+    if (!rm) return;
+    const solid = [...map.WALLS.filter((w) => !w.low), ...map.FURNITURE.filter((f) => !isDecor(f))];
+    let best = { x: rm.x, z: rm.z }, bs = -Infinity;
+    for (let x = rm.x - rm.w / 2 + M; x <= rm.x + rm.w / 2 - M; x += 0.5 * M) {
+      for (let z = rm.z - rm.d / 2 + M; z <= rm.z + rm.d / 2 - M; z += 0.5 * M) {
+        let clear = Infinity;
+        for (const b of solid) {
+          const q = Math.abs(Math.sin(b.rotY || 0)) > 0.7;
+          const w = q ? b.d : b.w, d = q ? b.w : b.d;
+          const dx = Math.max(0, Math.abs(x - b.x) - w / 2), dz = Math.max(0, Math.abs(z - b.z) - d / 2);
+          clear = Math.min(clear, Math.hypot(dx, dz));
+        }
+        const sc = Math.min(clear, 2 * M) - 0.1 * Math.hypot(x - rm.x, z - rm.z);
+        if (sc > bs) { bs = sc; best = { x, z }; }
+      }
+    }
+    const r0 = Math.max(...[[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sz]) =>
+      Math.hypot(rm.x + (sx * rm.w) / 2 - best.x, rm.z + (sz * rm.d) / 2 - best.z))) + 0.5 * M;
+    this.finale = { room: rm.id, x: best.x, z: best.z, r0, r: r0, start: t };
+    this.room.feed(`⚡ The ${rm.name} is the last room open — and the zap ring is closing in!`);
+  }
+  // The robot: a real hazard here, not a 1-in-6 office event. It patrols
+  // the rooms that are still open, door to door, and zaps what it touches.
+  deployRobot() {
+    const map = this.room.map;
+    const { nodes } = navOf(map);
+    const good = nodes.filter((n) => n.room && !this.locked.includes(n.room) && this.warn?.room !== n.room);
+    if (!good.length) return;
+    // enter where nobody is
+    let start = good[0], bd = -1;
+    for (const n of good) {
+      const d = Math.min(...this.alive().map((p) => Math.hypot(p.p[0] - n.x, p.p[2] - n.z)), 1e9);
+      if (d > bd) { bd = d; start = n; }
+    }
+    this.robot = { x: start.x, z: start.z, mode: true, goal: null };
+    this.room.robot = this.robot;
+    this.room.feed('🤖 Facilities sent in the cleaning robot. Do not get eaten.');
+  }
+  moveRobot(dt, t) {
+    const map = this.room.map;
+    const R = this.robot;
+    this.room.robot = R;
+    const openRoom = (id) => id && !this.locked.includes(id) && this.warn?.room !== id;
+    if (!R.goal || Math.hypot(R.goal.x - R.x, R.goal.z - R.z) < 1.5 || !openRoom(map.roomAt(R.goal.x, R.goal.z)?.id)) {
+      const pool = this.finale
+        ? [{ x: this.finale.x, z: this.finale.z }]
+        : navOf(map).nodes.filter((n) => openRoom(n.room));
+      R.goal = pool[Math.floor(Math.random() * pool.length)] || { x: R.x, z: R.z };
+      if (this.finale) { const a = Math.random() * Math.PI * 2; R.goal = { x: R.goal.x + Math.cos(a) * this.finale.r * 0.6, z: R.goal.z + Math.sin(a) * this.finale.r * 0.6 }; }
+    }
+    if (R.digestUntil > t) return; // it stops to chew — the pack gets a moment to scatter
+    const step = navTo(map, R, R.goal);
+    const dx = step.x - R.x, dz = step.z - R.z;
+    const len = Math.hypot(dx, dz);
+    const sp = LCS.ROBOT_SPEED_MS * M * dt;
+    if (len > 1e-6) { R.x += (dx / len) * Math.min(sp, len); R.z += (dz / len) * Math.min(sp, len); }
+    for (const p of this.alive()) {
+      if (Math.hypot(p.p[0] - R.x, p.p[2] - R.z) >= LCS.ROBOT_REACH_M * M) continue;
+      if (p.spawnProtectUntil > t) continue;
+      if (p.shieldUntil > t) {
+        p.shieldUntil = 0;
+        p.stunUntil = t + 1500;
+        this.room.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: p.id });
+        continue;
+      }
+      if (p.stunUntil > t) continue; // it just bounced off a shield
+      this.room.broadcast({ t: MSG.EFFECT, type: 'robot_hit', target: p.id, at: [r2(R.x), 0, r2(R.z)] });
+      this.eliminate(p, 'the cleaning robot got them');
+      R.digestUntil = t + LCS.ROBOT_DIGEST_S * 1000;
+      break; // one car per bite
     }
   }
   eliminate(p, cause) {
@@ -114,6 +225,9 @@ class LastStandingMode {
     const left = this.alive();
     this.room.broadcast({ t: MSG.EFFECT, type: 'eliminated', id: p.id, at: p.p.map(r2), left: left.length });
     this.room.feed(`💀 ${p.name} is out — ${cause}! ${left.length} car${left.length === 1 ? '' : 's'} left`);
+    // a ghost is nowhere: a bot's body would otherwise stay where it died, an
+    // invisible solid car in a doorway (a human's client parks itself)
+    if (p.bot) { p.p = [0, GHOST_Y, 0]; p.v = [0, 0, 0]; }
     this.room.scoreChanged();
     if (this.room.players.size > 1) this.checkLastStanding();
   }
@@ -154,7 +268,9 @@ class LastStandingMode {
     return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
   }
   snapshot() {
-    return { lcs: { locked: this.locked, warn: this.warn, alive: this.alive().length } };
+    const snap = { lcs: { locked: this.locked, warn: this.warn, alive: this.alive().length } };
+    if (this.finale) snap.zone = { x: this.finale.x, z: this.finale.z, r: this.finale.r };
+    return snap;
   }
 }
 

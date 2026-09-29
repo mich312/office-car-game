@@ -308,7 +308,10 @@ function MatchHUD() {
   const warnRoom = lcs?.warn ? map.ROOMS.find((r) => r.id === lcs.warn.room) : null;
   const warnLeft = lcs?.warn ? Math.max(0, Math.ceil((lcs.warn.until - Date.now()) / 1000)) : 0;
   const myRoom = !spectating ? map.roomAt(telemetry.x, telemetry.z) : null;
-  const inLockedRoom = !!(modeId === 'last_standing' && myRoom && lcs?.locked?.includes(myRoom.id));
+  // the finale's ring: outside it is as deadly as a closed room
+  const finale = modeId === 'last_standing' ? net.zone : null;
+  const outsideRing = !!(finale && !spectating && Math.hypot(telemetry.x - finale.x, telemetry.z - finale.z) > finale.r);
+  const inLockedRoom = !!(modeId === 'last_standing' && ((myRoom && lcs?.locked?.includes(myRoom.id)) || outsideRing));
 
   return (
     <>
@@ -353,7 +356,7 @@ function MatchHUD() {
           )}
           {modeId === 'last_standing' && (
             <div className="chip"><Icon name="crown" size={15} />
-              {lcs?.alive ?? '…'} cars left{warnRoom ? ` · ${warnRoom.name} closes in ${warnLeft}s` : ''}
+              {lcs?.alive ?? '…'} cars left{warnRoom ? ` · ${warnRoom.name} closes in ${warnLeft}s` : finale ? ' · the last meeting — stay in the ring' : ''}
             </div>
           )}
           {modeId === 'free_roam' && (
@@ -370,7 +373,7 @@ function MatchHUD() {
       {inLockedRoom && (
         <div className="toast toast-bad zap-toast">
           <span className="toast-icon"><Icon name="warning" /></span>
-          <div><b>ROOM CLOSED — GET OUT!</b></div>
+          <div><b>{outsideRing ? 'OUTSIDE THE RING — GET IN!' : 'ROOM CLOSED — GET OUT!'}</b></div>
         </div>
       )}
       {spectating && (
@@ -590,6 +593,7 @@ function Minimap() {
         const buf = net.remotes.get(id);
         const s = buf?.[buf.length - 1];
         if (!s) continue;
+        if (((s.f || 0) & 128) && st.modeId === 'last_standing') continue; // ghosts are off the map
         const p = st.players[id];
         g.globalAlpha = p?.bot ? 0.55 : 1;
         g.fillStyle = p?.paint || '#9aa7c0';

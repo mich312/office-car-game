@@ -4,9 +4,10 @@
 import {
   CHECKPOINTS, MODES, LCS, M, KOTH_SPOTS, KOTH_RADIUS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
   raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
-  MAP_IDS, sumoTarget, SUMO_TARGET_MIN_DIST,
+  MAP_IDS, sumoTarget, SUMO_TARGET_MIN_DIST, isDecor,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
+import { roomsConnected } from '../server/src/nav.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -296,6 +297,57 @@ check('moving meeting: never the ring\'s own centre, never last round\'s room', 
   mode.update(1);
   check('lcs: no closures after the crown', !feed.some((t) => t.includes('Facilities')) && !mode.warn);
   check('lcs: no survival points in the victory lap', b.score === scored);
+}
+
+// ---------------------------------------------------- Last Car Standing
+for (const mapId of MAP_IDS) {
+  const map = MAPS[mapId];
+  const cars = ['A', 'B', 'C'].map((n, i) => player(`p${i}`, n));
+  const room = stubRoom(cars);
+  room.map = map;
+  room.modeId = 'last_standing';
+  room.endsAt = Date.now() + 210000;
+  const mode = createMode('last_standing', room);
+  mode.update(0.05);
+  // Closures leave the open rooms connected — a hub (the cellar corridor)
+  // is closed late instead of cutting the floor in half at 15 s.
+  let split = 0;
+  for (let k = 0; k < map.ROOMS.length - 1; k++) {
+    mode.locked.push(mode.nextRoom());
+    if (!roomsConnected(map, map.ROOMS.map((r) => r.id).filter((id) => !mode.locked.includes(id)))) split++;
+  }
+  check(`${mapId} lcs: closing rooms never cuts the open floor in two (${split} splits)`, split === 0);
+  // paced to the map: the last closure leaves the finale before the whistle
+  const lastClosure = LCS.FIRST_LOCK_S + mode.interval * (map.ROOMS.length - 2);
+  check(`${mapId} lcs: closures are paced to the map (every ${mode.interval.toFixed(1)} s, last at ${lastClosure.toFixed(0)} s of 210)`,
+    lastClosure <= 210 - LCS.FINALE_S + 1 && lastClosure >= 210 - LCS.FINALE_S - 30);
+  // the finale: a zap ring closes in the refuge, on clear floor
+  mode.startFinale(Date.now());
+  const F = mode.finale;
+  const solidAt = (x, z) => [...map.WALLS.filter((w) => !w.low), ...map.FURNITURE.filter((f) => !isDecor(f))]
+    .some((b) => Math.abs(x - b.x) < b.w / 2 && Math.abs(z - b.z) < b.d / 2);
+  check(`${mapId} lcs: the finale ring sits on clear floor in the refuge`, !!F && !solidAt(F.x, F.z) && map.roomAt(F.x, F.z)?.id === F.room);
+  check(`${mapId} lcs: the finale ring is in the snapshot`, !!mode.snapshot().zone);
+  const [a, b, c] = cars;
+  a.p = [F.x, 0, F.z]; b.p = [F.x + 0.5, 0, F.z]; c.p = [F.x + F.r0 + 20, 0, F.z];
+  F.start = Date.now() - LCS.FINALE_S * 1000;
+  for (let i = 0; i < 70; i++) mode.update(0.05);
+  check(`${mapId} lcs: outside the finale ring you are zapped`, c.eliminated && !a.eliminated && !b.eliminated);
+}
+{
+  // the robot: deployed partway through, it eliminates what it touches
+  const cars = ['A', 'B', 'C'].map((n, i) => player(`p${i}`, n));
+  const room = stubRoom(cars);
+  room.modeId = 'last_standing';
+  const mode = createMode('last_standing', room);
+  mode.deployRobot();
+  check('lcs: the robot joins and is in the room snapshot', !!mode.robot && room.robot === mode.robot);
+  const [a] = cars;
+  a.p = [mode.robot.x, 0, mode.robot.z];
+  cars[1].p = [mode.robot.x + 50, 0, mode.robot.z];
+  cars[2].p = [mode.robot.x - 50, 0, mode.robot.z];
+  mode.moveRobot(0.05, Date.now());
+  check('lcs: the robot eliminates the car it touches', a.eliminated);
 }
 
 // ----------------------------------------------------------- variants

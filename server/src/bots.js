@@ -8,7 +8,7 @@ import {
   DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
-import { wallBoxesOf, lineBlocked, navTo } from './nav.js';
+import { wallBoxesOf, lineBlocked, navTo, navOf, navField, navStep, roomGraph } from './nav.js';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -22,6 +22,8 @@ const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
 const SUMO_HUNT_RANGE = 10; // a sumo bot goes after rivals this close (units)
+const LCS_CLOSED_COST = 6; // route cost of a closed room's floor, per unit of open floor
+const LCS_ROBOT_FEAR = 12; // bots bolt from the robot inside this range (units)
 const NAV_MODES = new Set(['koth', 'sumo', 'last_standing']); // goals routed over the door graph (nav.js)
 
 function nearestWp(x, z, path) {
@@ -120,9 +122,9 @@ export class Bots {
   separate() {
     const all = [...this.room.players.values()];
     for (const b of all) {
-      if (!b.bot) continue;
+      if (!b.bot || b.eliminated) continue;
       for (const o of all) {
-        if (o === b) continue;
+        if (o === b || o.eliminated) continue; // ghosts take up no space
         const dx = b.p[0] - o.p[0], dz = b.p[2] - o.p[2];
         const d = Math.hypot(dx, dz);
         const minD = 1.05;
@@ -184,26 +186,7 @@ export class Bots {
       if (b.carrier === p.id) goal = null; // run the lap while holding it
       else goal = { x: b.x, z: b.z };
     } else if (modeId === 'last_standing' && mode) {
-      const bad = (id) => mode.locked.includes(id) || mode.warn?.room === id;
-      const myRoom = this.room.map.roomAt(p.p[0], p.p[2]);
-      if (myRoom && bad(myRoom.id)) {
-        // flee to the nearest room that's still open
-        let best = null, bd = Infinity;
-        for (const r of this.room.map.ROOMS) {
-          if (bad(r.id)) continue;
-          const d = Math.hypot(r.x - p.p[0], r.z - p.p[2]);
-          if (d < bd) { bd = d; best = r; }
-        }
-        if (best) goal = { x: best.x, z: best.z };
-      } else {
-        // cruise the racing line, skipping waypoints inside closed rooms
-        for (let k = 0; k < PATH.length; k++) {
-          const wp = PATH[p.wp % PATH.length];
-          const rm = this.room.map.roomAt(wp.x, wp.z);
-          if (!rm || !bad(rm.id)) break;
-          p.wp = (p.wp + 1) % PATH.length;
-        }
-      }
+      goal = this.lcsGoal(p, mode);
     } else if (modeId === 'soccer' && mode) {
       const ball = mode.ball;
       // Aim slightly behind the ball relative to the opposing goal
@@ -311,13 +294,118 @@ export class Bots {
     const t = now();
     const me = { x: p.p[0], z: p.p[2], heading: p.heading };
     let best = null, bd = Infinity;
+    const lcs = this.room.modeId === 'last_standing' ? this.room.mode : null;
     for (const pad of this.room.pads) {
       if (t < pad.readyAt) continue;
+      // no item is worth a detour into a room that is closed or closing
+      if (lcs) {
+        const id = this.room.map.roomAt(pad.x, pad.z)?.id;
+        if (id && (lcs.locked.includes(id) || lcs.warn?.room === id)) continue;
+      }
       if (!padWorthDetour(me, pad, goal)) continue;
       const d = Math.hypot(pad.x - me.x, pad.z - me.z);
       if (d < bd && !lineBlocked(wallBoxesOf(this.room.map), me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
     }
     return best;
+  }
+
+  // Last Car Standing: dodge the robot, get out of any room that is closed
+  // or closing (and into the ring in the finale) along the door graph, and
+  // otherwise cruise the racing line through the open rooms only — a closed
+  // room costs so much to cross that the route goes round it when it can.
+  lcsGoal(p, mode) {
+    const map = this.room.map;
+    const bad = (id) => !!id && (mode.locked.includes(id) || mode.warn?.room === id);
+    const me = { x: p.p[0], z: p.p[2] };
+    const key = `lcs:${mode.locked.join(',')}:${mode.warn?.room || ''}`;
+    // a metre of closed floor costs this many metres of open floor
+    const R = mode.robot;
+    if (R && Math.hypot(R.x - me.x, R.z - me.z) < LCS_ROBOT_FEAR) {
+      // the open, visible node that puts the most floor between us and it
+      let best = null, bs = -Infinity;
+      for (const n of navOf(map).nodes) {
+        const d = Math.hypot(n.x - me.x, n.z - me.z);
+        if (d > 14 || d < 2 || bad(n.room) || lineBlocked(wallBoxesOf(map), me.x, me.z, n.x, n.z)) continue;
+        // not across a closed room — out of the robot's way and into a zap
+        let crosses = false;
+        for (let k = 1; k < 8 && !crosses; k++) crosses = bad(map.roomAt(me.x + ((n.x - me.x) * k) / 8, me.z + ((n.z - me.z) * k) / 8)?.id);
+        if (crosses) continue;
+        const s = Math.hypot(n.x - R.x, n.z - R.z) - 0.4 * d;
+        if (s > bs) { bs = s; best = n; }
+      }
+      if (best) return best;
+    }
+    const F = mode.finale;
+    if (F) {
+      if (Math.hypot(me.x - F.x, me.z - F.z) < F.r * 0.6) {
+        const a = this.botAngle(p);
+        return { x: F.x + Math.cos(a) * F.r * 0.3, z: F.z + Math.sin(a) * F.r * 0.3 };
+      }
+      return { x: F.x, z: F.z };
+    }
+    const here = map.roomAt(me.x, me.z)?.id;
+    if (bad(here)) {
+      // flee downhill on a field whose sources are the rooms we can live in.
+      // In a LOCKED room the zap is seconds away: the nearest way out to any
+      // unlocked room will do, even one that is only closing (it still has
+      // its warning). In a closing room: out to an open one, not through a
+      // locked one.
+      const locked = mode.locked.includes(here);
+      const safe = (n) => n.room && (locked ? !mode.locked.includes(n.room) : !bad(n.room));
+      const w = locked ? null : (id) => (mode.locked.includes(id) ? LCS_CLOSED_COST : 1);
+      const good = navOf(map).nodes.filter(safe);
+      return navStep(map, me, navField(map, good, w, `${key}:flee${locked ? 'L' : 'W'}`), w) || good[0] || null;
+    }
+    // cruise: the next racing-line waypoint in an open room we can reach
+    // without crossing a closed one — an open room on the far side of a
+    // locked one is as good as closed
+    const reach = new Set([here]);
+    const q = [here];
+    const g = roomGraph(map);
+    while (q.length) for (const n of g.get(q.shift()) || []) if (!reach.has(n) && !bad(n)) { reach.add(n); q.push(n); }
+    const ok = (pt) => { const id = map.roomAt(pt.x, pt.z)?.id; return !id || reach.has(id); };
+    const PATH = this.path();
+    let wp = this.followRaceLine(p);
+    let k = 0;
+    for (; k < PATH.length && !ok(wp); k++) {
+      p.wp = (p.wp + 1) % PATH.length;
+      wp = PATH[p.wp];
+    }
+    if (k >= PATH.length) {
+      // no stretch of the racing line left in our part of the floor: roam it
+      if (!p.roam || !ok(p.roam) || Math.hypot(p.roam.x - me.x, p.roam.z - me.z) < 4) {
+        const pool = navOf(map).nodes.filter(ok);
+        p.roam = pool[Math.floor(Math.random() * pool.length)] || me;
+      }
+      wp = p.roam;
+    }
+    // Routed only through rooms we can live in (it's in reach, so there is
+    // a way), even when the waypoint is in sight: the straight line to it
+    // may cut across a closed room.
+    const open = (id) => (reach.has(id) ? 1 : Infinity);
+    return navStep(map, me, navField(map, [wp], open, `${key}:${here}:${Math.round(wp.x)},${Math.round(wp.z)}`), open) || wp;
+  }
+
+  // Where a stuck bot may be put back down: the nearest racing-line point
+  // (or door node) that isn't somewhere the mode would kill it.
+  recoveryPoint(p) {
+    const PATH = this.path();
+    const mode = this.room.mode;
+    let ok = () => true;
+    if (this.room.modeId === 'last_standing' && mode) {
+      ok = (pt) => {
+        if (mode.finale) return Math.hypot(pt.x - mode.finale.x, pt.z - mode.finale.z) < mode.finale.r * 0.8;
+        const id = this.room.map.roomAt(pt.x, pt.z)?.id;
+        return !id || !(mode.locked.includes(id) || mode.warn?.room === id);
+      };
+    }
+    let best = null, bd = Infinity;
+    for (const pt of [...PATH, ...navOf(this.room.map).nodes]) {
+      if (!ok(pt)) continue;
+      const d = Math.hypot(pt.x - p.p[0], pt.z - p.p[2]);
+      if (d < bd) { bd = d; best = pt; }
+    }
+    return best || PATH[nearestWp(p.p[0], p.p[2], PATH)];
   }
 
   // Sumo is a shoving match: stay well inside the ring, and when a rival is
@@ -450,9 +538,10 @@ export class Bots {
     const moved = Math.hypot(px - p.p[0], pz - p.p[2]);
     if (moved < p.speed * dt * 0.3 && p.speed > 5) p.stuckT += dt; else p.stuckT = Math.max(0, p.stuckT - dt);
     if (p.stuckT > 2.5) {
-      // recover: hop to the nearest racing-line waypoint
+      // recover: hop to the nearest racing-line waypoint (one the mode won't
+      // zap it on — Last Car Standing's closed rooms)
       const PATH = this.path();
-      const wp = PATH[nearestWp(p.p[0], p.p[2], PATH)];
+      const wp = this.recoveryPoint(p);
       px = wp.x; pz = wp.z; p.stuckT = 0; p.speed = 0;
       p.wp = nearestWp(px, pz, PATH);
     }

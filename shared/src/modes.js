@@ -99,7 +99,20 @@ export const MODES = {
 // escapable. One refuge room always survives for the final showdown.
 export const LCS = {
   FIRST_LOCK_S: 15, // breathing room after GO before the first closure
-  LOCK_INTERVAL_S: 16,
+  // Closures are paced to the map: every room but the refuge is closed by
+  // FINALE_S before the whistle (a 13-room office every ~14 s, an 8-room
+  // cellar every ~26 s), clamped to this range.
+  LOCK_INTERVAL_MIN_S: 8,
+  LOCK_INTERVAL_MAX_S: 30,
+  // Finale: once only the refuge is open, a zap ring closes inside it
+  FINALE_S: 40,
+  FINALE_R1_M: 0.8, // final ring radius, metres
+  // The cleaning robot joins once a third of the rooms are closed, patrols
+  // the open ones and zaps what it touches
+  ROBOT_AFTER: 1 / 3,
+  ROBOT_SPEED_MS: 1.4, // metres per second — a car outruns it, a parked one doesn't
+  ROBOT_REACH_M: 0.5,
+  ROBOT_DIGEST_S: 3, // it stops this long after each zap
   WARN_S: 5, // "closing in 5…" telegraph, mirrors office-event warnings
   ZAP_GRACE_S: 2.5, // seconds inside a locked room before elimination
   SURVIVAL_SCORE_PER_S: 1.5,

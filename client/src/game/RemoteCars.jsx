@@ -55,7 +55,10 @@ const RemoteCar = memo(function RemoteCar({ player }) {
   useFrame((state, dt) => {
     const s = sampleRemote(player.id);
     if (!s || !rb.current) return;
-    rb.current.setNextKinematicTranslation({ x: s.p[0], y: s.p[1], z: s.p[2] });
+    // a Last Car Standing ghost is out of the world, collider and all — its
+    // interpolated body must not linger as an invisible car where it died
+    const ghost = ((s.f || 0) & 128) && useStore.getState().modeId === 'last_standing';
+    rb.current.setNextKinematicTranslation(ghost ? { x: 0, y: -50, z: 0 } : { x: s.p[0], y: s.p[1], z: s.p[2] });
     rb.current.setNextKinematicRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] });
     flagsRef.current = s.f || 0;
     if (last.current && dt > 0) {
