@@ -52,6 +52,10 @@ export class Bots {
   constructor(room) {
     this.room = room;
     this.n = 0;
+    // RC_BOT_ITEMS=off keeps items out of bots' hands. For scripted tests of
+    // mode plumbing: a bot's Position Swap teleports a scripted client that
+    // never reports again, and the check it was running fails at random.
+    this.items = process.env.RC_BOT_ITEMS !== 'off';
   }
 
   fillTo(count) {
@@ -310,7 +314,7 @@ export class Bots {
 
   // A ready pad worth the detour, if the bot's hands are empty.
   padTarget(p, goal) {
-    if (p.powerup || p.hasBattery) return null;
+    if (!this.items || p.powerup || p.hasBattery) return null;
     const t = now();
     const me = { x: p.p[0], z: p.p[2], heading: p.heading };
     let best = null, bd = Infinity;

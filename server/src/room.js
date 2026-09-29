@@ -503,7 +503,7 @@ export class Room {
     for (const pad of this.pads) {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
-        if (p.eliminated || p.powerup || p.bot && Math.random() < 0.5) continue;
+        if (p.eliminated || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < PICKUP_RADIUS) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
@@ -795,7 +795,7 @@ export class Room {
         if (Math.hypot(p.p[0] - VENDING.x, p.p[2] - VENDING.z) > VENDING.radius) continue;
         this.vendReadyAt = t + VENDING.cooldownS * 1000;
         const golden = Math.random() < VENDING.goldenChance;
-        if (golden && !p.powerup) {
+        if (golden && !p.powerup && (!p.bot || this.bots.items)) {
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup });
           else p.itemAt = t; // bots decide when (botbrain.js)
