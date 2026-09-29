@@ -84,6 +84,31 @@ const N = CHECKPOINTS.length;
   })());
 }
 
+{
+  // Every place pays a different bonus: with 6th onward all on +100, a
+  // 12-car race tied them and the podium ordered them by join order.
+  const cars = Array.from({ length: 12 }, (_, i) => player(`p${i + 1}`, `P${i + 1}`));
+  const mode = createMode('desk_dash', stubRoom(cars));
+  // finish in reverse join order, so a stable sort by join order is wrong
+  for (const c of [...cars].reverse()) driveCheckpoints(mode, c, N * LAPS);
+  const byScore = [...cars].sort((x, y) => y.score - x.score).map((c) => c.id);
+  check('race: twelve finishers get twelve different scores', new Set(cars.map((c) => c.score)).size === 12);
+  check('race: score order is finishing order all the way down', byScore.join() === mode.finished.join());
+  check('race: the last finisher still outscores a car a checkpoint short of the line',
+    Math.min(...cars.map((c) => c.score)) > (LAPS - 1) * 200 + (N - 1) * 8);
+}
+
+{
+  // A finished car is out of the running: no rocket lock on it
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob'), c = player('p3', 'Cat');
+  const mode = createMode('desk_dash', stubRoom([a, b, c]));
+  driveCheckpoints(mode, a, N * LAPS);
+  driveCheckpoints(mode, b, 3);
+  driveCheckpoints(mode, c, 1);
+  check('race: a rocket from the back locks on the car ahead that is still racing', mode.rocketTarget(c) === b);
+  check('race: the leader of the cars still racing has nobody ahead to lock on', mode.rocketTarget(b) === null);
+}
+
 // ----------------------------------------------------------- Coffee Run
 {
   const a = player('p1', 'Alice');
@@ -143,6 +168,8 @@ check('variants: a variant mode rolls classic about half the time', (() => {
   return n > 400 && n < 600;
 })());
 check('variants: an unknown id falls back to classic', variantOf('sumo', 'nope').id === 'classic');
+// every map plays every variant, so no blurb may name one floor
+check('variants: no variant blurb names the office', Object.values(MODE_VARIANTS).flat().every((v) => !/office/i.test(v.desc)));
 
 const rev = raceCheckpoints('reverse', MAPS.office);
 check('reverse: the same checkpoints, the other way round', rev.length === CHECKPOINTS.length

@@ -394,7 +394,7 @@ export class Room {
         score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false,
         powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
         spawnProtectUntil: 0, sumoDead: false,
-        spawnIndex: i++, finished: false, finishBonus: 0, rejects: 0, rejectAnchor: null,
+        spawnIndex: i++, finished: false, finishBonus: 0, finishPlace: 0, rejects: 0, rejectAnchor: null,
         poseRing: [], lastPoseAt: 0, eliminated: false, zapT: 0,
         abilityReadyAt: 0, ramUntil: 0,
         // everyone teleports to the spawn grid client-side — sanction it
@@ -544,7 +544,7 @@ export class Room {
     for (const pad of this.pads) {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
-        if (p.eliminated || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
+        if (p.eliminated || p.finished || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < PICKUP_RADIUS) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
@@ -584,7 +584,9 @@ export class Room {
 
   usePowerup(player) {
     const pw = player.powerup;
-    if (!pw || player.eliminated) return; // ghosts don't meddle (yet)
+    // ghosts don't meddle (yet), and a car that has finished its race is
+    // out of the running
+    if (!pw || player.eliminated || player.finished) return;
     player.powerup = null;
     // tell the user's HUD the slot is empty — without this the item tray
     // shows the spent item for the rest of the match
@@ -592,7 +594,9 @@ export class Room {
     const t = now();
     // attacking forfeits spawn protection
     player.spawnProtectUntil = 0;
-    const others = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated);
+    // finished racers are off the table for every item: EMP, shrink, the
+    // nearest-rocket fallback and swap
+    const others = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated && !p.finished);
     switch (pw) {
       case 'turbo':
         this.broadcast({ t: MSG.EFFECT, type: 'turbo', id: player.id });
@@ -629,8 +633,7 @@ export class Room {
         break;
       }
       case 'shrink': {
-        const leader = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated)
-          .sort((a, b) => b.score - a.score)[0];
+        const leader = [...others].sort((a, b) => b.score - a.score)[0];
         if (!leader) break;
         leader.shrinkUntil = t + FX.SHRINK_S * 1000;
         this.broadcast({ t: MSG.EFFECT, type: 'shrink', target: leader.id, until: leader.shrinkUntil, scale: FX.SHRINK_SCALE });
@@ -638,10 +641,8 @@ export class Room {
         break;
       }
       case 'swap': {
-        // a car that has already finished its race is out of the running
-        const pool = this.modeId === 'desk_dash' ? others.filter((p) => !p.finished) : others;
-        const other = pool[Math.floor(Math.random() * pool.length)];
-        if (!other || (this.modeId === 'desk_dash' && player.finished)) break;
+        const other = others[Math.floor(Math.random() * others.length)];
+        if (!other) break;
         const pa = [...player.p], pb = [...other.p];
         player.p = pb; other.p = pa;
         if (this.modeId === 'desk_dash') {
@@ -836,7 +837,7 @@ export class Room {
         if (Math.hypot(p.p[0] - this.map.VENDING.x, p.p[2] - this.map.VENDING.z) > this.map.VENDING.radius) continue;
         this.vendReadyAt = t + this.map.VENDING.cooldownS * 1000;
         const golden = Math.random() < this.map.VENDING.goldenChance;
-        if (golden && !p.powerup && (!p.bot || this.bots.items)) {
+        if (golden && !p.powerup && !p.finished && (!p.bot || this.bots.items)) {
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup });
           else p.itemAt = t; // bots decide when (botbrain.js)
