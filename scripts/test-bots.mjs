@@ -352,6 +352,17 @@ for (const map of MAP_IDS) {
   check(`${map} soccer: bots score (${(goals / SEEDS2.length).toFixed(1)} goals a match)`, goals / SEEDS2.length >= 2);
   check(`${map} soccer: few own goals (${own}/${goals})`, own / Math.max(1, goals) < 0.25);
 }
+// a full pitch still scores: with 8+ cars every spare bot used to park on
+// its own goal line, and the office went 0-0 (0.3 goals a match at 8 cars)
+for (const map of MAP_IDS) {
+  let goals = 0;
+  for (const seed of [1, 2, 3]) {
+    const sim = await createSim({ seed, mode: 'soccer', map, bots: 10 });
+    sim.run(240);
+    goals += sim.events.filter((e) => e.type === 'goal').length;
+  }
+  check(`${map} soccer: ten cars on the pitch still score (${(goals / 3).toFixed(1)} goals a match)`, goals / 3 >= 2);
+}
 {
   // a countdown joiner is a drop-in: onto the smaller team, not always Orange
   const sim = await createSim({ seed: 1, mode: 'soccer', map: 'office', bots: 7 });

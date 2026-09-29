@@ -192,6 +192,17 @@ for (const map of ['office', 'cellar']) {
     const r2 = h.respawn([spot.x + 4, spot.z, 1, 0.25]);
     check(`${map}: …and a pose the server saw is honoured`, dist(r2, { x: spot.x + 4, z: spot.z }) < 0.02);
   }
+  // Sumo: recovery on the spot, and no immunity from being shoved out
+  {
+    const sim = await createSim({ seed: 9, mode: 'sumo', map });
+    const h = human(sim);
+    sim.run(5); // into the first round
+    const z = sim.room.mode.zone;
+    h.at(z.x, z.z);
+    h.me.sumoDead = false;
+    const r = h.respawn(null);
+    check(`${map}: a sumo respawn carries no spawn protection`, r.protect === 0 && !(h.me.spawnProtectUntil > sim.now()));
+  }
   // Soccer: back to your own kickoff half
   {
     const sim = await createSim({ seed: 6, mode: 'soccer', map });
@@ -219,6 +230,13 @@ for (const map of ['office', 'cellar']) {
     let bad = 0;
     for (let k = 0; k < 8; k++) { h.at(refuge.x, refuge.z); if (closed(h.respawn(null))) bad++; }
     check(`${map}: an LCS respawn after the spawn room locks lands in an open room (${bad}/8 closed)`, room.mode.locked.includes(spawnRoom) && bad === 0);
+    // …but a car already in the closed room is not lifted out of it: R (or
+    // a client proposing no pose) was a free escape from the zap
+    const inside = M.SPAWNS[0];
+    h.at(inside.x, inside.z);
+    h.me.lastProtectAt = -Infinity;
+    const out = h.respawn(null);
+    check(`${map}: an LCS respawn inside a locked room recovers on the spot (${dist(out, inside).toFixed(1)} u away)`, dist(out, inside) < 0.5 && closed(out));
     const late = human(sim, 'Late');
     const lw = late.last(MSG.WELCOME);
     check(`${map}: a drop-in after the first closure spectates`, lw.spectating === true && late.me.eliminated && !lw.spawn);
@@ -233,6 +251,22 @@ for (const map of ['office', 'cellar']) {
     const again = human(sim, 'Quitter');
     check(`${map}: an eliminated player who reloads comes back as a ghost`, again.me.eliminated && sim.room.mode.alive().every((p) => p !== again.me));
   }
+}
+
+// ---------------------------------------- what a drop-in has to be told
+{
+  const sim = await createSim({ seed: 4, mode: 'koth', map: 'office' });
+  const room = sim.room;
+  room.nextEventAt = sim.now(); // an event right now
+  sim.run(4);
+  const pad = room.pads[0];
+  pad.readyAt = sim.now() + 5000; // somebody just took this pad
+  const h = human(sim, 'Late');
+  const w = h.last(MSG.WELCOME);
+  check('drop-in: WELCOME carries the server clock', Math.abs(w.now - sim.now()) < 1);
+  check(`drop-in: …the office event already running (${w.event?.id}, ${w.event?.left} ms left)`,
+    !!room.event && w.event?.id === room.event.id && w.event.left > 0 && w.event.left <= w.event.duration * 1000 && !!w.event.name);
+  check('drop-in: …and the pads already taken', w.pads.some(([i, until]) => i === pad.i && until === pad.readyAt));
 }
 
 // ------------------------------------------------------------ Office Cup

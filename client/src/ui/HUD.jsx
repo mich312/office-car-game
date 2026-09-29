@@ -432,6 +432,30 @@ function MatchHUD() {
   );
 }
 
+// The server's standup test (modes.js KothMode.inZone) counts nobody behind
+// a full-height wall — the ring is a circle, the meeting is a room. Without
+// it the chip said "IN THE STANDUP · +3/s" to a car scoring nothing next door.
+const fullWalls = new WeakMap();
+function fullWallBetween(map, x1, z1, x2, z2) {
+  let walls = fullWalls.get(map);
+  if (!walls) {
+    walls = map.WALLS.filter((w) => !w.low).map((w) => [w.x - w.w / 2, w.x + w.w / 2, w.z - w.d / 2, w.z + w.d / 2]);
+    fullWalls.set(map, walls);
+  }
+  const dx = x2 - x1, dz = z2 - z1;
+  for (const [x0, x1b, z0, z1b] of walls) {
+    let t0 = 0, t1 = 1;
+    for (const [p, d, lo, hi] of [[x1, dx, x0, x1b], [z1, dz, z0, z1b]]) {
+      if (Math.abs(d) < 1e-9) { if (p <= lo || p >= hi) { t0 = 2; break; } continue; }
+      let a = (lo - p) / d, b = (hi - p) / d;
+      if (a > b) [a, b] = [b, a];
+      t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+    }
+    if (t0 < t1) return true;
+  }
+  return false;
+}
+
 // ------------------------------------------------------- standup chip
 // Where the meeting is, when it moves, and whether you're scoring: the
 // server stamps the hop time and how many cars share the zone.
@@ -439,7 +463,8 @@ function StandupChip({ map, spectating }) {
   const z = net.zone;
   if (!z) return <div className="chip"><Icon name="target" size={15} /> hold the standup zone to score</div>;
   const hopIn = z.until ? Math.max(0, Math.ceil((z.until - net.clockOffset - performance.now()) / 1000)) : null;
-  const inZone = !spectating && Math.hypot(telemetry.x - z.x, telemetry.z - z.z) <= z.r;
+  const inZone = !spectating && Math.hypot(telemetry.x - z.x, telemetry.z - z.z) <= z.r
+    && Math.abs(telemetry.y) < 4 && !fullWallBetween(map, z.x, z.z, telemetry.x, telemetry.z);
   const n = z.n || 0;
   const rate = MODES.koth.scorePerSecond / Math.max(1, n);
   const room = map.roomAt(z.x, z.z)?.name;

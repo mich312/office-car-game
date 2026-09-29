@@ -334,12 +334,21 @@ export class Bots {
     for (const q of this.room.players.values()) {
       if (q !== p && q.team === p.team && !q.eliminated && (d(q) < mine || (d(q) === mine && q.id < p.id))) rank++;
     }
-    if (rank >= 2) {
+    if (rank === 2) {
       // keeper: on the line from our goal to the ball, a few metres out
       const kx = ball.p[0] - own.x, kz = ball.p[2] - own.z;
       const kl = Math.hypot(kx, kz) || 1;
-      const out = Math.min(kl * 0.5, 8 + (rank - 2) * 5);
+      const out = Math.min(kl * 0.5, 8);
       return { x: own.x + (kx / kl) * out, z: own.z + (kz / kl) * out };
+    }
+    if (rank > 2) {
+      // one keeper a side: a second one parked on the same line walled the
+      // mouth, and with 8+ cars on the office pitch nobody scored at all
+      // (0.3 goals a match). The rest hang wide behind the play, alternate
+      // flanks, for the loose ball.
+      const side = rank % 2 ? 1 : -1;
+      const w = 8 + 2 * Math.floor((rank - 3) / 2);
+      return { x: ball.p[0] + ux * (set + 10) - uz * side * w, z: ball.p[2] + uz * (set + 10) + ux * side * w };
     }
     const bx = p.p[0] - ball.p[0], bz = p.p[2] - ball.p[2];
     const bl = Math.hypot(bx, bz) || 1;

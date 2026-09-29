@@ -179,6 +179,15 @@ export class Room {
           spawn, spectating: !!p.eliminated,
           // the cup round chip — START carries it, but a drop-in missed START
           cup: this.cup ? { round: this.cup.round + 1, total: MODES.office_cup.rounds } : null,
+          // our clock, so the client can read endsAt and cooldowns on its own
+          now: now(),
+          // …and what a drop-in missed hearing about: pads already taken and
+          // an office event already running (sprinklers, wind and lights out
+          // are applied by each client)
+          pads: this.pads.filter((pad) => pad.readyAt > now()).map((pad) => [pad.i, pad.readyAt]),
+          event: this.event && this.phase === PHASE.PLAYING
+            ? { id: this.event.id, name: this.event.name, icon: this.event.icon, desc: this.event.desc, duration: this.event.duration, left: Math.max(0, this.event.until - now()) }
+            : null,
         }));
         this.broadcast({ t: MSG.PLAYER_JOIN, player: this.publicPlayer(p) }, id);
         this.sendLobby();
@@ -909,7 +918,9 @@ export class Room {
   //   cost   — whatever the car carried stays where it was (mode onRespawn:
   //            the battery, the beans); the input freeze always applies.
   //   spam   — spawn protection once per RESPAWN_PROTECT_COOLDOWN_MS, and
-  //            never for the It car.
+  //            never for the It car, nor in sumo: a respawn there is a
+  //            recovery on the spot, and R every 8 s bought 2.9 s of immunity
+  //            from being shoved out of the ring.
   respawnPlayer(player, safe) {
     const t = now();
     // consequences of leaving the field fire first (spill beans, drop battery,
@@ -919,7 +930,7 @@ export class Room {
     const spot = this.respawnSpot(player, safe);
     this.placeAt(player, spot, t);
     // courtesy protection, not a renewable shield
-    const hunted = this.modeId === 'tag' && this.mode?.it === player.id;
+    const hunted = (this.modeId === 'tag' && this.mode?.it === player.id) || this.modeId === 'sumo';
     if (hunted) player.spawnProtectUntil = 0;
     else if (t - (player.lastProtectAt || -Infinity) >= RESPAWN_PROTECT_COOLDOWN_MS) {
       player.lastProtectAt = t;
@@ -963,9 +974,16 @@ export class Room {
         const team = player.team || 0;
         return this.pickSpawn(player, kick.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team), `kick${team}`);
       }
-      case 'last_standing':
+      case 'last_standing': {
+        // A car the lockdown is zapping recovers where it is: R in a closed
+        // room (or outside the finale ring) put it down in a safe room — a
+        // free way out, and a hostile client needn't even flip to use it.
+        if (this.mode?.zapZone?.(player)) {
+          return pose || { x: player.p[0], z: player.p[2], rotY: 2 * Math.atan2(player.q[1], player.q[3]) };
+        }
         if (pose && this.roomIsOpen(pose)) return pose;
         return this.pickSpawn(player, this.openSpots(), 'lcs');
+      }
       default:
         return this.pickSpawn(player);
     }
@@ -1118,7 +1136,7 @@ export class Room {
       const ev = this.pendingEvent;
       this.pendingEvent = null;
       this.lastEventId = ev.id;
-      this.event = { id: ev.id, until: t + ev.duration * 1000 };
+      this.event = { id: ev.id, name: ev.name, icon: ev.icon, desc: ev.desc, duration: ev.duration, until: t + ev.duration * 1000 };
       // Last Car Standing doubles the chaos cadence — the office fights back
       const interval = this.modeId === 'last_standing' ? OFFICE_EVENT_INTERVAL / 2 : OFFICE_EVENT_INTERVAL;
       this.nextEventAt = t + interval * 1000;
