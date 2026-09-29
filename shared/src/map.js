@@ -8,6 +8,7 @@
 import { M } from './constants.js';
 import { OFFICE } from './maps/office.js';
 import { CELLAR } from './maps/cellar.js';
+import { FACTORY } from './maps/factory.js';
 
 // The office's named exports stay available for tests and tools that are
 // about the office itself. Game code reads a map object instead.
@@ -43,6 +44,7 @@ function build(def) {
 export const MAPS = {
   office: build(OFFICE),
   cellar: build(CELLAR),
+  factory: build(FACTORY),
 };
 export const MAP_IDS = Object.keys(MAPS);
 export const DEFAULT_MAP = 'office';
