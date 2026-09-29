@@ -103,7 +103,6 @@ class Kit {
     g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
     if (!this.parts.has(key)) this.parts.set(key, []);
     this.parts.get(key).push(g);
-    geo !== g && geo.dispose?.();
     return this;
   }
   // build a piece in its own frame (at x, z turned by rotY) into a world kit
@@ -130,11 +129,10 @@ class Kit {
 // ------------------------------------------------------------- materials
 const cache = {};
 const once = (key, make) => cache[key] || (cache[key] = make());
-// vertex-coloured families: painted steel, bare metal, matte (card, rubber,
-// wood), and unlit (LEDs, lamps — bloom picks them up)
+// vertex-coloured families: painted (and bare) steel and plastics, matte
+// (card, rubber, wood), and unlit (LEDs, lamps — bloom picks them up)
 const MAT = {
   paint: () => once('paint', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.2 })),
-  metal: () => once('metal', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.75 })),
   matte: () => once('matte', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88 })),
   glow: () => once('glow', () => new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })),
   carton: () => once('carton', () => new THREE.MeshStandardMaterial({ map: cartonTex(), roughness: 0.9 })),
@@ -151,9 +149,6 @@ const MAT = {
   })),
   meshGalv: () => once('meshGalv', () => new THREE.MeshStandardMaterial({
     map: meshTex(), color: '#c8ced4', alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.6,
-  })),
-  glass: () => once('glassF', () => new THREE.MeshStandardMaterial({
-    color: '#9fc6d6', transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.1, depthWrite: false,
   })),
 };
 const matFor = (key) => MAT[key]();
@@ -832,17 +827,33 @@ function sealerInto(k, f) {
   const IN = m(0.95), CLEAR = m(0.72); // inner width, headroom
   const side = (d - IN) / 2;
   for (const s of [-1, 1]) {
-    k.box('paint', '#dfe3e6', w, CLEAR, side, [0, CLEAR / 2, s * (IN / 2 + side / 2)]);
-    k.box('paint', C.brand, w + m(0.01), m(0.06), side + m(0.01), [0, CLEAR - m(0.1), s * (IN / 2 + side / 2)]);
-    // side belts that squeeze the carton
-    k.box('matte', C.belt, w - m(0.2), m(0.2), m(0.03), [0, m(0.25), s * (IN / 2 - m(0.015))]);
+    const zc = s * (IN / 2 + side / 2);
+    k.rbox('paint', '#dfe3e6', w, CLEAR, side, [0, CLEAR / 2, zc], [0, 0, 0], m(0.04));
+    k.box('paint', C.brand, w + m(0.01), m(0.06), side + m(0.01), [0, CLEAR - m(0.1), zc]);
+    k.box('paint', C.joint, w - m(0.1), m(0.08), side + m(0.01), [0, m(0.04), zc]);
+    // side belts that squeeze the carton, and their drive pulleys
+    k.box('matte', C.belt, w - m(0.2), m(0.2), m(0.03), [0, m(0.28), s * (IN / 2 - m(0.015))]);
+    for (const e of [-1, 1]) k.cyl('paint', C.galv, m(0.05), m(0.05), m(0.22), [e * (w / 2 - m(0.1)), m(0.28), s * (IN / 2 - m(0.02))], [0, 0, 0], 12);
   }
-  k.box('paint', '#dfe3e6', w, h - CLEAR, d, [0, CLEAR + (h - CLEAR) / 2, 0]);
+  k.rbox('paint', '#dfe3e6', w, h - CLEAR, d, [0, CLEAR + (h - CLEAR) / 2, 0], [0, 0, 0], m(0.04));
   k.box('paint', C.joint, w + m(0.01), m(0.05), d + m(0.01), [0, CLEAR + m(0.02), 0]);
-  // the tape head hanging in the mouth, and a hazard edge
+  // the tape head hanging in the mouth
   k.box('paint', C.joint, m(0.18), m(0.1), m(0.3), [0, CLEAR - m(0.05), 0]);
   k.cyl('matte', '#c9a36a', m(0.09), m(0.09), m(0.05), [m(0.1), CLEAR - m(0.1), 0], [Math.PI / 2, 0, 0], 14);
-  k.box('glow', '#2ee06a', m(0.05), m(0.05), m(0.01), [w / 2 - m(0.1), h - m(0.15), -d / 2 - m(0.006)]);
+  // the control panel on the Packing side: a screen, a green run lamp, the
+  // big red stop
+  k.box('paint', C.joint, m(0.34), m(0.26), m(0.05), [0, CLEAR + m(0.25), d / 2 + m(0.025)]);
+  k.box('glow', '#4fa3ff', m(0.22), m(0.14), m(0.005), [m(-0.04), CLEAR + m(0.27), d / 2 + m(0.052)]);
+  k.box('glow', '#2ee06a', m(0.03), m(0.03), m(0.01), [m(0.12), CLEAR + m(0.31), d / 2 + m(0.052)]);
+  k.cyl('paint', C.red, m(0.03), m(0.03), m(0.03), [m(0.12), CLEAR + m(0.2), d / 2 + m(0.06)], [Math.PI / 2, 0, 0], 12);
+  // the roller beds in and out, flush with the floor (you drive over them
+  // like a carton would)
+  for (const e of [-1, 1]) {
+    for (let i = 0; i < 7; i++) {
+      k.cyl('paint', C.galv, m(0.018), m(0.018), IN - m(0.05), [e * (w / 2 + m(0.08) + i * m(0.1)), m(0.012), 0], [Math.PI / 2, 0, 0], 8);
+    }
+    for (const s of [-1, 1]) k.box('paint', C.yellow, m(0.72), m(0.025), m(0.04), [e * (w / 2 + m(0.38)), m(0.0125), s * (IN / 2 - m(0.02))]);
+  }
   for (const s of [-1, 1]) k.add('hazard', worldPlane(d, m(0.1), m(0.1)), '#ffffff', [s * (w / 2 + m(0.004)), CLEAR + m(0.08), 0], [0, s * Math.PI / 2, 0]);
 }
 
@@ -1416,6 +1427,14 @@ function Building({ map }) {
       const g = new THREE.PlaneGeometry(W, RISE);
       g.applyMatrix4(new THREE.Matrix4().makeTranslation(0, H + RISE / 2, z1 - m(0.04)));
       list.push(g);
+    }
+    // a clerestory band high in the long walls: panes between the steel
+    for (const z of [B.minZ + m(0.11), B.maxZ - m(0.11)]) {
+      for (let x = B.minX + m(1.5); x < B.maxX - m(1); x += m(3)) {
+        const g = new THREE.PlaneGeometry(m(2.6), m(0.9));
+        g.applyMatrix4(new THREE.Matrix4().makeTranslation(x + m(1.3), H - m(1.2), z));
+        list.push(g);
+      }
     }
     return mergeGeometries(list);
   }, [B, W, H, TOOTH, RISE]);
