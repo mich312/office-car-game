@@ -63,10 +63,15 @@ export function Lifts({ map }) {
     lamps.current.instanceMatrix.needsUpdate = true;
     lamps.current.instanceColor.needsUpdate = true;
   }, [xs]);
+  // the schedule counts from when the floor appears: on the canvas clock
+  // alone, a tower loaded late in a session had every lift overdue at once
+  // (six chimes, every door open together)
+  const born = useRef(null);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
     const L = leaves.current;
     if (!L) return;
+    if (born.current === null) { born.current = t; for (const s of st) s.next += t; }
     for (let i = 0; i < xs.length; i++) {
       const x = xs[i], s = st[i];
       if (!s.busy && t > s.next) arrive(i, t);
@@ -218,6 +223,7 @@ function drawWall(g, st, t, crash) {
   for (let k = 1; k < 3; k++) { g.fillRect(k * P - 2, 0, 4, VH); g.fillRect(0, k * Q - 2, VW, 4); }
 }
 
+const DOT_CALM = new THREE.Color('#7fe3ff'), DOT_CRASH = new THREE.Color('#ff5a4a');
 export function VideoWall({ map }) {
   const V = map.VIDEO_WALL;
   const dots = useRef();
@@ -238,17 +244,20 @@ export function VideoWall({ map }) {
   const W = V.w, Hh = V.h;
   // map u,v (0..1 over the left 2×2 panels) → wall-local metres
   const cityPos = useMemo(() => CITIES.map(([cu, cv]) => [(-W / 2 + cu * (W * 2 / 3)), (Hh / 2 - cv * (Hh * 2 / 3))]), [W, Hh]);
-  useFrame(({ clock }, dt) => {
+  useFrame(({ clock, camera }, dt) => {
     const t = clock.elapsedTime;
     const st = useStore.getState();
     const crash = st.event?.id === 'server_overload';
     acc.current += dt;
-    if (acc.current > 1) {
+    // a full redraw and a 5 MB upload: only while someone could read it (the
+    // war room and its doors), at once on the way in
+    const near = Math.hypot(camera.position.x - u(V.x), camera.position.z - u(V.z)) < u(16);
+    if (acc.current > 1 && near) {
       acc.current = 0;
       drawWall(cvs.getContext('2d'), st, t, crash);
       tex.needsUpdate = true;
     }
-    dotMat.color.set(crash ? '#ff5a4a' : '#7fe3ff');
+    dotMat.color.copy(crash ? DOT_CRASH : DOT_CALM);
     const D = dots.current;
     if (!D) return;
     for (let i = 0; i < cityPos.length; i++) {
@@ -599,6 +608,8 @@ export function FloorSounds({ map }) {
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
     const n = next.current;
+    // offsets from the floor's arrival, not from the page's (as the lifts)
+    if (!n.started) { n.started = true; n.phone += t; n.hiss += t; }
     if (t > n.phone && desks.length) {
       const d = desks[Math.floor(hash(Math.floor(t)) * desks.length)];
       const at = [d.x, d.h + u(0.1), d.z];

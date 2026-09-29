@@ -663,6 +663,9 @@ export function CellarSound({ map }) {
     const burn = burnerCycle(t);
     if (boiler && burn > 0 && lastBurn.current === 0) whoomp(G, [boiler.x, 0.5 * M, boiler.z]);
     lastBurn.current = burn;
+    // counted from the floor's arrival: on the page's clock alone, a cellar
+    // loaded late in a session flushed the moment it appeared
+    if (!next.current.started) { next.current.started = true; next.current.flush += tl; }
     if (tl > next.current.flush) {
       next.current.flush = tl + 40 + Math.random() * 30;
       flush(G, [(Math.random() * 30 - 15) * M, map.WALL_HEIGHT, 2.5 * M]);

@@ -228,7 +228,7 @@ const PROPS = [
   p('cellar_wedge', -5.1, -2.02, 0, Math.PI / 2),
   p('marble', -3.4, -4.3), p('marble', -3.1, -4.6), p('marble', -2.8, -4.2), p('marble', -3.6, -4.8), p('marble', -2.6, -4.7),
   // ---- hardware lab: bench clutter and a lamp
-  p('lamp', 7.6, -10.45, 0.9), p('cellar_keyboard', 5.6, -10.3, 0.9), p('mug', 4.9, -10.2, 0.9),
+  p('lamp', 7.6, -10.45, 0.9), p('cellar_keyboard', 5.6, -10.3, 0.9), p('mug', 6.2, -10.2, 0.9),
   p('cellar_papers', 2.2, -10.4, 0.9), p('pen', 3.6, -10.3, 0.9, 1.3), p('cellar_wastebin', 8.4, -1.6),
   // ---- archive: paper, paper, paper
   p('cellar_papers', 12.1, -8.2), p('cellar_papers', 16.5, -8.2), p('cellar_papers', 10, -2),

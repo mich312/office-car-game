@@ -242,8 +242,10 @@ const PROPS = [
   p('tower_placard', -4.4, 7.1, T, 0), p('tower_placard', -2.2, 8.1, T, Math.PI),
   p('tower_placard', 0.2, 7.1, T, 0), p('tower_placard', 1.6, 8.1, T, Math.PI),
   p('tower_laptop', -3.4, 7.05, T, Math.PI), p('tower_laptop', -0.8, 8.15, T, 0), p('tower_laptop', 1.0, 7.05, T, Math.PI + 0.1),
-  p('tower_carafe', -3.0, 7.75, T), p('tower_carafe', 0.9, 7.5, T),
-  p('glass', -2.8, 7.35, T), p('tower_cup', -2.9, 7.95, T), p('glass', 1.2, 7.4, T), p('tower_cup', 0.6, 7.8, T),
+  // (the tableware keeps off the high line's lane, z 7.6–8.4: a cup shoved
+  // into the speakerphone stalled the first car through)
+  p('tower_carafe', -2.5, 7.15, T), p('tower_carafe', 0.9, 7.45, T),
+  p('glass', -2.8, 7.35, T), p('tower_cup', -3.15, 7.35, T), p('glass', 1.2, 7.3, T), p('tower_cup', 0.6, 7.25, T),
   p('tower_binder', -5.0, 7.9, T, 0.3), p('tower_binder', 2.0, 7.4, T, 1.2),
   ...[-5, -3.9, -2.8, -1.7, -0.6, 0.5, 1.6].flatMap((x) => [
     p('tower_chair', x, 6.25, 0, 0), p('tower_chair', x + 0.3, 8.95, 0, Math.PI),
@@ -286,7 +288,7 @@ const PROPS = [
   ...[[16.2, -3.2], [16.2, -5.3], [16.2, -7.4], [12.6, -6.6], [12.6, -8.7], [12.6, -10.8], [9.4, -3.3], [9.4, -5.4]].flatMap(([x, z], k) => [
     p('tower_taskchair', x - 1.15, z, 0, Math.PI / 2 + (k % 3) * 0.2), p('tower_taskchair', x + 1.15, z, 0, -Math.PI / 2 - (k % 2) * 0.25),
   ]),
-  p('stack', 19.8, -10.6), p('box', 20.3, -9.8), p('box', 20.3, -9.4, 0.4), p('trash', 18.3, -11.4),
+  p('stack', 19.8, -10.6), p('box', 20.3, -9.8), p('box', 20.3, -9.8, 0.4), p('trash', 18.3, -11.4),
   p('tower_cup', 16.0, -4.1, 0.74), p('tower_cup', 12.8, -9.5, 0.74), p('bottle', 9.6, -3.8, 0.74),
 
   // ---- Executive Pantry: fruit on the island, cups by the machine, stools
@@ -576,7 +578,7 @@ export const TOWER = {
   // the video wall: on the war room's east wall, 3 × 3 panels
   VIDEO_WALL: { x: 6.88, z: 8.03, w: 3.66, y0: 0.6, h: 2.07 },
   SIGNS: [
-    { text: 'SYNERGON HOLDINGS', kind: 'logo', at: [0, 2.05, -3.985], rotY: Math.PI, w: 4.6 },
+    { text: 'SYNERGON HOLDINGS', kind: 'logo', at: [0, 2.05, -4.015], rotY: Math.PI, w: 4.6 }, // just proud of the walnut panel's face (−4.0)
     { text: '48', sub: 'EXECUTIVE FLOOR', kind: 'brass', at: [-6.88, 1.5, -5.4], rotY: Math.PI / 2, w: 0.9 },
     { text: 'WAR ROOM', sub: 'IN SESSION', kind: 'session', at: [-2.35, 2.25, 2.9], rotY: Math.PI, w: 1.3 },
     { text: 'ONE TEAM. ONE DREAM.', kind: 'vinyl', at: [7.12, 2.1, -5.6], rotY: Math.PI / 2, w: 3 },

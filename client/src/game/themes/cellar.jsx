@@ -88,6 +88,13 @@ export function Dressing({ map }) {
 // Per type, in the piece's frame (metres): boxes [w, h, d, x, y, z] and
 // cylinders { r, h, x, z }. Anything not listed is its full box.
 const COLLIDERS = {
+  // beam seating: seats and backs on two end A-frames, open underneath (a
+  // full box made the empty space under the seats an invisible wall)
+  cellar_waitchairs: ({ w, d }) => [
+    [w - 0.1, 0.05, d * 0.8, 0, 0.45, 0.02],
+    [w - 0.1, 0.38, 0.05, 0, 0.66, -d / 2 + 0.06],
+    ...[-1, 1].map((sx) => [0.06, 0.4, d - 0.1, sx * (w / 2 - 0.12), 0.2, -0.01]),
+  ],
   cellar_bench: ({ w, h, d }) => [
     [w, 0.04, d, 0, h - 0.02, 0],
     ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => [0.05, h, 0.05, sx * (w / 2 - 0.06), h / 2, sz * (d / 2 - 0.06)]),
