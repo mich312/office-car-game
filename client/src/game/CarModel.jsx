@@ -10,7 +10,7 @@
 // by carParts.js, the four wheels and four corners of suspension are
 // instanced, and remote cars step down to a merged mid LOD and a two-draw
 // proxy with distance (RemoteCars).
-import { useRef, useMemo, useLayoutEffect } from 'react';
+import { useRef, useMemo, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
@@ -24,7 +24,7 @@ import { useStore } from '../store.js';
 import TextSprite from './TextSprite.jsx';
 import Trail from './Trail.jsx';
 import { shellGeos, shellBounds } from './carShell.js';
-import { buildCar, anchorsOf } from './carParts.js';
+import { buildCar, anchorsOf, holdCar, dropCar } from './carParts.js';
 import {
   OUTLINE_MAT, KIT_MAT, METAL_MAT, HEAD_DAY, HEAD_NIGHT, TAIL_MAT, Parts, mat4,
   paintMat, glassMat, rimMat, plateMat, tyreMat, tyreGeo, rimGeo, brakeGeo, suspGeos, driverGeos,
@@ -66,6 +66,9 @@ const TYRES = {
   knobby: { r: 1.09, w: 1.16 },
   slick: { r: 0.97, w: 1.1 },
 };
+// the fitted tyre's radius scale: the local car sets its wheels' ride
+// height with it, or knobblies sank into the floor and slicks floated
+export const tyreScale = (tyre) => (TYRES[tyre] || TYRES.road).r;
 
 // Vinyl wrap projectors per body: top [width, length, z centre] looking
 // down, side [length, height, y centre, z centre] looking across.
@@ -100,10 +103,6 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const bodyRef = useRef();
   const tyreRef = useRef(), rimRef = useRef(), brakeRef = useRef();
   const armRef = useRef(), damperRef = useRef(), coilRef = useRef();
-  const flameRef = useRef();
-  const shieldRef = useRef();
-  const batteryRef = useRef();
-  const stunRef = useRef();
   const antenna = useRef(newAntenna());
   const propellerRef = useRef();
   const driverRef = useRef();
@@ -131,6 +130,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
     wide, front: st.front, hood: st.hood, roof: st.roof, skirts: st.skirts, exhaust: st.exhaust,
     spoiler: st.spoiler, wing: tu.wing, wheelR, wheelW, trackOut, trim: !!st.accent,
   }), [id, wide, st.front, st.hood, st.roof, st.skirts, st.exhaust, st.spoiler, st.accent, tu.wing, wheelR, wheelW, trackOut]);
+  useEffect(() => { holdCar(build); return () => dropCar(build); }, [build]);
   const anchors = build.anchors;
   const A = anchorsOf(id);
 
@@ -232,27 +232,6 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
       coilRef.current.instanceMatrix.needsUpdate = true;
       damperRef.current.instanceMatrix.needsUpdate = true;
     }
-    if (flameRef.current) {
-      const on = boostingRef?.current;
-      flameRef.current.visible = !!on;
-      if (on) flameRef.current.scale.setScalar(0.8 + Math.random() * 0.5);
-    }
-    const flags = flagsRef?.current ?? 0;
-    if (shieldRef.current) {
-      // bit 8 = shield item (blue), bit 64 = spawn protection (green pulse)
-      const prot = !!(flags & 64) && !(flags & 8);
-      shieldRef.current.visible = !!(flags & 8) || !!(flags & 64);
-      if (shieldRef.current.visible) {
-        shieldRef.current.rotation.y += dt * 2;
-        shieldRef.current.material.color.set(prot ? '#7dffb0' : '#7ad8ff');
-        shieldRef.current.material.opacity = prot ? 0.14 + Math.abs(Math.sin(performance.now() / 180)) * 0.1 : 0.22;
-      }
-    }
-    if (batteryRef.current) batteryRef.current.visible = !!(flags & 32);
-    if (stunRef.current) {
-      stunRef.current.visible = !!(flags & 4);
-      if (stunRef.current.visible) stunRef.current.rotation.y += dt * 8;
-    }
     // The antenna is a whip on a spring (shared/src/feel.js), bent along its
     // length: in-game cars feed it their real acceleration, so braking flicks
     // it forward, corners throw it outward, bumps and landings set it ringing.
@@ -276,7 +255,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
 
   const S = build.slots;
   const seat = anchors.seat;
-  const roofY = anchors.roofY ?? 0.28;
+  const roofY = anchors.hatY ?? anchors.roofY ?? 0.28;
   const flame = anchors.flame || [0, -0.02, -0.55];
   const antY = useMemo(() => shellTopAt(id, A.antenna[0], A.antenna[1], wide, anchors), [id, A, wide, anchors]);
 
@@ -335,23 +314,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
           {isLocal && dark && <pointLight position={[0, -0.1, 0]} color={st.glow} intensity={5} distance={2.2} />}
         </group>
       )}
-      {/* boost flame, out of the exhaust */}
-      <mesh ref={flameRef} position={[flame[0], flame[1], flame[2] - 0.12]} rotation-x={-Math.PI / 2} visible={false} geometry={FLAME_GEO} material={FLAME_MAT} />
-      {/* shield bubble */}
-      <mesh ref={shieldRef} visible={false} geometry={SHIELD_GEO}>
-        <meshPhysicalMaterial color="#7ad8ff" transparent opacity={0.22} roughness={0} metalness={0} side={THREE.DoubleSide} />
-      </mesh>
-      {/* battery pack */}
-      <group ref={batteryRef} visible={false} position={[0, 0.35, 0]}>
-        <mesh castShadow geometry={BATTERY.body} material={BATTERY.mat} />
-        <mesh position={[0, 0, 0.28]} rotation-x={Math.PI / 2} geometry={BATTERY.cap} material={BATTERY.capMat} />
-      </group>
-      {/* stun stars */}
-      <group ref={stunRef} visible={false} position={[0, 0.55, 0]}>
-        {[0, 1, 2].map((i) => (
-          <mesh key={i} position={[Math.cos((i / 3) * Math.PI * 2) * 0.35, 0, Math.sin((i / 3) * Math.PI * 2) * 0.35]} geometry={STAR_GEO} material={STAR_MAT} />
-        ))}
-      </group>
+      <CarStatus flame={flame} flagsRef={flagsRef} boostingRef={boostingRef} />
       {/* trail anchor + ribbon (world-space, portaled to the scene root) */}
       <group ref={trailAnchor} position={[0, 0.06, -0.55]} />
       {cosmetics?.trail && <Trail kind={cosmetics.trail} anchorRef={trailAnchor} speedRef={speedRef} />}
@@ -529,10 +492,10 @@ function useWhip(kind) {
     group.add(rod, tip);
     const pts = Array.from({ length: WHIP_RINGS }, () => new THREE.Vector3());
     const dir = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), q = new THREE.Quaternion(), e = new THREE.Euler();
-    let last = [NaN, NaN];
+    const last = [NaN, NaN];
     const bend = (pitch, roll) => {
       if (Math.abs(pitch - last[0]) < 1e-4 && Math.abs(roll - last[1]) < 1e-4) return;
-      last = [pitch, roll];
+      last[0] = pitch; last[1] = roll;
       const pos = geo.attributes.position.array, nor = geo.attributes.normal.array;
       const seg = ANTENNA_LEN / (WHIP_RINGS - 1);
       pts[0].set(0, 0, 0);
@@ -557,8 +520,10 @@ function useWhip(kind) {
       tip.position.copy(pts[WHIP_RINGS - 1]);
       tip.quaternion.copy(q);
     };
-    return { group, tip, bend };
+    return { group, tip, bend, geo };
   }, []);
+  // a <primitive> is never disposed by R3F: free the rod's buffers with the car
+  useEffect(() => () => w.geo.dispose(), [w]);
   useLayoutEffect(() => {
     const t = TIP[kind] || TIP.stock;
     w.tip.geometry = t.geo;
@@ -631,7 +596,56 @@ function Hat({ kind, propellerRef }) {
 // in and the metals folded into the kit draw — no suspension, driver or
 // moving parts. Six-ish draws. The name tag stays, as it always has out to
 // the far LOD.
-export function CarMid({ carId, paint, style, tune, name, team }) {
+// What the car is doing, drawn on every model that is near enough to read
+// it (full and mid LOD): the boost flame, the shield or spawn-protection
+// bubble, the battery on its back, stun stars. Flags are the snapshot bits.
+function CarStatus({ flame, flagsRef, boostingRef }) {
+  const flameRef = useRef();
+  const shieldRef = useRef();
+  const batteryRef = useRef();
+  const stunRef = useRef();
+  // its own material: the colour and opacity pulse per car
+  const shieldMat = useMemo(() => new THREE.MeshPhysicalMaterial({ color: '#7ad8ff', transparent: true, opacity: 0.22, roughness: 0, metalness: 0, side: THREE.DoubleSide }), []);
+  useEffect(() => () => shieldMat.dispose(), [shieldMat]);
+  useFrame((_, dt) => {
+    const on = boostingRef?.current;
+    flameRef.current.visible = !!on;
+    if (on) flameRef.current.scale.setScalar(0.8 + Math.random() * 0.5);
+    const flags = flagsRef?.current ?? 0;
+    // bit 8 = shield item (blue), bit 64 = spawn protection (green pulse)
+    const prot = !!(flags & 64) && !(flags & 8);
+    shieldRef.current.visible = !!(flags & 8) || !!(flags & 64);
+    if (shieldRef.current.visible) {
+      shieldRef.current.rotation.y += dt * 2;
+      shieldMat.color.set(prot ? '#7dffb0' : '#7ad8ff');
+      shieldMat.opacity = prot ? 0.14 + Math.abs(Math.sin(performance.now() / 180)) * 0.1 : 0.22;
+    }
+    batteryRef.current.visible = !!(flags & 32);
+    stunRef.current.visible = !!(flags & 4);
+    if (stunRef.current.visible) stunRef.current.rotation.y += dt * 8;
+  });
+  return (
+    <>
+      {/* boost flame, out of the exhaust */}
+      <mesh ref={flameRef} position={[flame[0], flame[1], flame[2] - 0.12]} rotation-x={-Math.PI / 2} visible={false} geometry={FLAME_GEO} material={FLAME_MAT} />
+      {/* shield bubble */}
+      <mesh ref={shieldRef} visible={false} geometry={SHIELD_GEO} material={shieldMat} />
+      {/* battery pack */}
+      <group ref={batteryRef} visible={false} position={[0, 0.35, 0]}>
+        <mesh castShadow geometry={BATTERY.body} material={BATTERY.mat} />
+        <mesh position={[0, 0, 0.28]} rotation-x={Math.PI / 2} geometry={BATTERY.cap} material={BATTERY.capMat} />
+      </group>
+      {/* stun stars */}
+      <group ref={stunRef} visible={false} position={[0, 0.55, 0]}>
+        {[0, 1, 2].map((i) => (
+          <mesh key={i} position={[Math.cos((i / 3) * Math.PI * 2) * 0.35, 0, Math.sin((i / 3) * Math.PI * 2) * 0.35]} geometry={STAR_GEO} material={STAR_MAT} />
+        ))}
+      </group>
+    </>
+  );
+}
+
+export function CarMid({ carId, paint, style, tune, name, team, flagsRef, boostingRef }) {
   const car = CARS[carId] || CARS.balanced;
   const id = CARS[carId] ? carId : 'balanced';
   const st = useMemo(() => (style ? sanitizeStyle(style) : DEFAULT_STYLE), [style]);
@@ -645,23 +659,28 @@ export function CarMid({ carId, paint, style, tune, name, team }) {
   const wheelW = (id === 'formula' ? 0.1 : 0.14) * tyre.w * (1 + 0.075 * tu.tires);
   const wide = st.flares === 'wide';
   const restY = -0.05 - T.settle + wheelR;
-  const S = useMemo(() => buildCar(id, {
+  const build = useMemo(() => buildCar(id, {
     wide, front: st.front, hood: st.hood, roof: st.roof, skirts: st.skirts, exhaust: st.exhaust,
     spoiler: st.spoiler, wing: tu.wing, wheelR, wheelW, trackOut: wide ? 0.03 : 0, trim: !!st.accent,
     mid: true, restY,
-  }).slots, [id, wide, st, tu.wing, wheelR, wheelW, restY]);
+  }), [id, wide, st, tu.wing, wheelR, wheelW, restY]);
+  useEffect(() => { holdCar(build); return () => dropCar(build); }, [build]);
+  const S = build.slots;
   const color = paint || car.color;
   const paintM = paintMat(color, st.finish, FINISHES);
   const trimM = paintMat(st.accent || color, st.finish, FINISHES);
   return (
     <group>
       {S.outline && <mesh geometry={S.outline} material={OUTLINE_MAT} />}
-      <mesh geometry={S.paint} material={paintM} />
+      {/* its shadow too: the sun's shadow box reaches well past 12 units, and
+          a rival's shadow blinked out where the full model handed over */}
+      <mesh castShadow geometry={S.paint} material={paintM} />
       {S.trim && <mesh geometry={S.trim} material={trimM} />}
-      {S.kit && <mesh geometry={S.kit} material={KIT_MAT} />}
+      {S.kit && <mesh castShadow geometry={S.kit} material={KIT_MAT} />}
       {S.head && <mesh geometry={S.head} material={dark ? HEAD_NIGHT : HEAD_DAY} />}
       {S.tail && <mesh geometry={S.tail} material={TAIL_MAT} />}
       {S.glass && <mesh geometry={S.glass} material={glassMat(st.tint)} />}
+      <CarStatus flame={build.anchors.flame || [0, -0.02, -0.55]} flagsRef={flagsRef} boostingRef={boostingRef} />
       {name && <TextSprite text={name} size={0.34} y={1.2} color={team === 1 ? '#7ab8ff' : team === 0 ? '#ffb37a' : 'white'} />}
     </group>
   );

@@ -97,7 +97,10 @@ function table(f, ctx) {
   if (H < 0.5) {
     const T = 0.03;
     p.add('veneerWalnut', rbox(W, T, D, 0.01), [0, H - T / 2, 0]);
-    p.add('veneerWalnut', rbox(W - 0.16, 0.018, D - 0.14, 0.004, 1), [0, 0.11, 0]);
+    // the shelf sits mid-height, clear of a car: cars drive under coffee
+    // tables (the colliders are the top and the legs), and at 11 cm it cut
+    // through their roofs
+    p.add('veneerWalnut', rbox(W - 0.16, 0.018, D - 0.14, 0.004, 1), [0, 0.2, 0]);
     const lx = W / 2 - 0.08, lz = D / 2 - 0.07;
     for (const [sx, sz] of CORNERS) {
       p.add('veneerWalnut', cyl(0.025, 0.018, H - T, 10), [sx * lx, (H - T) / 2, sz * lz], [sz * 4 * DEG, 0, -sx * 4 * DEG]);
@@ -465,7 +468,9 @@ function rack(f, ctx) {
   for (let i = 0; i < 18; i++) {
     leds.push({ at: [-0.22 + r() * 0.12 + (i % 3) * 0.19, pl + 0.12 + r() * (faceH - 0.14), D / 2 - 0.066], yaw: 0, c: colors[(r() * colors.length) | 0], speed: 2 + r() * 9, phase: r() * 10 });
   }
-  for (let i = 0; i < 5; i++) leds.push({ at: [W / 2 - 0.1, pl + 0.2 + i * (faceH - 0.3) / 4, -D / 2 + 0.068], yaw: Math.PI, c: '#4fa3ff', speed: 0.3, phase: i });
+  // on the rear power strip's face: the back is drawn turned half round, so
+  // the strip at its local +x sits at the piece's −x
+  for (let i = 0; i < 5; i++) leds.push({ at: [-(W / 2 - 0.1), pl + 0.2 + i * (faceH - 0.3) / 4, -D / 2 + 0.068], yaw: Math.PI, c: '#4fa3ff', speed: 0.3, phase: i });
   return { parts: p.parts, colliders: solidBox(f), leds, friction: 0.4 };
 }
 
@@ -899,7 +904,11 @@ function stall(f) {
   });
   return {
     parts: p.parts,
-    colliders: [cuboid(f.w / 2, (f.h - lift * M) / 2, f.d / 2, 0, lift * M + (f.h - lift * M) / 2, 0)],
+    colliders: [
+      cuboid(f.w / 2, (f.h - lift * M) / 2, f.d / 2, 0, lift * M + (f.h - lift * M) / 2, 0),
+      // the chrome foot post the panel stands on: cars go under the panel, not through it
+      cuboid(0.02 * M, (lift * M) / 2, 0.02 * M, long ? 0 : (L / 2 - 0.1) * M, (lift * M) / 2, long ? (L / 2 - 0.1) * M : 0),
+    ],
     friction: 0.8,
   };
 }
@@ -979,7 +988,9 @@ function bartop(f) {
   const p = new Piece();
   const long = W >= D;
   const L = long ? W : D, S = long ? D : W;
-  const cx = L / 2 - 0.25 / M;
+  // the pedestals stand far enough in that their 15 cm foot plates stay
+  // under the top (at 5.6 cm in they poked through the wall behind a bar)
+  const cx = L / 2 - 0.16;
   p.at([0, 0, 0], long ? null : [0, Math.PI / 2, 0], () => {
     p.add('veneerOak', rbox(L, 0.04, S, 0.01), [0, H - 0.02, 0]);
     p.add('powderBlack', rbox(L - 0.3, 0.06, 0.04, 0.006, 1), [0, H - 0.07, 0]);
@@ -996,7 +1007,7 @@ function bartop(f) {
     parts: p.parts,
     colliders: [
       cuboid(f.w / 2, 0.07, f.d / 2, 0, f.h - 0.07, 0),
-      ...[-1, 1].map((s) => cuboid(0.07, (f.h - 0.14) / 2, 0.07, long2 ? s * (lu / 2 - 0.25) : 0, (f.h - 0.14) / 2, long2 ? 0 : s * (lu / 2 - 0.25))),
+      ...[-1, 1].map((s) => cuboid(0.035 * M, (f.h - 0.14) / 2, 0.035 * M, long2 ? s * (lu / 2 - 0.16 * M) : 0, (f.h - 0.14) / 2, long2 ? 0 : s * (lu / 2 - 0.16 * M))),
     ],
     friction: 1,
   };
@@ -1088,7 +1099,8 @@ function hoop(f) {
   return {
     parts: p.parts,
     colliders: [
-      cuboid(0.09, f.h / 2, 0.09, 0, f.h / 2, -0.2),
+      cuboid(0.04 * M, f.h / 2, 0.04 * M, 0, f.h / 2, pz * M), // the pole
+      cuboid(0.2 * M, 0.15 * M, 0.15 * M, 0, 0.15 * M, pz * M), // its padded base
       cuboid(0.45 * M, 0.3 * M, 0.06, 0, f.h * 0.82, 0.12 * M),
     ],
   };
@@ -1254,7 +1266,9 @@ const SKINS = {
       for (const s of [-1, 1]) p.add('tint', box(0.02, 0.002, len - 0.2), [s * (W / 2 - 0.04), 0.0095, 0.05], null, null, '#f2c200');
     });
   },
-  // a giant plastic dustpan, its rubber lip on the floor, handle up top
+  // a giant plastic dustpan, its rubber lip on the floor, the handle up at
+  // one back corner. No back wall across the top: cars crest there, and the
+  // skin has no collider of its own (the deck is the ramp's only one).
   dustpan(p, L, W, rise, len) {
     const c = '#d8263a';
     p.deck(() => {
@@ -1264,8 +1278,8 @@ const SKINS = {
       for (const s of [-1, 1]) {
         p.add('tint', extrude(`pan${len}`, shape([[-len / 2, 0], [len / 2, 0], [len / 2, 0.14], [-len / 2 + 0.3, 0.02]]), 0.012), [s * (W / 2 - 0.006), 0.009, 0], [0, -Math.PI / 2, 0], null, c);
       }
-      p.add('tint', rbox(W, 0.14, 0.012, 0.004, 1), [0, 0.079, len / 2 - 0.006], null, null, c);
-      p.add('tint', tube([[0, 0.15, len / 2 - 0.006], [0, 0.26, len / 2 - 0.03], [0, 0.34, len / 2 - 0.12]], 0.022, 10), [0, 0, 0], null, null, c);
+      const hx = W / 2 - 0.006;
+      p.add('tint', tube([[hx, 0.14, len / 2 - 0.04], [hx + 0.05, 0.25, len / 2 - 0.08], [hx + 0.1, 0.33, len / 2 - 0.18]], 0.022, 10), [0, 0, 0], null, null, c);
     });
   },
   // a fat lever-arch binder leaning on the table: covers, pages, spine
@@ -1280,7 +1294,8 @@ const SKINS = {
       p.add('plasticBlack', cyl(0.02, 0.02, 0.003, 12), [-W / 2 - 0.008, -0.032, len / 2 - 0.12], [0, 0, Math.PI / 2]);
     });
   },
-  // a hardback leaning on the desk, two more lying at its foot
+  // a hardback leaning on the desk (the two that lay at its foot had no
+  // collider, stood taller than a car and poked up through the deck)
   books(p, L, W, rise, len) {
     p.deck(() => {
       p.add('tint', rbox(W, 0.006, len, 0.003, 1), [0, 0.006, 0], null, null, '#6b1f24');
@@ -1288,11 +1303,6 @@ const SKINS = {
       p.add('paper', box(W - 0.02, 0.05, len - 0.02), [0, -0.022, 0.0]);
       p.add('tint', rbox(0.014, 0.064, len, 0.004, 1), [-W / 2, -0.022, 0], null, null, '#5a1a1e');
       p.add('brass', box(0.002, 0.03, 0.25), [-W / 2 - 0.007, -0.022, len / 2 - 0.25]);
-    });
-    [['#1f3a64', 0.06, 0.1], ['#2d5a3a', 0.05, -0.05]].forEach(([c, t, yaw], i) => {
-      const y = i ? 0.06 : 0;
-      p.add('tint', rbox(W * 0.8, t, 0.5, 0.004, 1), [W * 0.62, y + t / 2, -L / 2 + 0.3], [0, yaw, 0], null, c);
-      p.add('paper', box(W * 0.8 - 0.02, t - 0.012, 0.49), [W * 0.62 + 0.012, y + t / 2, -L / 2 + 0.3], [0, yaw, 0]);
     });
   },
   // a clipboard: hardboard, a chrome clip, a sheet of paper

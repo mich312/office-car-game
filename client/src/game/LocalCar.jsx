@@ -23,7 +23,7 @@ import {
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
 import { useControls } from './useControls.js';
-import CarModel from './CarModel.jsx';
+import CarModel, { tyreScale } from './CarModel.jsx';
 import Particles, { burst, puff } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
 import { audio } from '../audio.js';
@@ -153,7 +153,7 @@ export default function LocalCar() {
   // measured weight transfer (rad): roll from lateral G, pitch from accel/brake
   const leanRef = useRef({ roll: 0, pitch: 0 });
   // per-wheel visual Y (local) so the wheels follow the suspension rays
-  const wheelR = carId === 'monster' ? 0.18 : 0.13;
+  const wheelR = (carId === 'monster' ? 0.18 : 0.13) * tyreScale(style?.tyre);
   const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - car.settle + wheelR));
 
   const teleport = (x, y, z, rotY) => {

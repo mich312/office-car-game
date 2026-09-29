@@ -134,7 +134,7 @@ function LightPools() {
     const k = Math.min(1, dt * 2.5);
     warmMat.opacity += (light.pool - warmMat.opacity) * k;
     serverMat.opacity += ((lightsOut ? 0.4 : Math.max(0.12, light.pool)) - serverMat.opacity) * k;
-    serverMat.color.lerp(new THREE.Color(lightsOut ? '#ff5040' : '#3d7bff'), k);
+    serverMat.color.lerp(lightsOut ? SERVER_RED : SERVER_BLUE, k);
   });
   return (
     <group>
@@ -149,6 +149,9 @@ function LightPools() {
     </group>
   );
 }
+
+const SERVER_RED = new THREE.Color('#ff5040'), SERVER_BLUE = new THREE.Color('#3d7bff');
+const _shaftColor = new THREE.Color();
 
 // Light through the north windows, laid down as giant parallel slabs. These
 // are the bands you drive through, so they take their tilt from the sun's
@@ -167,7 +170,7 @@ function LightShafts() {
     const k = Math.min(1, dt * 1.8);
     const s = light.shaft;
     mat.current.opacity += (s.opacity - mat.current.opacity) * k;
-    mat.current.color.lerp(new THREE.Color(s.color), k);
+    mat.current.color.lerp(_shaftColor.set(s.color), k);
     if (group.current) {
       group.current.rotation.x += (s.tilt - group.current.rotation.x) * k;
       group.current.rotation.y += (s.yaw - group.current.rotation.y) * k;
@@ -206,6 +209,7 @@ function Floors({ map }) {
   const stain = useMemo(() => new THREE.MeshBasicMaterial({ map: stainTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }), []);
   const stains = map.STAINS || [];
   const floorGeos = useMemo(() => ROOMS.map(floorGeometry), [ROOMS]);
+  useEffect(() => () => floorGeos.forEach((g) => g.dispose()), [floorGeos]);
   return (
     <>
       {/* one big physics slab under the whole building + balcony */}
@@ -260,9 +264,19 @@ function Walls({ map }) {
 function ceilingGeometry(x, z, w, d) {
   const g = new THREE.PlaneGeometry(w * M, d * M);
   const pos = g.attributes.position, uv = g.attributes.uv;
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, x + pos.getX(i) / M, z - pos.getY(i) / M);
+  // (the slab is turned +90° about x, so its local +y runs along world +z)
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, x + pos.getX(i) / M, z + pos.getY(i) / M);
   return g;
 }
+
+// The troffer's bezel: a box with no lid, so from above (photo mode's
+// aerial, through the face-down ceiling) it doesn't read as a white slab
+const BEZEL_GEO = (() => {
+  const g = new THREE.BoxGeometry(1.22 * M, 0.06, 0.62 * M);
+  const idx = g.index.array; // faces +x, −x, +y, −y, +z, −z: six indices each
+  g.setIndex([...idx.slice(0, 12), ...idx.slice(18)]);
+  return g;
+})();
 
 function Ceiling({ map }) {
   const { WALL_HEIGHT } = map;
@@ -270,7 +284,9 @@ function Ceiling({ map }) {
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
   const panelMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 }), []);
-  const tileMat = useMemo(() => new THREE.MeshStandardMaterial({ map: ceilingTex(), roughness: 0.95, side: THREE.DoubleSide }), []);
+  // front side only: the slabs face down, so from above (photo mode's
+  // aerial) the office reads as a dollhouse, not a white lid
+  const tileMat = useMemo(() => new THREE.MeshStandardMaterial({ map: ceilingTex(), roughness: 0.95 }), []);
   // ease toward the phase target like every other light in the building
   // (Lighting.jsx, LightPools, LightShafts all lerp at ~dt*1.8) — assigning
   // it synchronously made the 140 panels snap while the world cross-faded
@@ -280,7 +296,9 @@ function Ceiling({ map }) {
   });
   // the main slab covers everything east of the balcony, plus the reception
   // strip (the balcony above stays open sky)
-  const slabs = useMemo(() => [ceilingGeometry(3.5, 0, 35.4, 24.4), ceilingGeometry(-17.5, -6.5, 7.4, 11.4)], []);
+  // (they meet at x −14.2 rather than overlap: two coplanar slabs z-fight)
+  const slabs = useMemo(() => [ceilingGeometry(3.5, 0, 35.4, 24.4), ceilingGeometry(-17.7, -6.5, 7, 11.4)], []);
+  useEffect(() => () => slabs.forEach((g) => g.dispose()), [slabs]);
   const panels = useMemo(() => {
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {
@@ -297,7 +315,8 @@ function Ceiling({ map }) {
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D();
     panels.forEach(([x, z], i) => {
-      dummy.position.set(x, WALL_HEIGHT - 0.06, z);
+      // the diffuser hangs a hair below the bezel's underside: flush, the two z-fought
+      dummy.position.set(x, WALL_HEIGHT - 0.07, z);
       dummy.rotation.set(Math.PI / 2, 0, 0);
       dummy.updateMatrix();
       inst.current.setMatrixAt(i, dummy.matrix);
@@ -312,13 +331,12 @@ function Ceiling({ map }) {
   return (
     <group>
       <mesh rotation-x={Math.PI / 2} position={[3.5 * M, WALL_HEIGHT, 0]} geometry={slabs[0]} material={tileMat} />
-      <mesh rotation-x={Math.PI / 2} position={[-17.5 * M, WALL_HEIGHT, -6.5 * M]} geometry={slabs[1]} material={tileMat} />
+      <mesh rotation-x={Math.PI / 2} position={[-17.7 * M, WALL_HEIGHT, -6.5 * M]} geometry={slabs[1]} material={tileMat} />
       <instancedMesh ref={inst} args={[null, null, panels.length]} material={panelMat} frustumCulled={false}>
         <planeGeometry args={[1.16 * M, 0.56 * M]} />
       </instancedMesh>
       {/* the troffer's white steel bezel round the diffuser */}
-      <instancedMesh ref={bezel} args={[null, null, panels.length]} material={mat('powderWhite')} frustumCulled={false}>
-        <boxGeometry args={[1.22 * M, 0.06, 0.62 * M]} />
+      <instancedMesh ref={bezel} args={[BEZEL_GEO, null, panels.length]} material={mat('powderWhite')} frustumCulled={false}>
       </instancedMesh>
     </group>
   );
@@ -372,8 +390,13 @@ function BigFurniture({ map }) {
 
 // The batch: every built piece's parts, the ramps' and the building's, moved
 // into the world and merged by material.
+// The last floor's bake is kept across mounts: the scene remounts for
+// every match, and re-baking the office (≈0.5 M vertices) cost 100–600 ms of
+// main thread each time. It is disposed when another floor replaces it.
+let lastBake = null;
 function StaticBatch({ map, built }) {
   const groups = useMemo(() => {
+    if (lastBake?.map === map) return lastBake.groups;
     const all = [];
     const push = (parts, world) => {
       for (const part of parts) all.push({ ...foldTint(part), m: world.clone().multiply(part.m) });
@@ -383,9 +406,11 @@ function StaticBatch({ map, built }) {
     // the building's parts are already in world metres
     const office = !THEMES[map.theme];
     push(buildArchitecture(map, { office, styled: new Set(Object.keys(WALL_STYLES)) }), new THREE.Matrix4().makeScale(M, M, M));
-    return [...bake(all)].map(([key, geo]) => ({ key, geo }));
+    const groups = [...bake(all)].map(([key, geo]) => ({ key, geo }));
+    lastBake?.groups.forEach((g) => g.geo.dispose());
+    lastBake = { map, groups };
+    return groups;
   }, [map, built]);
-  useEffect(() => () => groups.forEach((g) => g.geo.dispose()), [groups]);
   return groups.map((g) => (
     <mesh key={g.key} geometry={g.geo} material={mat(g.key)} castShadow={castsShadow(g.key)} receiveShadow={receivesShadow(g.key)} />
   ));

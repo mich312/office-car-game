@@ -44,8 +44,11 @@ const RemoteCar = memo(function RemoteCar({ player }) {
   const boostingRef = useRef(false);
   const flagsRef = useRef(0);
   const leanRef = useRef({ roll: 0, pitch: 0 });
+  // last position and velocity, and this car's engine record for the mixer:
+  // written in place every frame (no allocation per remote car per frame)
   const last = useRef(null);
   const lastVel = useRef(null);
+  const voice = useMemo(() => ({ id: player.id, x: 0, y: 0, z: 0, speed: 0, car: player.car, boosting: false }), [player.id, player.car]);
 
   const skidKeys = [`${player.id}:0`, `${player.id}:1`];
   // stable, or every re-render re-applies the body's transform (see LocalCar)
@@ -83,9 +86,9 @@ const RemoteCar = memo(function RemoteCar({ player }) {
         leanRef.current.roll += (tRoll - leanRef.current.roll) * k;
         leanRef.current.pitch += (tPitch - leanRef.current.pitch) * k;
       }
-      lastVel.current = [vx, vz];
+      if (lastVel.current) { lastVel.current[0] = vx; lastVel.current[1] = vz; } else lastVel.current = [vx, vz];
     }
-    last.current = [...s.p];
+    if (last.current) { last.current[0] = s.p[0]; last.current[1] = s.p[1]; last.current[2] = s.p[2]; } else last.current = [s.p[0], s.p[1], s.p[2]];
 
     // Rivals' drifts and boosts, from the snapshot flags (bit 1 drifting,
     // 2 grounded, 256 boosting). The drifting bit was always sent and never
@@ -94,7 +97,11 @@ const RemoteCar = memo(function RemoteCar({ player }) {
     boostingRef.current = !!(f & 256);
     // knocked-out ghosts in Last Car Standing make no sound
     if ((f & 128) && useStore.getState().modeId === 'last_standing') rivalAudio.delete(player.id);
-    else rivalAudio.set(player.id, { id: player.id, x: s.p[0], y: s.p[1], z: s.p[2], speed: speedRef.current, car: player.car, boosting: !!(f & 256) });
+    else {
+      voice.x = s.p[0]; voice.y = s.p[1]; voice.z = s.p[2];
+      voice.speed = speedRef.current; voice.boosting = !!(f & 256);
+      rivalAudio.set(player.id, voice);
+    }
     const cam = state.camera.position;
     const near = Math.hypot(s.p[0] - cam.x, s.p[2] - cam.z) < FX_RANGE;
     if (near && (f & 1) && (f & 2) && speedRef.current > 4) {
@@ -125,8 +132,10 @@ const RemoteCar = memo(function RemoteCar({ player }) {
       <CuboidCollider args={[CAR_WIDTH / 2, CAR_HEIGHT / 2, CAR_LENGTH / 2]} />
       <group ref={group}>
         {/* LOD: full model near, merged mid model (baked wheels, no
-            suspension or driver) past 12 units, 2-draw proxy past 28 */}
-        <Detailed distances={[0, 12, 28]}>
+            suspension or driver, but the status overlays) past 12 units,
+            2-draw proxy past 28; a little hysteresis so a car hovering at
+            a threshold doesn't flicker between the two */}
+        <Detailed distances={[0, 12, 28]} hysteresis={0.1}>
           <CarModel
             carId={player.car}
             paint={player.paint}
@@ -148,6 +157,8 @@ const RemoteCar = memo(function RemoteCar({ player }) {
             tune={player.tune}
             name={player.bot ? `🤖 ${player.name}` : player.name}
             team={useStore.getState().modeId === 'soccer' ? player.team : undefined}
+            flagsRef={flagsRef}
+            boostingRef={boostingRef}
           />
           <CarProxy carId={player.car} paint={player.paint} />
         </Detailed>

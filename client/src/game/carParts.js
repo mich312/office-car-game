@@ -34,12 +34,12 @@ const ANCHOR = {
   buggy: {
     head: [0.07, 0.05, 0.035, 0.035], tail: [0.14, 0.13, 0.03, 0.025], grille: null,
     intake: null, plate: [0.06, 0.12], bumper: [-0.04, -0.04], mirror: null, hood: 0.3, roof: -0.12,
-    seat: [0.05, -0.06, 1], antenna: [-0.18, -0.26], sill: [-0.15, 0.15], pipe: [0.11, -0.01], deck: -0.34,
+    seat: [0.05, -0.06, 1], antenna: [-0.18, -0.26], sill: [-0.15, 0.15], pipe: [0.11, -0.01], deck: -0.28,
   },
   formula: {
     head: null, tail: null, grille: null,
     intake: null, plate: [0.06, 0.1], bumper: [-0.045, -0.045], mirror: 0.13, hood: 0.3, roof: -0.2,
-    seat: [0.0, 0.035, 0.82], antenna: [-0.1, -0.3], sill: [-0.2, 0.1], pipe: [0, 0.035], deck: -0.4,
+    seat: [0.0, 0.035, 0.82], antenna: [-0.1, -0.3], sill: [-0.2, 0.1], pipe: [0, 0.035], deck: -0.32,
   },
 };
 export const anchorsOf = (carId) => ANCHOR[carId] || ANCHOR.balanced;
@@ -55,7 +55,22 @@ const SHUT = {
 
 const PI = Math.PI;
 
+// Builds are shared by every car on the same parts, and counted: a mounted
+// car holds its build (holdCar/dropCar). Bots are rolled fresh every match,
+// so a cache that kept everything grew by ~13 MB of vertex data a match; a
+// build nobody holds is freed a few seconds later (a remount in between
+// picks it straight back up).
 const cache = new Map();
+const FREE_AFTER_MS = 4000;
+export function holdCar(build) { build.holds = (build.holds || 0) + 1; }
+export function dropCar(build) {
+  if (--build.holds > 0) return;
+  setTimeout(() => {
+    if (build.holds > 0 || cache.get(build.key) !== build) return;
+    cache.delete(build.key);
+    for (const g of Object.values(build.slots)) g.dispose();
+  }, FREE_AFTER_MS);
+}
 // o: { wide, front, hood, roof, skirts, exhaust, spoiler, wing, wheelR,
 //      trim (accent fitted?), mid (bake wheels, fold metal into kit) }
 export function buildCar(carId, o) {
@@ -97,6 +112,7 @@ export function buildCar(carId, o) {
     delete slots.metal;
   }
   out.slots = slots;
+  out.key = key;
   cache.set(key, out);
   return out;
 }
@@ -380,7 +396,7 @@ const SIGNATURE = {
       P.cyl('head', 0.019, 0.019, 0.004, [s * 0.07, 0.05, z + 0.008], [PI / 2, 0, 0], LENS.head, 12);
     }
   },
-  formula(P, S, o) {
+  formula(P, S, o, out) {
     const [cz0, cz1, chw] = S.B.cockpit;
     const cy = S.top((cz0 + cz1) / 2, 0);
     // cockpit opening with a padded rim
@@ -390,6 +406,10 @@ const SIGNATURE = {
     const az = cz0 - 0.07, ay = S.top(az, 0);
     P.box('paint', [0.07, 0.07, 0.14], [0, ay + 0.02, az], [0.12, 0, 0], null, 0.03);
     P.box('kit', [0.05, 0.035, 0.02], [0, ay + 0.035, az + 0.066], null, COL.black, 0.012);
+    // the roof socket is the airbox's top: a hat or a roof part on the engine
+    // cover behind it sat half inside it
+    out.anchors.roofY = ay + 0.06;
+    out.anchors.roofZ = az;
     // sidepod intakes
     const [pz0, pz1, pw, py] = S.B.pods;
     for (const s of [-1, 1]) P.box('kit', [0.07, 0.035, 0.02], [s * (pw - 0.05), py - 0.02, pz1 + 0.012], [0, 0, 0], COL.black, 0.012);
@@ -586,7 +606,11 @@ function roof(P, S, o, out) {
     }
     default:
   }
+  // the hat sits on whatever is fitted up there (it was buried in the file
+  // box and the trays); the stacks keep to the roof itself
+  out.anchors.hatY = y + (ROOF_TOP[o.roof] || 0);
 }
+const ROOF_TOP = { rack: 0.14, tray: 0.093 };
 
 function sills(P, S, o) {
   const [z0, z1] = S.A.sill;
@@ -656,8 +680,12 @@ function exhaust(P, S, o, out) {
 function spoiler(P, S, o) {
   if (o.spoiler === 'none') return;
   // hatch: the wing sits on the roof's trailing edge; everyone else on the deck
-  const z = S.A.deck;
-  const deckY = S.top(z, 0.15);
+  let z = S.A.deck;
+  let deckY = S.top(z, 0.15);
+  // a deck behind the shell's own tail has no surface (top() says −1):
+  // step forward onto the body rather than build the wing under the car
+  for (let k = 0; k < 20 && deckY < 0; k++) deckY = S.top((z += 0.01), 0.15);
+  if (deckY < 0) return;
   const side = S.side(z, deckY - 0.02);
   const hw = S.id === 'formula' ? 0.24 : side > 0.15 ? Math.min(0.27, side - 0.005) : 0.22;
   const rake = o.wing * 0.075;

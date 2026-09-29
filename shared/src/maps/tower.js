@@ -209,7 +209,7 @@ const FURNITURE = [
   f('tower_deskrow', 9.4, -4.35, 1.6, 4.1, 0.74),
   f('tower_booth', 8.2, -11.3, 1.1, 1.1, 2.2),
   f('tower_booth', 9.5, -11.3, 1.1, 1.1, 2.2),
-  f('copier', 20.4, -11.4, 0.9, 0.9, 1.25),
+  f('copier', 20.15, -11.4, 0.9, 0.9, 1.25), // its output tray (+x) stays clear of the glass
   f('tower_credenza', 11.4, -2.33, 2.0, 0.45, 0.72, Math.PI),
 
   // ---- the core: three racks in the comms cupboard

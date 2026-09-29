@@ -102,6 +102,13 @@ export function buildArchitecture(map, opts) {
       const cx = (s.a + s.b) / 2;
       p.add('wall', box(s.len, s.h, s.t), [cx, s.h / 2, 0], null, null, base);
       skins(s, s.a, s.b, SKIRT_H - 0.01, s.h, s.t);
+      // and its ends, in the paint of the room each looks into (a pillar's
+      // other two faces came out base colour: two-tone in a green café)
+      for (const end of [-1, 1]) {
+        const ex = end > 0 ? s.b : s.a;
+        const c = roomPaint(...worldAt(s, ex + end * 0.25, 0));
+        if (c) p.add('wall', box(0.003, s.h - SKIRT_H + 0.01, s.t), [ex + end * 0.0015, (s.h + SKIRT_H - 0.01) / 2, 0], null, null, c);
+      }
       // skirting on both faces and the exposed ends (pillars get all four)
       for (const side of [-1, 1]) {
         p.add(skirt, rbox(s.len + SKIRT_T * 2, SKIRT_H, SKIRT_T, 0.004, 1), [cx, SKIRT_H / 2, side * (s.t / 2 + SKIRT_T / 2)]);
@@ -126,7 +133,9 @@ export function buildArchitecture(map, opts) {
         const x = s.a + 0.2 + r() * (s.len - 0.4);
         const side = r() < 0.5 ? -1 : 1;
         const w = 0.15 + r() * 0.5, h = 0.04 + r() * 0.12;
-        p.add('scuff', card(w, h, [r() < 0.5 ? 0 : 0.5, 0, r() < 0.5 ? 0.5 : 1, 1]), [x, SKIRT_H + 0.02 + h / 2 + r() * 0.2, side * (s.t / 2 + 0.0045)], side < 0 ? [0, Math.PI, 0] : null);
+        // one cell of the 2 × 2 scuff atlas
+        const cu = r() < 0.5 ? 0 : 0.5, cv = r() < 0.5 ? 0 : 0.5;
+        p.add('scuff', card(w, h, [cu, cv, cu + 0.5, cv + 0.5]), [x, SKIRT_H + 0.02 + h / 2 + r() * 0.2, side * (s.t / 2 + 0.0045)], side < 0 ? [0, Math.PI, 0] : null);
       }
     });
   }
@@ -189,7 +198,9 @@ export function buildArchitecture(map, opts) {
     onLine(p, s, () => {
       const cx = (s.a + s.b) / 2;
       p.add('glassPane', box(s.len, s.h - 0.1, 0.012), [cx, 0.05 + (s.h - 0.1) / 2, 0]);
-      p.add('brushedSteel', rbox(s.len, 0.05, s.t * 0.6, 0.006, 1), [cx, 0.025, 0]);
+      // the base channel is the collider's full depth: a car stops on it, not
+      // on thin air in front of the glass
+      p.add('brushedSteel', rbox(s.len, 0.05, s.t, 0.006, 1), [cx, 0.025, 0]);
       p.add('brushedSteel', rbox(s.len + 0.04, 0.045, 0.07, 0.02, 2), [cx, s.h, 0]);
       const n = Math.max(1, Math.round(s.len / 1.2));
       for (let i = 0; i <= n; i++) {
