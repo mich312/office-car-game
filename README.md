@@ -54,7 +54,11 @@ accelerating on its own for one-handed play. Tuck in behind a rival for ~2 secon
 **slipstream** burst, and watch the banner: office events telegraph
 themselves 3 seconds before they hit. There is no jump button — air time
 comes from ramps, springs and furniture, and the car self-levels so you land
-on your wheels. Climbing assist keeps ramps drivable at full grade.
+on your wheels. Hard landings, wall hits and car shunts each have their own
+thump, spark and camera kick (and rumble, on a gamepad or phone); each drift
+tier chimes as you reach it; and in a slide the camera swings toward where
+you're actually going. Camera motion is toned down if your OS asks for
+reduced motion. Climbing assist keeps ramps drivable at full grade.
 
 ## The garage
 
