@@ -15,7 +15,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const server = spawn('node', ['server/src/index.js'], {
   cwd: new URL('..', import.meta.url).pathname,
-  env: { ...process.env, PORT: String(PORT), RC_MATCH_SECONDS: '120' },
+  // pinned to the office: HOME, SEEN and the other fixtures below are office
+  // coordinates, and quick play would otherwise start the match on any floor
+  // (on the tower, SEEN lies inside a wall)
+  env: { ...process.env, PORT: String(PORT), RC_MATCH_SECONDS: '120', RC_MAP: 'office' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', (d) => process.stderr.write('[server] ' + d));
