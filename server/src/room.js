@@ -55,7 +55,12 @@ const POS_SLACK = 20;
 let nextId = 1;
 
 export class Room {
-  constructor() {
+  // code/isPrivate come from the RoomManager (rooms.js); a bare Room() is a
+  // nameless public room, which is what the tests and harness use.
+  constructor(code = null, isPrivate = false) {
+    this.code = code;
+    this.isPrivate = isPrivate;
+    this.pending = 0; // sockets connected that haven't said HELLO yet
     this.players = new Map(); // id → player
     this.phase = PHASE.LOBBY;
     this.mode = null; // active mode controller
@@ -81,18 +86,31 @@ export class Room {
     this.printerAt = 0;
     this.vendReadyAt = 0;
     this.mugAt = 0;
-    setInterval(() => this.tick(1 / TICK_RATE), 1000 / TICK_RATE);
+    this.timer = setInterval(() => this.tick(1 / TICK_RATE), 1000 / TICK_RATE);
+  }
+
+  // Called by the RoomManager when an empty room is retired.
+  dispose() {
+    clearInterval(this.timer);
+    this.bots.clear();
+    for (const p of this.players.values()) p.ws?.close();
+    this.players.clear();
   }
 
   // ------------------------------------------------------------- connections
   addConnection(ws) {
+    this.pending++;
     ws.on('message', (data) => {
       let msg;
       try { msg = JSON.parse(data); } catch { return; }
       try { this.onMessage(ws, msg); } catch (e) { console.error('msg error', e); }
     });
-    ws.on('close', () => this.removePlayer(ws.playerId));
-    ws.on('error', () => this.removePlayer(ws.playerId));
+    const gone = () => {
+      if (!ws.playerId && !ws.countedGone) { ws.countedGone = true; this.pending--; }
+      this.removePlayer(ws.playerId);
+    };
+    ws.on('close', gone);
+    ws.on('error', gone);
   }
 
   onMessage(ws, msg) {
@@ -106,6 +124,7 @@ export class Room {
         }
         const id = `p${nextId++}`;
         ws.playerId = id;
+        this.pending--;
         const p = this.makePlayer(id, ws, msg);
         this.players.set(id, p);
         // Drop-in: joining mid-match spawns you straight into the game.
@@ -116,6 +135,7 @@ export class Room {
         if (this.phase === PHASE.PLAYING && this.mode) this.mode.onJoin?.(p);
         ws.send(JSON.stringify({
           t: MSG.WELCOME, id, phase: this.phase,
+          room: this.code, private: this.isPrivate,
           mode: this.modeId, endsAt: this.endsAt,
           players: this.publicPlayers(),
           // mid-countdown joiners need the remaining countdown, and mid-match

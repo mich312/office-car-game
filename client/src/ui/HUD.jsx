@@ -8,6 +8,7 @@ import { net, send } from '../net.js';
 import { telemetry } from '../game/LocalCar.jsx';
 import { touchInput } from '../game/useControls.js';
 import { audio } from '../audio.js';
+import { inviteLink, copyText } from '../rooms.js';
 import Icon, { MODE_ICON, EVENT_ICON } from './Icon.jsx';
 
 export default function HUD() {
@@ -72,6 +73,34 @@ export default function HUD() {
 // ------------------------------------------------------------------ lobby
 // A side rail instead of a centered panel: the live office IS the lobby,
 // so the menu leaves most of the screen to it.
+// The room you're in and the link that brings friends to it. Any room can be
+// joined by its code, so a quick-play room gets an invite link too.
+function RoomBadge() {
+  const code = useStore((s) => s.roomCode);
+  const isPrivate = useStore((s) => s.roomPrivate);
+  const [copied, setCopied] = useState(false);
+  if (!code) return null;
+  const copy = async () => {
+    const ok = await copyText(inviteLink(code));
+    setCopied(ok ? 'Link copied' : 'Copy failed');
+    audio.blip(ok ? 990 : 330, 0.06);
+    setTimeout(() => setCopied(false), 2200);
+  };
+  return (
+    <div className={`room-badge ${isPrivate ? 'private' : ''}`}>
+      <div>
+        <span className="label">
+          <Icon name={isPrivate ? 'lock' : 'globe'} size={11} /> {isPrivate ? 'private room' : 'quick play'}
+        </span>
+        <b className="room-code" aria-label={`Room code ${code.split('').join(' ')}`}>{code}</b>
+      </div>
+      <button className="btn btn-ghost room-copy" onClick={copy} aria-live="polite">
+        <Icon name={copied ? 'check' : 'link'} size={14} /> {copied || 'Copy invite link'}
+      </button>
+    </div>
+  );
+}
+
 function Lobby() {
   const players = useStore((s) => s.players);
   const votes = useStore((s) => s.votes);
@@ -101,6 +130,7 @@ function Lobby() {
           {humans.length} human{humans.length === 1 ? '' : 's'} · bots fill empty desks
         </p>
       </div>
+      <RoomBadge />
       <div className="rail-players">
         {list.map((p) => (
           <span key={p.id} className={`rail-player ${p.ready ? 'ready' : ''}`}>

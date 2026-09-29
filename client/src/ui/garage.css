@@ -520,3 +520,46 @@ button.chip { cursor: pointer; }
   letter-spacing: 0.2em;
   transform: rotate(-4deg);
 }
+
+/* ----------------------------------------------------- where to play */
+.mu-room {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 7px 14px;
+  border-top: 1px solid var(--line);
+  background: #131828;
+}
+.mu-room .label { font-size: 9px; margin-right: 2px; }
+.mu-room-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  font: 600 12px var(--font-body);
+  color: var(--text-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.mu-room-opt:hover:not(:disabled) { color: var(--text-1); border-color: var(--text-3); }
+.mu-room-opt:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+.mu-room-opt.sel { color: var(--amber); border-color: var(--amber); background: var(--amber-tint); }
+.mu-room-opt:disabled { opacity: 0.45; cursor: default; }
+.mu-room-code { font-family: var(--font-display); font-size: 14px; letter-spacing: 0.08em; }
+.mu-room-join { display: inline-flex; gap: 4px; }
+.mu-room-join input {
+  width: 64px;
+  padding: 5px 8px;
+  font: 700 14px var(--font-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-1);
+  background: var(--bg-2);
+  border: 1px solid var(--info);
+  border-radius: var(--r-ctl);
+  outline: none;
+}

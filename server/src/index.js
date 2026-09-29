@@ -1,12 +1,13 @@
 // Tiny RC Mayhem — authoritative game server.
-// Serves the built client (client/dist) over HTTP and runs the ws game room.
+// Serves the built client (client/dist) over HTTP and runs the ws game rooms.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { DEFAULT_PORT } from '@rc/shared';
+import { DEFAULT_PORT, MSG } from '@rc/shared';
 import { Room } from './room.js';
+import { RoomManager } from './rooms.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, '../../client/dist');
@@ -50,13 +51,24 @@ const server = http.createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server, path: '/ws' });
-const room = new Room();
+const rooms = new RoomManager((code, isPrivate) => new Room(code, isPrivate));
+setInterval(() => rooms.sweep(), 5000);
 
-wss.on('connection', (ws) => room.addConnection(ws));
+wss.on('connection', (ws, req) => {
+  let requested = null;
+  try { requested = new URL(req.url, 'http://x').searchParams.get('room'); } catch { /* no room: quick play */ }
+  const r = rooms.resolve(requested);
+  if (r.error) {
+    ws.send(JSON.stringify({ t: MSG.ERROR, reason: r.error, fatal: true }));
+    ws.close();
+    return;
+  }
+  r.room.addConnection(ws);
+});
 
-// Last resort. One room per process means an uncaught throw anywhere ends
-// every match in the building, so we'd rather log it and keep ticking than
-// exit cleanly. Anything that lands here is a bug worth fixing at the source.
+// Last resort. Every room lives in this one process, so an uncaught throw
+// anywhere would end every match in every office; we'd rather log it and
+// keep ticking than exit cleanly. Anything that lands here is a bug worth fixing at the source.
 process.on('uncaughtException', (err) => console.error('uncaught', err));
 process.on('unhandledRejection', (err) => console.error('unhandled rejection', err));
 

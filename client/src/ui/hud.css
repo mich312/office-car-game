@@ -472,6 +472,30 @@
   letter-spacing: 0.08em;
   line-height: 1;
 }
+/* the room you're in, and the link that brings friends to it */
+.room-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+}
+.room-badge.private { border-color: var(--amber); background: var(--amber-tint); }
+.room-badge .label { display: inline-flex; align-items: center; gap: 0.3rem; }
+.room-code {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1.05;
+  color: var(--text-1);
+}
+.room-badge.private .room-code { color: var(--amber); }
+.room-copy { white-space: nowrap; font-size: 0.8rem; padding: 0.45rem 0.7rem; }
 .rail-players { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .rail-player {
   display: inline-flex;

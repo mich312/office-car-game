@@ -2,6 +2,7 @@
 // Everything a useFrame loop reads lives on the mutable `net` object —
 // zustand only gets things React actually renders.
 import { MSG, INTERP_DELAY_MS, PHASE, decodeSnapshot } from '@rc/shared';
+import { setUrlRoom } from './rooms.js';
 import { useStore } from './store.js';
 
 export const net = {
@@ -53,7 +54,9 @@ export function connect() {
   const store = useStore.getState();
   intentionalClose = false;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const url = `${proto}://${location.host}/ws`;
+  // a reconnect goes back to the room we were in; otherwise what was asked for
+  const want = net.rejoin || store.roomRequest;
+  const url = `${proto}://${location.host}/ws${want ? `?room=${encodeURIComponent(want)}` : ''}`;
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer'; // snapshots arrive as binary frames
   net.ws = ws;
@@ -86,6 +89,7 @@ export function connect() {
 
 export function disconnect() {
   intentionalClose = true;
+  net.rejoin = null;
   clearTimeout(reconnectTimer);
   net.ws?.close();
   net.remotes.clear();
@@ -98,6 +102,14 @@ function handleMessage(msg) {
   switch (msg.t) {
     case MSG.WELCOME: {
       net.myId = msg.id;
+      // Remember the room for reconnects. A private room also goes in the
+      // address bar (reload = back with your friends, and the bar IS the
+      // invite link); quick play keeps the bar clean.
+      net.rejoin = msg.room || null;
+      if (msg.room) {
+        S.setState({ roomCode: msg.room, roomPrivate: !!msg.private, roomRequest: msg.private ? msg.room : null });
+        setUrlRoom(msg.private ? msg.room : null);
+      }
       const players = {};
       for (const p of msg.players) players[p.id] = p;
       // A WELCOME is always a fresh identity (a reconnect gets a new id), so
@@ -289,6 +301,14 @@ function handleMessage(msg) {
     }
     case MSG.ERROR:
       S.setState({ connectError: msg.reason });
+      if (msg.fatal) {
+        // the server turned the connection away (bad code, at capacity):
+        // retrying the same request would only be turned away again
+        intentionalClose = true;
+        net.rejoin = null;
+        S.setState({ roomRequest: null });
+        setUrlRoom(null);
+      }
       break;
   }
 }

@@ -230,8 +230,8 @@ process down — and with it every in-progress match, because there's one `Room`
 A single `GET /%` from anywhere on the network ends the game.
 
 **Fixed.** The decode is wrapped and answers 400. A process-level `uncaughtException`
-handler was added as a last resort for the same reason — one room per process means an
-uncaught throw anywhere ends every match in the building, so logging and continuing beats
+handler was added as a last resort for the same reason — all rooms share one process, so an
+uncaught throw anywhere ends every match in every office; logging and continuing beats
 exiting cleanly. Guarded by four `http: …` checks, the last of which is simply "the server
 is still alive afterwards".
 
