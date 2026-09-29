@@ -25,6 +25,14 @@ const dist2d = (a, b) => Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]);
 const r2 = (n) => Math.round(n * 100) / 100;
 const clamp = (n, lo, hi) => (n < lo ? lo : n > hi ? hi : n);
 
+// A BUMP report is only believed this close (centre to centre; cars are
+// 1.0 long). The slack covers a 20 Hz report lag at ramming speed — any more
+// let a client claim the pair's hit cooldown before the contact happened.
+const BUMP_REPORT_RANGE = BUMP_RADIUS * 2;
+// Closing speeds within this (u/s, or 30 %) of each other are a head-on:
+// both cars take the hit.
+const BUMP_MUTUAL_SLACK = 3;
+
 // Anything a client reports has to survive this before it touches room state.
 // A non-finite number is worse than a wrong one: NaN fails every comparison,
 // so a NaN position slips past distance checks (no pickups, no bumps, no zone
@@ -238,8 +246,9 @@ export class Room {
         const target = this.players.get(msg.target);
         if (!target || target.id === player.id) return;
         if (player.eliminated || target.eliminated) return; // ghosts don't hit
-        if (dist2d(player, target) > BUMP_RADIUS * 2.5) return; // validate
-        // rub/hit classification and per-pair cooldowns live in onBump
+        if (dist2d(player, target) > BUMP_REPORT_RANGE) return; // validate
+        // who hit whom, rub/hit classification and per-pair cooldowns live
+        // in onBump — the reporter is not assumed to be the attacker
         this.onBump(player, target);
         break;
       }
@@ -606,7 +615,7 @@ export class Room {
         break;
       case 'emp': {
         const targets = others.filter((p) => dist2d(p, player) < FX.EMP_RADIUS && p.shieldUntil < t && p.spawnProtectUntil < t);
-        for (const v of targets) { v.stunUntil = t + FX.EMP_STUN_S * 1000; this.mode?.onHit?.(player, v); }
+        for (const v of targets) { v.stunUntil = t + FX.EMP_STUN_S * 1000; this.itemHit(player, v); }
         this.broadcast({
           t: MSG.EFFECT, type: 'emp', id: player.id, at: player.p,
           targets: targets.map((p) => p.id), stunMs: FX.EMP_STUN_S * 1000,
@@ -687,7 +696,7 @@ export class Room {
             target.kick.z += Math.sin(a) * 14;
           }
           const owner = this.players.get(r.owner);
-          if (owner) this.mode?.onHit?.(owner, target);
+          if (owner) this.itemHit(owner, target);
           this.broadcast({ t: MSG.EFFECT, type: 'rocket_hit', target: target.id, at: target.p, stunMs: FX.ROCKET_STUN_S * 1000 });
           this.feed(`🧨 ${this.players.get(r.owner)?.name || '???'} rocketed ${target.name}`);
         }
@@ -699,10 +708,36 @@ export class Room {
     this.rockets = this.rockets.filter((r) => !r.dead);
   }
 
-  onBump(a, b) {
+  // Who hit whom, from the server's own state. Each car's speed along the
+  // line between them: the car closing faster is the attacker. Which client
+  // reported the contact says nothing (both usually do, and bots never do),
+  // so letting the reporter be the attacker made a parked carrier that got
+  // rammed the one who knocked the rammer's beans out.
+  hitOrder(x, y) {
+    const dx = y.p[0] - x.p[0], dz = y.p[2] - x.p[2];
+    const d = Math.hypot(dx, dz) || 1;
+    const nx = dx / d, nz = dz / d;
+    const cx = x.v[0] * nx + x.v[2] * nz; // x toward y
+    const cy = -(y.v[0] * nx + y.v[2] * nz); // y toward x
+    const mutual = Math.abs(cx - cy) < Math.max(BUMP_MUTUAL_SLACK, 0.3 * Math.max(Math.abs(cx), Math.abs(cy)));
+    return cx >= cy ? [x, y, mutual] : [y, x, mutual];
+  }
+
+  // An item landing (EMP, rocket) is a hit from its owner, except where a
+  // mode tells the two apart: in You're It, the It car's own EMP handed It
+  // to whoever it zapped.
+  itemHit(owner, target) {
+    if (this.mode?.onItemHit) this.mode.onItemHit(owner, target);
+    else this.mode?.onHit?.(owner, target);
+  }
+
+  onBump(x, y) {
     const t = now();
+    const [a, b, mutual] = this.hitOrder(x, y);
     // Spawn protection: a protected car can't be hit; a protected car that
-    // rams someone forfeits the protection and the contact proceeds.
+    // rams someone forfeits the protection and the contact proceeds. A
+    // head-on with a protected car is neither.
+    if (mutual && (a.spawnProtectUntil > t || b.spawnProtectUntil > t)) return;
     if (b.spawnProtectUntil > t) return;
     if (a.spawnProtectUntil > t) a.spawnProtectUntil = 0;
     const rel = Math.hypot(a.v[0] - b.v[0], a.v[2] - b.v[2]);
@@ -727,6 +762,7 @@ export class Room {
       return;
     }
     this.mode?.onHit?.(a, b, rel);
+    if (mutual) this.mode?.onHit?.(b, a, rel); // a head-on hurts both
     // Big shunts make the feed (sparingly), and bumped bots talk back.
     if (rel > 18 && Math.random() < 0.35) {
       const verbs = ['body-checked', 'flattened', 'T-boned', 'yeeted', 'audited'];

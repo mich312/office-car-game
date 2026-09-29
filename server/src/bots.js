@@ -20,6 +20,7 @@ const BOT_TURBO_S = 1.5; // how long a turbo item surges a bot
 const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
+const BOT_CONTACT = 1.05; // centre distance that counts as two bots touching (separate()'s personal space)
 
 // Wall AABBs (padded by a car's half-width) per map, built once.
 const boxCache = new WeakMap();
@@ -134,7 +135,24 @@ export class Bots {
         }
       }
     }
+    this.contacts();
     this.separate();
+  }
+
+  // Bots have no client to report their contacts, so the server raises the
+  // bot-vs-bot ones (before separate() pushes them apart). Bot-vs-human is
+  // left to the human's client, whose real colliders saw the contact — this
+  // circle would echo knockback for touches that never happened. onBump
+  // decides who hit whom and owns the per-pair cooldowns.
+  contacts() {
+    const bots = [...this.room.players.values()].filter((p) => p.bot && !p.eliminated);
+    for (let i = 0; i < bots.length; i++) {
+      for (let j = i + 1; j < bots.length; j++) {
+        const a = bots[i], b = bots[j];
+        if (Math.abs(a.p[1] - b.p[1]) > 1) continue; // one is hopping over the other
+        if (Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]) < BOT_CONTACT) this.room.onBump(a, b);
+      }
+    }
   }
 
   // Bots have no collision shapes, so without this they drive through each
@@ -149,7 +167,7 @@ export class Bots {
         if (o === b) continue;
         const dx = b.p[0] - o.p[0], dz = b.p[2] - o.p[2];
         const d = Math.hypot(dx, dz);
-        const minD = 1.05;
+        const minD = BOT_CONTACT;
         if (d >= minD) continue;
         if (d < 1e-4) { b.p[0] += 0.1; continue; }
         const push = (minD - d) * (o.bot ? 0.5 : 1);

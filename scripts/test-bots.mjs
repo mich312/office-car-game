@@ -9,7 +9,7 @@ import { createSim } from './bot-sim.mjs';
 import {
   shouldUseItem, padWorthDetour, ITEM_REACT_S, ITEM_FALLBACK_S, SHIELD_ROCKET_RANGE,
 } from '../server/src/botbrain.js';
-import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT } from '../shared/src/index.js';
+import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, MSG } from '../shared/src/index.js';
 import { MAPS, MAP_IDS } from '../shared/src/index.js';
 
 let fails = 0;
@@ -151,6 +151,85 @@ for (const [mode, variant] of [['sumo', 'drift'], ['koth', 'rush']]) {
   sim.run(1.5, () => { apex = Math.max(apex, b.p[1]); if (!b.grounded) airborneSeen = true; });
   check(`spring: a bot's spring launches it (apex ${apex.toFixed(1)})`, apex > 1.5 && airborneSeen);
   check('spring: and it lands again', b.grounded && Math.abs(b.p[1] - 0.24) < 1e-9);
+}
+
+// ------------------------------------------------------------ contact
+// The server decides who hit whom (the car closing faster), whoever
+// reported it, and raises bot-vs-bot contacts itself: bots have no client.
+{
+  const human = (sim, id) => { const h = sim.room.makePlayer(id, null, { name: id }); sim.room.players.set(id, h); return h; };
+  const report = (sim, from, to) => sim.room.onMessage({ playerId: from.id }, { t: MSG.BUMP, target: to.id });
+  for (const map of MAP_IDS) {
+    {
+      const sim = await createSim({ seed: 1, mode: 'battery', map, bots: 1 });
+      const bot = sim.bots[0];
+      const h = human(sim, 'h1');
+      Object.assign(h, { p: [0, 0.24, 0], v: [0, 0, 0], hasBattery: true });
+      sim.room.mode.battery.carrier = h.id;
+      Object.assign(bot, { p: [-0.9, 0.24, 0], v: [25, 0, 0] });
+      report(sim, h, bot); // the rammed human's own client reports it
+      check(`${map} contact: a bot ramming a parked carrier knocks the battery loose`, sim.room.mode.battery.carrier !== h.id && !h.hasBattery);
+    }
+    {
+      const sim = await createSim({ seed: 1, mode: 'coffee_run', map, bots: 1 });
+      const bot = sim.bots[0];
+      const h = human(sim, 'h1');
+      Object.assign(h, { p: [0, 0.24, 0], v: [0, 0, 0], beans: 5 });
+      Object.assign(bot, { p: [-0.9, 0.24, 0], v: [25, 0, 0], beans: 2 });
+      report(sim, h, bot);
+      check(`${map} contact: the rammed car spills, not the rammer`, h.beans < 5 && bot.beans === 2);
+    }
+    for (const first of ['rammer', 'victim']) {
+      // between two humans, report order used to pick the victim
+      const sim = await createSim({ seed: 1, mode: 'coffee_run', map, bots: 0 });
+      const a = human(sim, 'h1'), b = human(sim, 'h2');
+      Object.assign(a, { p: [0, 0.24, 0], v: [0, 0, 0], beans: 6 });
+      Object.assign(b, { p: [-0.9, 0.24, 0], v: [22, 0, 0], beans: 4 });
+      if (first === 'rammer') { report(sim, b, a); report(sim, a, b); } else { report(sim, a, b); report(sim, b, a); }
+      check(`${map} contact: ${first}'s report first — the parked car spills either way`, a.beans < 6 && b.beans === 4);
+    }
+    {
+      const sim = await createSim({ seed: 1, mode: 'coffee_run', map, bots: 0 });
+      const a = human(sim, 'h1'), b = human(sim, 'h2');
+      Object.assign(a, { p: [0, 0.24, 0], v: [15, 0, 0], beans: 5 });
+      Object.assign(b, { p: [0.95, 0.24, 0], v: [-15, 0, 0], beans: 5 });
+      report(sim, a, b);
+      check(`${map} contact: a head-on spills both`, a.beans < 5 && b.beans < 5);
+    }
+    {
+      const sim = await createSim({ seed: 1, mode: 'coffee_run', map, bots: 0 });
+      const a = human(sim, 'h1'), b = human(sim, 'h2');
+      Object.assign(a, { p: [0, 0.24, 0], v: [0, 0, 0], beans: 5 });
+      Object.assign(b, { p: [-3.2, 0.24, 0], v: [25, 0, 0], beans: 0 });
+      report(sim, a, b);
+      check(`${map} contact: a report from 3 units away is not believed`, a.beans === 5 && sim.room.lastBump.size === 0);
+    }
+    {
+      // bots only, no items: every transfer of It is a contact the server saw
+      const sim = await createSim({ seed: 2, mode: 'tag', map });
+      sim.room.bots.items = false;
+      for (const b of sim.bots) b.powerup = null;
+      sim.run(120);
+      const tags = sim.events.filter((e) => e.type === 'tag').length;
+      check(`${map} tag: bots tag each other by contact (${tags} tags in 120 s)`, tags >= 3);
+    }
+    {
+      const sim = await createSim({ seed: 3, mode: 'tag', map, bots: 2 });
+      const [a, b] = sim.bots;
+      sim.room.mode.setIt(a); sim.room.mode.lastTagAt = 0;
+      b.p = [a.p[0] + 2, 0.24, a.p[2]];
+      a.powerup = 'emp'; sim.room.usePowerup(a);
+      check(`${map} tag: the It car's own EMP does not hand It to its victim`, sim.room.mode.it === a.id);
+      sim.room.mode.lastTagAt = 0;
+      b.powerup = 'emp'; sim.room.usePowerup(b);
+      check(`${map} tag: an EMP on the It car takes It`, sim.room.mode.it === b.id);
+      sim.room.mode.lastTagAt = 0;
+      Object.assign(b, { p: [0, 0.24, 0], v: [0, 0, 0], shieldUntil: sim.now() + 5000, stunUntil: 0 });
+      Object.assign(a, { p: [0.9, 0.24, 0], v: [-3, 0, 0], stunUntil: 0 });
+      sim.room.onBump(a, b); // a rub
+      check(`${map} tag: a rub does not steal It through a shield (it pops it)`, sim.room.mode.it === b.id && !(b.shieldUntil > sim.now()));
+    }
+  }
 }
 
 // --------------------------------------------------- every mode still runs

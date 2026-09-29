@@ -511,11 +511,22 @@ class TagMode {
   }
   transfer(a, b) {
     if (now() - this.lastTagAt < this.cfg.tagCooldownMs) return;
-    if (a.id === this.it) this.setIt(b);
-    else if (b.id === this.it) this.setIt(a);
+    const it = a.id === this.it ? a : b.id === this.it ? b : null;
+    if (!it) return;
+    // A shield keeps the crown on and pops. Hits already stop at the shield
+    // in room.onBump, but a gentle rub used to steal It straight through it.
+    if (it.shieldUntil > now()) {
+      it.shieldUntil = 0;
+      this.room.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: it.id });
+      return;
+    }
+    this.setIt(it === a ? b : a);
   }
   onHit(a, b) { if (a && b) this.transfer(a, b); }
   onRub(a, b) { this.transfer(a, b); }
+  // Any contact tags, but an item only tags when it lands ON the It car:
+  // the It car's own EMP or rocket used to hand It to its victim.
+  onItemHit(owner, target) { if (target.id === this.it) this.transfer(owner, target); }
   onLeave(p) { if (p.id === this.it) this.it = null; }
   update(dt) {
     let it = this.room.players.get(this.it);
