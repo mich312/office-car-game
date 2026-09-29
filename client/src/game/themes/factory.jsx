@@ -11,17 +11,21 @@
 // Around the line: pallet racking to the roof, a sawtooth roof of north
 // glazing with high-bay LEDs, painted floors (the identity of a factory at
 // car height — aisle lines, hazard stripes, stencils), an Andon board over
-// the grid, an HVLS fan, an overhead chain conveyor of printer housings
-// always moving across the top of the screen, and dock doors with daylight
-// under them.
+// the grid that counts the race start down, stack lights that warn when a
+// big arm is about to swing, an HVLS fan, an overhead chain conveyor of
+// printer housings always moving across the top of the screen, QA printers
+// pushing out test pages, a stretch-wrap turntable that turns, an AGV for
+// the robot event, and dock doors with daylight under them.
 //
 // Draw calls are the budget in an open hall where everything is in view at
-// once. Repeated static steel (racking, stock, bollards, pallets, fence
-// posts, columns) is merged into a few vertex-coloured batches; moving
-// repeats are instanced; per-piece geometry is built once and cached.
+// once. Everything static that repeats — racking, stock, pallets, bollards,
+// benches, tables, the smaller machines — is merged into a handful of
+// vertex-coloured batches (StaticStock; those pieces keep only their
+// colliders); moving repeats are instanced; the rest is built once per kind
+// and cached.
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { RigidBody, CuboidCollider, CylinderCollider, BallCollider, ConvexHullCollider } from '@react-three/rapier';
+import { RigidBody, CuboidCollider, CylinderCollider, ConvexHullCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M } from '@rc/shared';
@@ -37,7 +41,7 @@ const m = (v) => v * M; // metres → world units
 // ---------------------------------------------------------------- palette
 const C = {
   yellow: '#f2c200', black: '#1c1d1f', orange: '#f07a1a', joint: '#26282b',
-  frame: '#c4c8cc', belt: '#1d1e20', green: '#2f7d4a', greenBelt: '#3f8f5a',
+  frame: '#c4c8cc', belt: '#1d1e20',
   printer: '#e8e8e4', printerDark: '#3a3d42', brand: '#1f6fd6', card: '#b88a58',
   upright: '#1f4fa0', beam: '#e2611f', wall: '#e9ebe8', dado: '#848c92',
   steel: '#8e969d', galv: '#b8bec3', rubber: '#141516', wood: '#b08a5a',
@@ -2319,6 +2323,17 @@ function wedge(l, w, rise) {
   return ng;
 }
 
+// The solid under a ramp's deck, as a collider (a skin renders inside the
+// ramp's body, so this joins it): without it a car coming the other way
+// slides under the deck and wedges itself where it meets the floor.
+function WedgeCollider({ r }) {
+  const pts = useMemo(() => {
+    const w = r.w * 0.45, l = r.l / 2, h = r.rise * 0.94;
+    return new Float32Array([-w, 0, -l, w, 0, -l, -w, 0, l, w, 0, l, -w, h, l - m(0.02), w, h, l - m(0.02)]);
+  }, [r]);
+  return <ConvexHullCollider args={[pts]} />;
+}
+
 const checkerTex = () => once('checker', () => {
   const t = canvas(64, 64, (g, w, h) => {
     g.fillStyle = '#8e969d'; g.fillRect(0, 0, w, h);
@@ -2350,6 +2365,7 @@ function PlateRamp({ r, len, angle }) {
   const mat = useMemo(() => once('plateMat', () => new THREE.MeshStandardMaterial({ map: checkerTex(), roughness: 0.4, metalness: 0.7 })), []);
   return (
     <group>
+      <WedgeCollider r={r} />
       <KitMeshes geo={geo} />
       <mesh geometry={deck} material={mat} position={[0, r.rise / 2 + m(0.012), 0]} rotation-x={-Math.PI / 2 - angle} receiveShadow />
     </group>
@@ -2399,7 +2415,7 @@ function RollerChute({ r, len, angle }) {
     }
     return k.build();
   }, [r, len, angle]);
-  return <group><KitMeshes geo={geo} /></group>;
+  return <group><WedgeCollider r={r} /><KitMeshes geo={geo} /></group>;
 }
 
 // a kicker knocked together from what was lying around: pallets stacked
@@ -2421,6 +2437,7 @@ function PalletRamp({ r, len, angle }) {
   }, [r]);
   return (
     <group>
+      <WedgeCollider r={r} />
       <KitMeshes geo={geo} />
       <mesh position={[0, r.rise / 2 + m(0.012), 0]} rotation-x={-angle} castShadow receiveShadow>
         <boxGeometry args={[r.w, m(0.02), len]} />
