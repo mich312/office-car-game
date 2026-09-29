@@ -258,6 +258,7 @@ export default function LocalCar() {
               S.shake = 1;
               S.fovPunch = Math.max(S.fovPunch, 6);
               rumble(1, 350);
+              audio.duck(0.5, 0.2, 0.9);
             }
             if (fx.at) burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
             break;
@@ -289,15 +290,14 @@ export default function LocalCar() {
           case 'goal':
             S.shake = Math.max(S.shake, 0.5);
             audio.goal();
+            audio.duck(0.5, 0.5, 1.2);
             break;
           case 'bump': {
             if (fx.a !== me && fx.b !== me) {
               // spectator view of someone else's collision: sparks at impact
               if (fx.kind === 'hit' && fx.at) {
                 burst([fx.at[0], (fx.at[1] || 0) + 0.3, fx.at[2]], { count: 10, color: ['#ffe27a', '#ffb347', '#ffffff'], speed: 6, size: 0.07, ttl: 0.4, up: 2 });
-                const p = body.translation();
-                const d = Math.hypot(p.x - fx.at[0], p.z - fx.at[2]);
-                if (d < 25) audio.impact(Math.max(0.1, 0.4 - d * 0.015));
+                audio.impact(0.45, fx.at); // placed in the world: the panner does distance and side
               }
               break;
             }
@@ -321,6 +321,7 @@ export default function LocalCar() {
             // punch and buzz a second time one round-trip later)
             S.fovPunch = Math.max(S.fovPunch, Math.min(5, 1.5 + (fx.rel || 0) * 0.12));
             rumble(Math.min(1, 0.35 + (fx.rel || 0) * 0.025), 160);
+            if ((fx.rel || 0) > 16) audio.duck(0.3, 0.1, 0.6);
             // Mass-scaled knockback: getting hit by a Micro Monster hurts,
             // getting hit by a Formula barely rocks you.
             const otherPos = fx.a === me ? fx.pb : fx.pa;
@@ -383,6 +384,7 @@ export default function LocalCar() {
             if (fx.at) burst(fx.at, { count: 26, color: ['#ff5f6b', '#ffe27a', '#fff'], speed: 9, size: 0.14, ttl: 0.9 });
             if (fx.id === me) {
               audio.zap();
+              audio.duck(0.7, 0.8, 1.6);
               S.shake = 0;
               S.fallCamUntil = 0;
               body.setGravityScale(0, true);
@@ -485,6 +487,7 @@ export default function LocalCar() {
         S.shake = Math.max(S.shake, 0.12 + landing * 0.35);
         burst([pos.x, pos.y - 0.12, pos.z], { count: Math.round(5 + landing * 14), color: DUST, speed: 2 + landing * 4, size: 0.09, ttl: 0.55, up: 0.9, gravity: 0.4 });
         audio.thud(landing);
+        if (landing > 0.7) audio.duck(0.25, 0.08, 0.5);
         rumble(0.25 + landing * 0.6, 90 + landing * 120);
       }
     }
@@ -499,6 +502,7 @@ export default function LocalCar() {
         burst([pos.x + (S.postVX / pl) * 0.55, pos.y + 0.1, pos.z + (S.postVZ / pl) * 0.55],
           { count: Math.round(4 + hit * 12), color: SPARKS, speed: 3 + hit * 5, size: 0.06, ttl: 0.35, up: 2 });
         audio.impact(0.3 + hit * 0.7);
+        if (hit > 0.6) audio.duck(0.3, 0.1, 0.6);
         rumble(0.3 + hit * 0.7, 80 + hit * 140);
       }
     }
