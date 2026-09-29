@@ -174,6 +174,7 @@ class RaceMode {
             // the cars still racing (usePowerup and the pads skip it too)
             if (p.powerup) { p.powerup = null; this.room.sendTo?.(p, { t: MSG.PICKUP, powerup: null }); }
             this.room.feed(`🏁 ${p.name} finished ${['1st', '2nd', '3rd'][place - 1] || `${place}th`}!`);
+            this.room.broadcast({ t: MSG.EFFECT, type: 'race_finish', id: p.id, place }); // the HUD's FINISHED chip
             this.room.scoreChanged();
             if (place >= Math.min(3, this.room.players.size)) this.room.endsAt = Math.min(this.room.endsAt, now() + 12000);
           } else {

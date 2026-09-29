@@ -314,11 +314,15 @@ function MatchHUD() {
       <div className="hud-top">
         <div className={`timer-chip ${left > 0 && left <= 30 ? 'low' : ''}`}>{mm}:{ss}</div>
         <div className="hud-top-row">
-          {modeId === 'desk_dash' && prog && (
+          {modeId === 'desk_dash' && prog && (prog[0] >= raceLaps(map, MODES.desk_dash.laps) ? (
             <div className="chip"><Icon name="flag" size={15} />
-              LAP {Math.min(prog[0] + 1, raceLaps(map, MODES.desk_dash.laps))}/{raceLaps(map, MODES.desk_dash.laps)} · CP {prog[1]}/{map.CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
+              FINISHED{net.racePlace ? ` · ${net.racePlace}${['st', 'nd', 'rd'][net.racePlace - 1] || 'th'}` : ''}
             </div>
-          )}
+          ) : (
+            <div className="chip"><Icon name="flag" size={15} />
+              LAP {prog[0] + 1}/{raceLaps(map, MODES.desk_dash.laps)} · CP {prog[1]}/{map.CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
+            </div>
+          ))}
           {modeId === 'coffee_run' && (
             <div className="chip"><Icon name="coffee" size={15} /> carrying {myBeans}/{MODES.coffee_run.maxCarry}</div>
           )}
@@ -521,7 +525,7 @@ function Minimap() {
         g.fillStyle = '#fff';
         g.beginPath(); g.arc(px(net.ball.p[0]), pz(net.ball.p[2]), 3, 0, 7); g.fill();
       }
-      if (st.modeId === 'desk_dash') {
+      if (st.modeId === 'desk_dash' && !(st.raceProgress[st.myId]?.[0] >= raceLaps(map, MODES.desk_dash.laps))) {
         const prog = st.raceProgress[st.myId];
         const cps = raceCheckpoints(st.variant, map);
         const cp = cps[(prog?.[1] ?? 0) % cps.length];

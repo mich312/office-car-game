@@ -32,19 +32,23 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
 // ------------------------------------------------- finished cars and items
 {
-  let fired = 0, held = 0, races = 0;
+  let fired = 0, held = 0, races = 0, badFinish = 0;
   for (const map of ['office', 'cellar']) {
     for (let seed = 1; seed <= 6; seed++) {
       const sim = await createSim({ seed, mode: 'desk_dash', map });
       const use = sim.room.usePowerup.bind(sim.room);
       sim.room.usePowerup = (p) => { if (p.finished && p.powerup) fired++; use(p); };
       sim.run(200, (s) => { for (const p of s.room.players.values()) if (p.finished && p.powerup) held++; });
+      // the HUD's FINISHED chip hears each finisher's place
+      const fin = sim.events.filter((e) => e.type === 'race_finish');
+      if (fin.length !== sim.bots.filter((b) => b.finished).length || fin.some((e, i) => e.place !== i + 1)) badFinish++;
       if (sim.room.mode?.finished?.length || sim.room.phase !== PHASE.PLAYING) races++;
     }
   }
   check(`race: finished cars never hold an item (${held} ticks)`, held === 0);
   check(`race: finished cars never fire one (${fired})`, fired === 0);
   check(`race: the races had finishers (${races}/12)`, races >= 10);
+  check(`race: every finisher is told its place (${badFinish} races wrong)`, badFinish === 0);
 }
 
 // ------------------------------------------- bots line up for every round
