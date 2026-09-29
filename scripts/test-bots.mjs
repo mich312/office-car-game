@@ -143,6 +143,8 @@ for (const [mode, variant] of [['sumo', 'drift'], ['koth', 'rush']]) {
   let peak = 0;
   sim.run(1, () => { peak = Math.max(peak, b.speed); });
   check(`turbo: a bot's turbo item actually surges it (${peak.toFixed(1)} vs top ${top.toFixed(1)})`, peak > top * 1.05);
+  // isolate the hop: no pad pickups (a second spring mid-check would keep it airborne)
+  sim.room.bots.items = false; b.powerup = null;
   sim.room.bots.onItemUsed(b, 'spring', sim.now());
   let apex = 0, airborneSeen = false;
   sim.run(1.5, () => { apex = Math.max(apex, b.p[1]); if (!b.grounded) airborneSeen = true; });

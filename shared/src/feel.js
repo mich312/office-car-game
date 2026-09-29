@@ -61,3 +61,45 @@ export function chaseHeading(fwdX, fwdZ, velX, velZ, out, maxBlend = 0.45) {
   out[0] = bx / bl; out[1] = bz / bl;
   return out;
 }
+
+// ---------------------------------------------------------------- antenna
+// The whip antenna as a damped spring in two directions: `pitch` bends it
+// fore/aft, `roll` side to side. Acceleration throws it the other way (brake
+// and it whips forward, turn and it leans out), speed sweeps it back, and a
+// bump or a landing sets it ringing. Lightly damped on purpose — the
+// wobble after the jolt is the whole point — and clamped so no crash can
+// fold it through the car.
+export const ANTENNA = {
+  stiffness: 170, // rad/s² per rad → ~2 Hz sway
+  damping: 5.5, // ζ ≈ 0.21: rings a few times, then settles
+  gain: 0.011, // rad of bend per u/s² of acceleration
+  sweep: 0.012, // rad of rest lean per u/s of speed
+  maxSweep: 0.32,
+  max: 0.9,
+};
+export const newAntenna = () => ({ pitch: 0, roll: 0, vp: 0, vr: 0 });
+
+// aLong/aLat/aUp: the car's acceleration in its own frame (u/s²; +long =
+// speeding up, +lat = toward the car's right, +up = being pushed up).
+// Mutates and returns the state.
+export function antennaStep(st, aLong, aLat, aUp, speed, dt) {
+  const A = ANTENNA;
+  // rest pose: swept back by the airflow
+  const restP = -Math.min(A.maxSweep, Math.abs(speed) * A.sweep);
+  // inertia: the tip lags the car — speeding up bends it back, braking forward,
+  // a bump drives it down (and it springs back up)
+  const driveP = (-aLong - Math.abs(aUp) * 0.5) * A.gain;
+  const driveR = -aLat * A.gain;
+  // semi-implicit Euler, substepped so a long frame can't blow the spring up
+  const n = Math.max(1, Math.ceil(dt / (1 / 120)));
+  const h = dt / n;
+  for (let i = 0; i < n; i++) {
+    st.vp += (-A.stiffness * (st.pitch - restP) - A.damping * st.vp + driveP * A.stiffness) * h;
+    st.vr += (-A.stiffness * st.roll - A.damping * st.vr + driveR * A.stiffness) * h;
+    st.pitch += st.vp * h;
+    st.roll += st.vr * h;
+  }
+  if (Math.abs(st.pitch) > A.max) { st.pitch = Math.sign(st.pitch) * A.max; st.vp *= -0.3; }
+  if (Math.abs(st.roll) > A.max) { st.roll = Math.sign(st.roll) * A.max; st.vr *= -0.3; }
+  return st;
+}

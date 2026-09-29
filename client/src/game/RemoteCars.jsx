@@ -71,6 +71,9 @@ const RemoteCar = memo(function RemoteCar({ player }) {
         _rfwd.set(0, 0, 1).applyQuaternion(_rq);
         _rright.set(1, 0, 0).applyQuaternion(_rq);
         const grounded = (s.f || 0) & 2;
+        leanRef.current.aLat = ax * _rright.x + az * _rright.z; // for the antenna
+        leanRef.current.aLong = ax * _rfwd.x + az * _rfwd.z;
+        leanRef.current.aUp = 0;
         const tRoll = grounded ? Math.max(-0.14, Math.min(0.14, (ax * _rright.x + az * _rright.z) * 0.0032)) : 0;
         const tPitch = grounded ? Math.max(-0.09, Math.min(0.09, -(ax * _rfwd.x + az * _rfwd.z) * 0.0035)) : 0;
         const k = Math.min(1, dt * 7);

@@ -17,6 +17,7 @@ let limiter = null;
 const bus = { music: null, duck: null, sfx: null, engine: null, amb: null };
 let engine = null;
 let skid = null;
+let roll = null; // tyre-on-floor noise, voiced by the surface
 let rain = null;
 let muted = false;
 const MASTER_LEVEL = 0.5; // headroom under the limiter at full fader
@@ -47,6 +48,7 @@ function ensure() {
   applyVolumes();
   buildEngine();
   buildSkid();
+  buildRoll();
   buildRain();
   return true;
 }
@@ -149,6 +151,24 @@ function buildSkid() {
   skid = { g, bp };
 }
 
+// What the floor sounds like under the tyres: a hush on carpet, a woody
+// rumble on hardwood, a clean hiss on tile, grit on concrete. One noise
+// source, re-voiced per surface.
+const ROLL_VOICE = {
+  carpet: { f: 320, q: 0.7, g: 0.05 }, carpet2: { f: 320, q: 0.7, g: 0.05 }, rug: { f: 260, q: 0.6, g: 0.045 },
+  wood: { f: 620, q: 1.4, g: 0.09 }, tile: { f: 1700, q: 0.9, g: 0.06 },
+  concrete: { f: 2400, q: 0.5, g: 0.11 }, dark: { f: 900, q: 1, g: 0.07 },
+};
+function buildRoll() {
+  const g = ctx.createGain(); g.gain.value = 0;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(2); src.loop = true;
+  const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 800; bp.Q.value = 1;
+  src.connect(bp); bp.connect(g); g.connect(bus.engine);
+  src.start();
+  roll = { g, bp };
+}
+
 function buildRain() {
   const g = ctx.createGain(); g.gain.value = 0;
   const src = ctx.createBufferSource();
@@ -245,8 +265,15 @@ export const audio = {
     applyEngineProfile();
   },
   // called every frame from the car
-  update({ speed = 0, throttle = 0, slipping = false, boosting = false, topSpeed = 50 }) {
+  update({ speed = 0, throttle = 0, slipping = false, boosting = false, topSpeed = 50, surface = null }) {
     if (!engine) return;
+    if (roll) {
+      const v = ROLL_VOICE[surface];
+      const r = Math.min(1, Math.abs(speed) / topSpeed);
+      const tr = ctx.currentTime;
+      roll.g.gain.setTargetAtTime(v ? v.g * r : 0, tr, 0.08);
+      if (v) { roll.bp.frequency.setTargetAtTime(v.f * (0.8 + r * 0.5), tr, 0.1); roll.bp.Q.setTargetAtTime(v.q, tr, 0.1); }
+    }
     const p = engineProfile;
     const r = Math.min(1, Math.abs(speed) / topSpeed);
     const base = (60 + r * 340 + (boosting ? 130 : 0)) * p.base;
@@ -300,6 +327,19 @@ export const audio = {
     ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
     src.connect(lp); lp.connect(ng); ng.connect(bus.sfx);
     src.start(t); src.stop(t + 0.15);
+  },
+  // A wheel crossing a tile's grout line or a plank joint.
+  seam(surface, strength = 0.5) {
+    if (!ensure()) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuffer(0.1);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = surface === 'wood' ? 850 : 3200; bp.Q.value = surface === 'wood' ? 3 : 2;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.05 + 0.1 * Math.min(1, strength), t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (surface === 'wood' ? 0.03 : 0.018));
+    src.connect(bp); bp.connect(g); g.connect(bus.engine);
+    src.start(t); src.stop(t + 0.05);
   },
   // Drift tier reached: a rising chime per tier, so you can hear the charge
   // without looking down at the rear wheels.
