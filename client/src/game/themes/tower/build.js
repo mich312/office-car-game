@@ -350,8 +350,8 @@ export const BUILD = {
       p.slab('leatherBlack', null, 0.46, 0.003, 0.32, x, h, -d / 2 + 0.26, 0.001);
       p.slab('leatherBlack', null, 0.46, 0.003, 0.32, x + 0.3, h, d / 2 - 0.26, 0.001);
     }
-    // the speakerphone (a bump on the high line) and the folio at the far
-    // end that kicks you into the air
+    // the speakerphone (beside the high line) and the folio at the far end
+    // that kicks you into the air
     const tri = [[0, 0.2], [0.17, -0.1], [-0.17, -0.1]];
     p.add(G.shape(tri, 0.045, 'spk'), 'matte', C.graphite, SPK[0], h, SPK[1]);
     for (const [x, z] of tri) p.add(G.cyl(0.03, 0.035, 0.05, 10), 'matte', '#44484f', SPK[0] + x * 0.9, h + 0.025, SPK[1] + z * 0.9);
@@ -443,7 +443,9 @@ export const BUILD = {
 
 // the speakerphone and the kicker, in table-local metres (shared with the
 // colliders so what you see is what you hit)
-const SPK = [-0.8, 0.3];
+// table-local: off the high line's lane (world z 7.6–8.4). Its 4.4 cm box
+// on the line was a wall to a chassis that clears the lacquer by 2 cm.
+const SPK = [-0.2, -0.45];
 const KICK = { x: 3.55, z: 0.4, l: 0.5, w: 0.62, rise: 0.055, ang: Math.atan2(0.055, 0.5) };
 // the folio's centre height over the table: sunk by its half-thickness so its
 // leading edge is flush with the lacquer (a 1 cm lip there stopped cars dead,
