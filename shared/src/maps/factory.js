@@ -28,7 +28,8 @@
 // table and out to the finish. The ground-level twin of the belt (the bots'
 // line, and anyone who falls off) runs under the belt and crosses the aisle
 // at the yellow box junction, so cars cross the start straight at floor
-// level while others fly over them.
+// level while others fly over them — and in Packing it gets its own
+// moment: a pallet kicker that jumps it across the belt coming down.
 // ---------------------------------------------------------------------------
 import { M } from '../constants.js';
 
@@ -109,7 +110,7 @@ const WALLS = [
   // ------------------------------------------------------------ south half
   ...vwall(-12, -13, -2, [[-8.4, -6.6]], MESH), // Goods In | Shipping — a soccer goal
   ...vwall(4, -13, -2, [[-8.4, -6.6]], BLOCK), // Shipping | Packing — the other goal
-  ...vwall(14, -13, -2, [[-9.4, -7.6]], BLOCK), // Packing | Canteen
+  ...vwall(14, -13, -2, [[-7.9, -6.1]], BLOCK), // Packing | Canteen, in line with the sealer
   // robot cell guarding round the two big arms south of the belt
   ...hwall(6.1, -3.9, -0.5, [], { style: 'factory_mesh', h: 1.6 }),
   ...vwall(-3.9, 6.1, 7.7, [], { style: 'factory_mesh', h: 1.6 }),
@@ -206,7 +207,7 @@ const FURNITURE = [
   // ---- Packing: the chute lands here; the carton sealer is a tunnel; the
   // stretch-wrap turntable (a platform that turns) is a standup spot. It is
   // low enough to drive onto, so the server's box list and the ball skip it.
-  f('factory_sealer', 11.7, -8.9, 1.4, 1.8, 1.3, 0, { driveUnder: true }),
+  f('factory_sealer', 11.7, -7, 1.4, 1.8, 1.3, 0, { driveUnder: true }),
   f('factory_turntable', 6.6, -10.6, 1.65, 1.65, 0.08, 0, { decor: true }),
   f('factory_pallet', 13.2, -12.2, 1.2, 1.0, 1.1, 0, { load: 'wrapped' }),
   f('factory_pallet', 13.2, -3.2, 1.0, 1.2, 0.9, 0, { load: 'flat' }),
@@ -254,6 +255,9 @@ const RAMPS = [
   // checker plate up onto the pallet the forklift has raised on its forks:
   // launch north at the forklift lane
   ramp(-15.97, -7.4, 1.4, 0.9, 0.45, 0, 'factory_plate'),
+  // a stack of pallets and a plank: the ground line's jump across the belt
+  // where it comes down into Packing, landing at the sealer's mouth
+  ramp(7.92, -5.79, 1.5, 0.9, 0.5, 2.0, 'factory_pallets'),
   // over the canteen table, off the end at the aisle door
   ramp(19.2, -7.7, 1.8, 0.7, 0.75, 0, 'factory_plate'),
   // up onto the QA benches, straight through the curtain from Line 2: a
@@ -329,8 +333,8 @@ const CHECKPOINTS = [
   cp(-8.6, 8.5), // the feed ramp
   cp(0, 8.5), // the belt, between the robot cells
   cp(8.2, 7.2), // the roller curve
-  cp(8.4, -5.6), // down into Packing
-  cp(14, -8.5), // the canteen door, out of the carton sealer
+  cp(7.9, -6.6), // Packing: off the chute, or over the belt off the pallets
+  cp(14, -7), // the canteen door, out of the carton sealer
   cp(18.5, -8), // canteen: the table ramp
   cp(19.2, -2.2), // back out into the aisle
 ];
@@ -343,8 +347,8 @@ const BOT_PATH = [
   cp(-18.3, 1.8), cp(-18.6, 3.2), cp(-18.6, 5.1), cp(-17.8, 6.4), cp(-16.8, 6.6), cp(-15.6, 6.8),
   cp(-15, 7.8), cp(-14.2, 8.9), cp(-13.2, 9.0), cp(-11.6, 8.8), cp(-10, 8.5), cp(-9, 7.5),
   cp(-7.2, 7.5), cp(-5.8, 8.5), cp(0, 8.5), cp(6.2, 8.5), cp(7.4, 7.6), cp(6.6, 4.4), cp(6, 2.8),
-  cp(6, 0), cp(6, -2), cp(6.8, -3.6), cp(7.8, -5.4), cp(8.4, -8.2), cp(9.4, -8.9), cp(10.6, -8.9),
-  cp(12.8, -8.9), cp(14, -8.5), cp(16.4, -8.6), cp(17.9, -7.2), cp(17.9, -3.6), cp(19.2, -2.6),
+  cp(6, 0), cp(6, -2), cp(6.6, -4), cp(6.7, -5.2), cp(6.8, -6.6), cp(7.6, -8), cp(9.2, -8.1), cp(10.3, -7.2),
+  cp(11.7, -7), cp(13, -7), cp(14, -7), cp(16.2, -7.3), cp(17.9, -7.6), cp(17.9, -3.6), cp(19.2, -2.6),
   cp(19, -1.2), cp(17.2, -0.3),
 ];
 
@@ -403,7 +407,7 @@ const POWERUP_PADS = [
   cp(-18.6, 8.8), cp(-11.3, 3.8),
   cp(3.5, 4.6), cp(10.5, 4.6),
   cp(-17.2, -10.4), cp(-7, -10.8), cp(0, -4.2),
-  cp(6.2, -6.4), cp(21, -4.2), cp(15.4, 3.9),
+  cp(6.2, -6.4), cp(17.4, -9.6), cp(15.4, 3.9),
 ];
 
 const VENDING = { x: u(16.4), z: u(-12.55), radius: u(1.5), minSpeed: 12, cooldownS: 8, goldenChance: 0.3 };

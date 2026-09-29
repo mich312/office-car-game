@@ -2402,7 +2402,36 @@ function RollerChute({ r, len, angle }) {
   return <group><KitMeshes geo={geo} /></group>;
 }
 
+// a kicker knocked together from what was lying around: pallets stacked
+// into a rough wedge, a plywood sheet on top, tape on the leading edge
+function PalletRamp({ r, len, angle }) {
+  const geo = useMemo(() => {
+    const k = new Kit();
+    const n = Math.max(1, Math.floor(r.rise / m(0.15)));
+    for (let i = 0; i < n; i++) {
+      // each layer stops where the deck comes down to its top, so the stack
+      // steps back under the plank instead of poking through it
+      const ll = r.l * (1 - Math.min(0.95, ((i + 1) * m(0.15)) / r.rise));
+      const zc = r.l / 2 - ll / 2;
+      for (const lz of [-0.4, 0, 0.4]) k.box('matte', '#8f6f47', r.w * 0.96, m(0.1), m(0.09), [0, i * m(0.15) + m(0.05), zc + lz * ll]);
+      for (let j = -2; j <= 2; j++) k.box('matte', C.wood, r.w * 0.16, m(0.025), ll, [j * r.w * 0.2, i * m(0.15) + m(0.137), zc]);
+    }
+    k.box('paint', C.yellow, r.w, m(0.02), m(0.05), [0, m(0.01), -r.l / 2 + m(0.03)]);
+    return k.build();
+  }, [r]);
+  return (
+    <group>
+      <KitMeshes geo={geo} />
+      <mesh position={[0, r.rise / 2 + m(0.012), 0]} rotation-x={-angle} castShadow receiveShadow>
+        <boxGeometry args={[r.w, m(0.02), len]} />
+        <meshStandardMaterial color="#bf9760" roughness={0.85} />
+      </mesh>
+    </group>
+  );
+}
+
 export const RAMP_SKINS = {
+  factory_pallets: PalletRamp,
   factory_plate: PlateRamp,
   factory_feed: FeedRamp,
   factory_rollers: RollerChute,
