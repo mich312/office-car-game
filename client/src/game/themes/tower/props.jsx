@@ -17,9 +17,11 @@ import { C } from './build.js';
 const B0 = -0.4 / M;
 const u = (v) => v * M;
 
-function Meshes({ geos, override }) {
+// Only the big things cast shadows: a golf ball's shadow is a pixel, and
+// every caster is another draw in the shadow pass.
+function Meshes({ geos, shadow = false }) {
   return Object.entries(geos).map(([key, g]) => (
-    <mesh key={key} geometry={g} material={override?.[key] || mat(key)} castShadow={SHADOW_MATS.has(key)} receiveShadow={key !== 'glow'} />
+    <mesh key={key} geometry={g} material={mat(key)} castShadow={shadow && SHADOW_MATS.has(key)} receiveShadow={key !== 'glow'} />
   ));
 }
 
@@ -59,6 +61,40 @@ function Chair({ p, task = false }) {
       <CylinderCollider args={[u(0.18), u(0.03)]} position={[0, u(B0 + 0.26), 0]} />
       <CuboidCollider args={[u(0.25), u(0.04), u(0.24)]} position={[0, u(B0 + 0.47), u(0.02)]} />
       <CuboidCollider args={[u(0.24), u(task ? 0.25 : 0.33), u(0.04)]} position={[0, u(B0 + 0.52 + (task ? 0.25 : 0.33)), u(-0.24)]} />
+      <Meshes geos={geos} shadow />
+    </Body>
+  );
+}
+
+// a flat screen on a stand, lit (the keyboard is part of the desk)
+function Monitor({ p }) {
+  const geos = propGeometry('monitor', (q) => {
+    q.add(G.box(0.2, 0.012, 0.16, 0.004), 'satin', '#2a2d33', 0, B0 + 0.006, 0);
+    q.box('satin', '#2a2d33', 0.04, 0.2, 0.025, 0, B0 + 0.11, -0.03, 0.004);
+    q.add(G.box(0.56, 0.34, 0.02, 0.006), 'satin', '#15161a', 0, B0 + 0.33, 0);
+    q.add(G.plane(0.53, 0.3), 'glow', '#2c4e78', 0, B0 + 0.33, 0.011);
+  });
+  return (
+    <Body p={p} mass={2.2} friction={0.6}>
+      <CuboidCollider args={[u(0.1), u(0.006), u(0.08)]} position={[0, u(B0 + 0.006), 0]} />
+      <CuboidCollider args={[u(0.28), u(0.17), u(0.015)]} position={[0, u(B0 + 0.33), 0]} />
+      <Meshes geos={geos} />
+    </Body>
+  );
+}
+
+// a cup and saucer: fine bone china, one draw
+function Cup({ p }) {
+  const geos = propGeometry('cup', (q) => {
+    q.post('gloss', '#f6f4ef', 0.075, 0.008, 0, B0, 0, 20, 0.06);
+    const prof = [[0.001, 0.008], [0.03, 0.008], [0.045, 0.03], [0.048, 0.075], [0.044, 0.075], [0.041, 0.035], [0.001, 0.03]].map(([x, y]) => new THREE.Vector2(x, y));
+    q.add(new THREE.LatheGeometry(prof, 18), 'gloss', '#f6f4ef', 0, B0, 0);
+    q.post('gloss', '#3a2012', 0.042, 0.002, 0, B0 + 0.06, 0, 14);
+    q.add(G.torus(0.018, 0.005, 6, 10, Math.PI), 'gloss', '#f6f4ef', 0.05, B0 + 0.05, 0, 0, 0, -Math.PI / 2);
+  });
+  return (
+    <Body p={p} mass={0.3} friction={0.5} restitution={0.15}>
+      <CylinderCollider args={[u(0.04), u(0.06)]} position={[0, u(B0 + 0.04), 0]} />
       <Meshes geos={geos} />
     </Body>
   );
@@ -105,7 +141,7 @@ function Placard({ p }) {
     <Body p={p} mass={0.1} friction={0.6}>
       <CuboidCollider args={[u(0.12), u(0.035), u(0.03)]} position={[0, u(B0 + 0.035), 0]} />
       {[-1, 1].map((s) => (
-        <mesh key={s} geometry={geo} material={m} position={[0, u(B0 + 0.037), u(s * 0.02)]} rotation-x={s * -0.5} rotation-y={s > 0 ? 0 : Math.PI} castShadow />
+        <mesh key={s} geometry={geo} material={m} position={[0, u(B0 + 0.037), u(s * 0.02)]} rotation-x={s * -0.5} rotation-y={s > 0 ? 0 : Math.PI} />
       ))}
     </Body>
   );
@@ -204,7 +240,7 @@ function ClubChair({ p }) {
     <Body p={p} mass={14} friction={0.8} angularDamping={0.6}>
       <CuboidCollider args={[u(0.42), u(0.2), u(0.4)]} position={[0, u(B0 + 0.28), 0]} />
       <CuboidCollider args={[u(0.42), u(0.2), u(0.1)]} position={[0, u(B0 + 0.62), u(-0.3)]} />
-      <Meshes geos={geos} />
+      <Meshes geos={geos} shadow />
     </Body>
   );
 }
@@ -228,7 +264,7 @@ function BarCart({ p }) {
   return (
     <Body p={p} mass={6} friction={0.12} angularDamping={0.5}>
       <CuboidCollider args={[u(0.42), u(0.43), u(0.22)]} position={[0, u(B0 + 0.45), 0]} />
-      <Meshes geos={geos} />
+      <Meshes geos={geos} shadow />
     </Body>
   );
 }
@@ -297,7 +333,7 @@ function Janitor({ p }) {
   return (
     <Body p={p} mass={9} friction={0.25} angularDamping={0.6}>
       <CuboidCollider args={[u(0.46), u(0.5), u(0.26)]} position={[0, u(B0 + 0.52), 0]} />
-      <Meshes geos={geos} />
+      <Meshes geos={geos} shadow />
     </Body>
   );
 }
@@ -316,6 +352,8 @@ export const PROPS = {
   tower_chair: Chair,
   tower_taskchair: (props) => <Chair {...props} task />,
   tower_laptop: Laptop,
+  tower_monitor: Monitor,
+  tower_cup: Cup,
   tower_placard: Placard,
   tower_carafe: Carafe,
   tower_binder: Binder,

@@ -5,6 +5,7 @@
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M, MODES } from '@rc/shared';
 import { useStore } from '../../../store.js';
 import { audio } from '../../../audio.js';
@@ -259,7 +260,7 @@ export function VideoWall({ map }) {
     D.instanceMatrix.needsUpdate = true;
   });
   return (
-    <group position={[u(V.x), u(V.y0 + V.h / 2), u(V.z)]}>
+    <group position={[u(V.x - 0.25), u(V.y0 + V.h / 2), u(V.z)]}>
       <mesh rotation-y={-Math.PI / 2} material={material}>
         <planeGeometry args={[u(W), u(Hh)]} />
       </mesh>
@@ -577,7 +578,7 @@ export function Pools({ spots }) {
 // two-tone trill, twice), the espresso machine's hiss.
 export function FloorSounds({ map }) {
   const next = useRef({ phone: 8, hiss: 20 });
-  const desks = useMemo(() => map.FURNITURE.filter((f) => f.type === 'desk'), [map]);
+  const desks = useMemo(() => map.FURNITURE.filter((f) => f.type === 'tower_desk'), [map]);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
     const n = next.current;
@@ -598,4 +599,51 @@ export function FloorSounds({ map }) {
     }
   });
   return null;
+}
+
+// ====================================================== rain on glass
+// At night it rains (the room tone has it too): drops and runs streaking
+// down the outside of the facade. One merged sheet over every pane, the
+// texture scrolling down; invisible by day.
+const rainTex = () => canvas('train', 128, 256, (g, w, h) => {
+  g.clearRect(0, 0, w, h);
+  let s = 71;
+  for (let i = 0; i < 40; i++) {
+    const x = hash(s++) * w, y = hash(s++) * h, len = 6 + hash(s++) * 40;
+    g.strokeStyle = `rgba(210,225,255,${0.12 + hash(s++) * 0.3})`;
+    g.lineWidth = 0.8 + hash(s++) * 1.2;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (hash(s++) - 0.5) * 3, y + len); g.stroke();
+    g.fillStyle = 'rgba(220,235,255,0.35)';
+    g.beginPath(); g.arc(x, y + len, 1.4, 0, Math.PI * 2); g.fill();
+  }
+});
+
+export function RainGlass({ map }) {
+  const geo = useMemo(() => {
+    const list = [];
+    for (const wl of map.WALLS) {
+      if (wl.style !== 'tower_curtain') continue;
+      const alongX = wl.w >= wl.d, L = alongX ? wl.w : wl.d, H = wl.h;
+      const g = new THREE.PlaneGeometry(L, H);
+      const uv = g.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * L) / M / 2.4, (uv.getY(i) * H) / M / 2.4);
+      // just outside the glass, facing in (which side is outside: away from the middle)
+      const out = alongX ? Math.sign(wl.z) : Math.sign(wl.x);
+      g.rotateY(alongX ? (out > 0 ? Math.PI : 0) : (out > 0 ? -Math.PI / 2 : Math.PI / 2));
+      g.translate(wl.x + (alongX ? 0 : out * 0.1), H / 2, wl.z + (alongX ? out * 0.1 : 0));
+      list.push(g);
+    }
+    return list.length ? mergeGeometries(list) : null;
+  }, [map]);
+  const m = useMemo(() => {
+    const t = rainTex();
+    return new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  }, []);
+  useFrame((_, dt) => {
+    const st = useStore.getState();
+    const wet = lightingFor(st.timeOfDay, st.event?.id === 'lights_out').wet;
+    m.opacity += ((wet ? 0.2 : 0) - m.opacity) * Math.min(1, dt);
+    m.map.offset.y = (m.map.offset.y + dt * 0.18) % 1;
+  });
+  return geo ? <mesh geometry={geo} material={m} frustumCulled={false} renderOrder={2} /> : null;
 }

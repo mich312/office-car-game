@@ -144,11 +144,11 @@ const FURNITURE = [
   f('tower_star', 1.2, -8, 2.4, 2.4, 0.01, 0, DECOR),
 
   // ---- Assistants' Row: four assistants facing their bosses' glass boxes
-  f('desk', -12.4, -10.5, 1.6, 0.8, 0.74), f('desk', -10.2, -10.5, 1.6, 0.8, 0.74),
-  f('desk', -10.9, -5.5, 1.6, 0.8, 0.74), f('desk', -8.7, -5.5, 1.6, 0.8, 0.74),
+  f('tower_desk', -12.4, -10.5, 1.6, 0.8, 0.74, Math.PI, UNDER), f('tower_desk', -10.2, -10.5, 1.6, 0.8, 0.74, Math.PI, UNDER),
+  f('tower_desk', -10.9, -5.5, 1.6, 0.8, 0.74, 0, UNDER), f('tower_desk', -8.7, -5.5, 1.6, 0.8, 0.74, 0, UNDER),
   f('tower_credenza', -12, -11.65, 3.2, 0.45, 0.72),
   // inside the glass offices
-  f('desk', -19, -10.3, 1.8, 0.85, 0.74), f('desk', -19, -6.1, 1.8, 0.85, 0.74),
+  f('tower_desk', -19, -10.3, 1.8, 0.85, 0.74, 0, UNDER), f('tower_desk', -19, -6.1, 1.8, 0.85, 0.74, Math.PI, UNDER),
   f('tower_credenza', -18.9, -11.65, 2, 0.45, 0.72),
   f('tower_credenza', -18.9, -4.33, 2, 0.45, 0.72, Math.PI),
 
@@ -156,6 +156,9 @@ const FURNITURE = [
   f('tower_rug', -18.5, -0.5, 4.2, 3.6, 0.01, 0, DECOR),
   f('tower_fireplace', -18.5, -0.5, 0.5, 1.8, 0.9),
   f('tower_sofa', -18.5, 1.45, 2.1, 0.9, 0.8, Math.PI),
+  f('tower_art', -18.5, 2.85, 1.6, 0.1, 1.2, Math.PI, DECOR),
+  f('tower_art', -10.4, -4.15, 1.4, 0.1, 1.1, Math.PI, DECOR),
+  f('tower_art', -12, 3.15, 1.3, 0.1, 1.0, 0, DECOR),
   f('tower_sofa', -18.5, -2.45, 2.1, 0.9, 0.8),
   f('tower_bar', -9.9, -2.4, 3, 0.65, 1.05),
   f('tower_backbar', -9.9, -3.72, 3.4, 0.36, 2.2),
@@ -175,6 +178,8 @@ const FURNITURE = [
   // ---- The War Room: THE table (drive under or along it), the room's
   // credenza under the whiteboard
   f('tower_boardtable', -1.6, 7.6, 8, 1.8, 0.76, 0, UNDER),
+  // the video wall's walnut surround, standing in front of the facade glass
+  f('tower_mediawall', 6.78, 8.03, 4.1, 0.24, 3.3, -Math.PI / 2),
   f('tower_credenza', -5.5, 11.6, 3.2, 0.45, 0.72, Math.PI),
 
   // ---- Sky Terrace: the long bench along the pantry glass, olives in big
@@ -191,7 +196,8 @@ const FURNITURE = [
 
   // ---- Executive Pantry: the espresso bar on the east wall, the island
   // (a ramp onto it), the sparkling-water fridge by the bullpen door
-  f('counter', 20.45, 0.5, 0.7, 2.4, 0.92),
+  f('tower_espresso', 20.45, 0.5, 0.7, 2.4, 0.92),
+  f('tower_fridgewall', 13.3, -1.58, 4.4, 0.6, 2.2),
   f('tower_island', 12.8, 0.6, 3.2, 1.0, 0.92),
   f('vending', 9.2, -1.48, 1, 0.8, 1.9),
 
@@ -234,9 +240,9 @@ const PROPS = [
   // folders — and sixteen leather chairs pulled up round it
   p('tower_placard', -4.4, 7.1, T, 0), p('tower_placard', -2.2, 8.1, T, Math.PI),
   p('tower_placard', 0.2, 7.1, T, 0), p('tower_placard', 1.6, 8.1, T, Math.PI),
-  p('tower_laptop', -3.4, 7.05, T, 0), p('tower_laptop', -0.8, 8.15, T, Math.PI), p('tower_laptop', 1.0, 7.05, T, 0.1),
+  p('tower_laptop', -3.4, 7.05, T, Math.PI), p('tower_laptop', -0.8, 8.15, T, 0), p('tower_laptop', 1.0, 7.05, T, Math.PI + 0.1),
   p('tower_carafe', -3.0, 7.75, T), p('tower_carafe', 0.9, 7.5, T),
-  p('glass', -2.7, 7.35, T), p('glass', -2.9, 7.95, T), p('glass', 0.6, 7.8, T), p('glass', 1.2, 7.4, T),
+  p('glass', -2.8, 7.35, T), p('tower_cup', -2.9, 7.95, T), p('glass', 1.2, 7.4, T), p('tower_cup', 0.6, 7.8, T),
   p('tower_binder', -5.0, 7.9, T, 0.3), p('tower_binder', 2.0, 7.4, T, 1.2),
   ...[-5, -3.9, -2.8, -1.7, -0.6, 0.5, 1.6].flatMap((x) => [
     p('tower_chair', x, 6.25, 0, 0), p('tower_chair', x + 0.3, 8.95, 0, Math.PI),
@@ -248,7 +254,7 @@ const PROPS = [
   p('tower_golfball', -12.3, 7.5), p('tower_golfball', -12.9, 7.1), p('tower_golfball', -14.2, 7.6),
   p('tower_golfball', -13.6, 6.9), p('tower_golfball', -11.9, 7.0), p('tower_golfball', -15.0, 7.3),
   p('tower_putter', -15.2, 6.4, 0, 0.4),
-  p('tower_laptop', -14.3, 10.4, 0.75, Math.PI), p('mug', -15.9, 10.2, 0.75), p('tower_binder', -13.6, 10.6, 0.75, 0.4),
+  p('tower_laptop', -14.3, 10.55, 0.75, 0), p('tower_cup', -15.9, 10.2, 0.75), p('tower_binder', -13.6, 10.6, 0.75, 0.4),
   p('tower_orchid', -12.8, 3.35, 0.72),
 
   // ---- Executive Lounge: club chairs round the fire, the brass bar cart,
@@ -262,10 +268,9 @@ const PROPS = [
   // ---- Assistants' Row: orchids, monitors, the phones that never stop
   p('tower_orchid', -13.0, -10.3, 0.74), p('tower_orchid', -9.6, -10.3, 0.74),
   p('tower_orchid', -11.4, -5.7, 0.74), p('tower_orchid', -19.6, -10.1, 0.74),
-  p('monitor', -12.1, -10.7, 0.74), p('keyboard', -12.1, -10.3, 0.74),
-  p('monitor', -10.4, -10.7, 0.74), p('keyboard', -10.4, -10.3, 0.74),
-  p('monitor', -10.7, -5.3, 0.74, Math.PI), p('keyboard', -10.7, -5.7, 0.74),
-  p('monitor', -8.6, -5.3, 0.74, Math.PI), p('keyboard', -8.6, -5.7, 0.74),
+  p('tower_monitor', -12.3, -10.75, 0.74), p('tower_monitor', -10.1, -10.75, 0.74),
+  p('tower_monitor', -10.9, -5.25, 0.74, Math.PI), p('tower_monitor', -8.8, -5.25, 0.74, Math.PI),
+  p('tower_monitor', -19.3, -10.0, 0.74, Math.PI), p('tower_laptop', -19.2, -6.3, 0.74, 0),
   p('tower_taskchair', -12.2, -9.6, 0, 0), p('tower_taskchair', -10.4, -9.7, 0, 0.3),
   p('tower_taskchair', -10.8, -6.4, 0, Math.PI), p('tower_taskchair', -8.7, -6.3, 0, Math.PI - 0.2),
   p('tower_chair', -19, -11.1, 0, 0), p('tower_chair', -19, -5.2, 0, Math.PI),
@@ -281,11 +286,11 @@ const PROPS = [
     p('tower_taskchair', x - 1.15, z, 0, Math.PI / 2 + (k % 3) * 0.2), p('tower_taskchair', x + 1.15, z, 0, -Math.PI / 2 - (k % 2) * 0.25),
   ]),
   p('stack', 19.8, -10.6), p('box', 20.3, -9.8), p('box', 20.3, -9.4, 0.4), p('trash', 18.3, -11.4),
-  p('mug', 16.0, -4.1, 0.74), p('mug', 12.8, -9.5, 0.74), p('bottle', 9.6, -3.8, 0.74),
+  p('tower_cup', 16.0, -4.1, 0.74), p('tower_cup', 12.8, -9.5, 0.74), p('bottle', 9.6, -3.8, 0.74),
 
   // ---- Executive Pantry: fruit on the island, cups by the machine, stools
-  p('tower_fruit', 12.4, 0.6, 0.92), p('mug', 13.6, 0.5, 0.92), p('glass', 13.9, 0.8, 0.92),
-  p('mug', 20.5, -0.4, 0.92), p('mug', 20.4, 1.5, 0.92), p('bottle', 20.5, 1.2, 0.92),
+  p('tower_fruit', 12.4, 0.6, 0.92), p('tower_cup', 13.6, 0.5, 0.92), p('glass', 13.9, 0.8, 0.92),
+  p('tower_cup', 20.45, 1.25, 0.92), p('tower_cup', 20.5, 1.55, 0.92), p('bottle', 20.5, 1.45, 0.92),
   p('tower_stool', 12.0, -0.2), p('tower_stool', 13.0, -0.2), p('tower_stool', 14.0, -0.2),
 
   // ---- the core: the janitor's cart, parked in the corridor as ever

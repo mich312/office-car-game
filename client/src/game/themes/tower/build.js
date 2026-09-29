@@ -42,6 +42,83 @@ function crescent(w, d, band = 0.5) {
 }
 
 export const BUILD = {
+  // the video wall's surround: walnut, floor to ceiling, screens inset
+  // (the screens themselves are live, tower/live.jsx), a low media shelf
+  tower_mediawall(p, w, d, h) {
+    p.slab('walnut', null, w, h - 0.12, d, 0, 0.12, 0, 0.006);
+    p.slab('matte', C.black, w, 0.12, d - 0.02, 0, 0, -0.01, 0.004);
+    for (let i = 1; i < 6; i++) p.box('matte', C.black, 0.006, h - 0.12, 0.004, -w / 2 + (w / 6) * i, 0.12 + (h - 0.12) / 2, d / 2 + 0.001, 0);
+    p.slab('blackMarble', null, w - 0.3, 0.04, 0.3, 0, 0.42, d / 2 + 0.15, 0.004);
+    p.box('glow', '#5aa0ff', w - 0.3, 0.008, 0.01, 0, 0.415, d / 2 + 0.28, 0);
+  },
+  // an executive's walnut desk: slab ends, a leather inlay, a modesty panel
+  // on the visitor side (+z) that stops short of the floor — cars go under
+  tower_desk(p, w, d, h) {
+    p.slab('walnut', null, w, 0.04, d, 0, h - 0.04, 0, 0.01);
+    p.slab('leatherBlack', null, w * 0.5, 0.003, d * 0.45, 0, h, -d * 0.18, 0.002);
+    for (const s2 of [-1, 1]) {
+      p.slab('walnut', null, 0.04, h - 0.04, d - 0.04, s2 * (w / 2 - 0.02), 0, 0, 0.006);
+      p.slab('brass', null, 0.05, 0.012, d - 0.02, s2 * (w / 2 - 0.02), 0, 0, 0.003);
+    }
+    p.slab('walnut', null, w - 0.08, h - 0.4, 0.02, 0, 0.36, d / 2 - 0.04, 0.004);
+    // the keyboard and phone live on the desk
+    p.slab('satin', '#d8dade', 0.44, 0.015, 0.14, 0, h, -d * 0.2, 0.004);
+    p.slab('satin', C.black, 0.18, 0.04, 0.2, w / 2 - 0.25, h, -d * 0.15, 0.01);
+    p.box('satin', C.black, 0.05, 0.025, 0.19, w / 2 - 0.3, h + 0.05, -d * 0.15, 0.01);
+  },
+  // the espresso bar on the pantry's east wall: long along z, its front to −x
+  tower_espresso(p, w, d, h) {
+    p.slab('matte', C.black, w - 0.1, 0.08, d - 0.06, 0.05, 0, 0, 0.004);
+    p.slab('walnut', null, w - 0.04, h - 0.12, d, 0.02, 0.08, 0, 0.01);
+    for (let i = 0; i < Math.floor((d - 0.1) / 0.06); i++) p.rod('walnut', null, 0.02, h - 0.2, -w / 2 + 0.03, 0.08 + (h - 0.2) / 2, -d / 2 + 0.08 + i * 0.06, 'y', 8);
+    p.slab('marble', null, w + 0.04, 0.04, d + 0.04, -0.02, h - 0.04, 0, 0.004);
+    // onyx splashback, a brass shelf of cups
+    p.box('onyx', null, 0.03, 0.6, d - 0.1, w / 2 - 0.03, h + 0.3, 0, 0.004);
+    p.box('brass', null, 0.24, 0.02, d - 0.2, w / 2 - 0.14, h + 0.66, 0, 0.004);
+    for (let i = 0; i < 10; i++) p.post('gloss', i % 3 ? '#f4f2ee' : '#1b1c20', 0.03, 0.06, w / 2 - 0.14, h + 0.67, -d / 2 + 0.3 + i * ((d - 0.6) / 9), 12, 0.025);
+    // the house machine: chrome, two group heads, a steam wand
+    const z = -d / 2 + 0.45;
+    p.slab('chrome', null, 0.46, 0.4, 0.62, 0.02, h, z, 0.03);
+    p.slab('matte', C.black, 0.4, 0.04, 0.56, 0.02, h + 0.4, z, 0.01);
+    for (const k of [-0.13, 0.13]) {
+      p.post('chrome', null, 0.035, 0.05, -0.23, h + 0.2, z + k, 12);
+      p.rod('satin', C.black, 0.012, 0.14, -0.3, h + 0.21, z + k, 'x', 8);
+      p.post('gloss', '#f4f2ee', 0.03, 0.06, -0.24, h + 0.02, z + k, 12, 0.025);
+    }
+    p.add(G.cyl(0.006, 0.006, 0.2), 'chrome', null, -0.24, h + 0.22, z + 0.28, 0, 0, 0.3);
+    p.box('glow', '#58d0ff', 0.004, 0.03, 0.08, -0.215, h + 0.33, z, 0);
+  },
+  // integrated tall units along the pantry wall: glass-door drinks fridges,
+  // lit, between walnut larder cupboards
+  tower_fridgewall(p, w, d, h) {
+    p.slab('matte', C.black, w - 0.04, 0.1, d - 0.08, 0, 0, -0.03, 0.004);
+    p.slab('walnut', null, w, h - 0.1, d, 0, 0.1, 0, 0.01);
+    const bays = 5;
+    for (let i = 0; i < bays; i++) {
+      const x = -w / 2 + (w / bays) * (i + 0.5), bw = w / bays - 0.04;
+      p.box('matte', C.black, 0.006, h - 0.14, 0.006, -w / 2 + (w / bays) * i, 0.1 + (h - 0.1) / 2, d / 2 + 0.003, 0);
+      if (i % 2 === 1) {
+        // a fridge: lit interior, shelves of bottles behind glass
+        p.box('glow', C.cool, bw - 0.06, h - 0.35, 0.01, x, 0.12 + (h - 0.35) / 2 + 0.05, -d / 2 + 0.06, 0);
+        for (let r = 0; r < 5; r++) {
+          const y = 0.25 + r * 0.36;
+          p.box('glass', null, bw - 0.08, 0.01, d - 0.15, x, y, 0, 0);
+          for (let k = 0; k < 6; k++) p.post('gloss', r % 2 ? '#3f8a52' : '#cfe4e8', 0.028, 0.24, x - bw / 2 + 0.1 + k * ((bw - 0.2) / 5), y + 0.005, 0.02, 8);
+        }
+        p.box('glass', null, bw, h - 0.2, 0.012, x, 0.1 + (h - 0.2) / 2, d / 2 + 0.008, 0);
+        p.box('steel', null, 0.02, 0.6, 0.03, x + bw / 2 - 0.06, 1.1, d / 2 + 0.03, 0.004);
+      } else {
+        p.box('brass', null, 0.02, 0.4, 0.025, x + bw / 2 - 0.06, 1.0, d / 2 + 0.015, 0.004);
+      }
+    }
+    p.box('glow', C.warm, w - 0.1, 0.01, 0.012, 0, 0.06, d / 2 + 0.02, 0);
+  },
+  // a framed abstract on the wall (decor): d is how far it stands off the wall
+  tower_art(p, w, d, h, f) {
+    const key = ['art1', 'art2', 'art3'][Math.floor(hash(Math.round(f.x * 3 + f.z)) * 3)];
+    p.box('walnut', null, w + 0.08, h + 0.08, 0.04, 0, 1.0 + h / 2, -d / 2 + 0.02, 0.006);
+    p.add(G.plane(w, h), key, null, 0, 1.0 + h / 2, -d / 2 + 0.041, 0, 0, 0, 1, 1, 1, { keepUV: true });
+  },
   tower_reception(p, w, d, h) {
     const cr = crescent(w, d);
     const key = `rec${w}x${d}`;
@@ -310,10 +387,12 @@ export const BUILD = {
   },
   tower_island(p, w, d, h) {
     p.slab('matte', C.black, w - 0.2, 0.08, d - 0.2, 0, 0, 0, 0.004);
-    p.slab('gloss', '#e8e6e1', w - 0.1, h - 0.12, d - 0.1, 0, 0.08, 0, 0.01);
+    p.slab('walnut', null, w - 0.1, h - 0.12, d - 0.1, 0, 0.08, 0, 0.01);
+    for (let i = 0; i < Math.floor((w - 0.2) / 0.06); i++) {
+      for (const s2 of [-1, 1]) p.rod('walnut', null, 0.02, h - 0.2, -w / 2 + 0.13 + i * 0.06, 0.08 + (h - 0.2) / 2, s2 * (d / 2 - 0.05), 'y', 8);
+    }
     p.slab('marble', null, w, 0.04, d, 0, h - 0.04, 0, 0.004);
     for (const s of [-1, 1]) p.slab('marble', null, 0.04, h - 0.04, d, s * (w / 2 - 0.02), 0, 0, 0.004);
-    for (let i = 0; i < 3; i++) p.box('gloss', C.black, 0.006, h - 0.25, 0.006, -w / 4 + (i * w) / 4, 0.08 + (h - 0.2) / 2, d / 2 - 0.047, 0);
   },
   tower_deskrow(p, w, d, h) {
     // double bench desking along z: white tops either side of a fabric
@@ -428,6 +507,14 @@ export const COLLIDE = {
   tower_lounger: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
   tower_mast: (w, d, h) => [[w / 2, 0.125, d / 2, 0, 0.125, 0], [0.06, h / 2, 0.06, 0, h / 2, 0]],
   tower_island: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
+  tower_mediawall: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0], [w / 2 - 0.15, 0.02, 0.15, 0, 0.42, d / 2 + 0.15]],
+  tower_desk: (w, d, h) => [
+    [w / 2, 0.02, d / 2, 0, h - 0.02, 0],
+    [0.02, (h - 0.04) / 2, d / 2 - 0.02, -(w / 2 - 0.02), (h - 0.04) / 2, 0], [0.02, (h - 0.04) / 2, d / 2 - 0.02, w / 2 - 0.02, (h - 0.04) / 2, 0],
+    [w / 2 - 0.04, (h - 0.4) / 2, 0.01, 0, 0.36 + (h - 0.4) / 2, d / 2 - 0.04],
+  ],
+  tower_espresso: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0], [0.24, 0.2, 0.32, 0.02, h + 0.2, -d / 2 + 0.45]],
+  tower_fridgewall: (w, d, h) => [[w / 2, h / 2, d / 2, 0, h / 2, 0]],
   tower_deskrow: (w, d, h) => [
     [w / 2 - 0.02, 0.0125, d / 2, 0, h - 0.0125, 0],
     [0.05, 0.6, d / 2, 0, 0.6, 0],
@@ -536,13 +623,13 @@ export const RAMP_BUILD = {
   // a staircase of annual reports, the top one open like a lid, a stack of
   // binders for the sides
   tower_binders(p, l, w, rise) {
+    // step i's front edge sits exactly on the slope, so nothing pokes through the deck
     const n = 12;
-    for (let i = 0; i < n; i++) {
-      const t0 = i / n, len = l * (1 - t0) + 0.05;
-      const y = rise * t0, hh = rise / n;
-      const col = ['#e9e1cf', '#1f2a44', '#e9e1cf', '#5a1f1b', '#e9e1cf', '#b8893b'][i % 6];
-      p.slab('matte', col, w - 0.02 + (hash(i) - 0.5) * 0.04, hh * 0.98, len, (hash(i + 9) - 0.5) * 0.03, y, l / 2 - len / 2, 0.004);
+    for (let i = 1; i < n; i++) {
+      const len = l * (1 - i / n), col = ['#e9e1cf', '#1f2a44', '#e9e1cf', '#5a1f1b', '#e9e1cf', '#b8893b'][i % 6];
+      p.slab('matte', col, w - 0.03 + (hash(i) - 0.5) * 0.03, (rise / n) * 0.97, len, (hash(i + 9) - 0.5) * 0.02, (rise * (i - 1)) / n, l / 2 - len / 2, 0.004);
     }
+    p.add(wedge(l, w - 0.06, rise - 0.03), 'matte', '#d8d0bd', 0, 0, 0);
     // the deck: a single hard-cover annual report lying on the slope
     const ang = Math.atan2(rise, l);
     p.add(G.box(w, 0.012, Math.hypot(l, rise)), 'matte', '#1f2a44', 0, rise / 2 + 0.008, 0, -ang, 0, 0);
@@ -562,9 +649,9 @@ export const RAMP_BUILD = {
   // coffee-table books, a leaning tower of them
   tower_books(p, l, w, rise) {
     const n = 14;
-    for (let i = 0; i < n; i++) {
-      const t0 = i / n, len = l * (1 - t0) + 0.04;
-      p.slab('matte', BOOKS[i % BOOKS.length], w - 0.04 + (hash(i * 3) - 0.5) * 0.06, (rise / n) * 0.98, len, (hash(i * 5) - 0.5) * 0.05, rise * t0, l / 2 - len / 2, 0.006);
+    for (let i = 1; i < n; i++) {
+      const len = l * (1 - i / n);
+      p.slab('matte', BOOKS[i % BOOKS.length], w - 0.05 + (hash(i * 3) - 0.5) * 0.05, (rise / n) * 0.97, len, (hash(i * 5) - 0.5) * 0.04, (rise * (i - 1)) / n, l / 2 - len / 2, 0.006);
     }
     const ang = Math.atan2(rise, l);
     p.add(G.box(w, 0.015, Math.hypot(l, rise)), 'leather', null, 0, rise / 2 + 0.01, 0, -ang, 0, 0);
@@ -579,10 +666,11 @@ export const RAMP_BUILD = {
   // crates of sparkling water
   tower_crates(p, l, w, rise) {
     const n = 4;
-    for (let i = 0; i < n; i++) {
-      const t0 = i / n, len = l * (1 - t0);
-      p.slab('matte', i % 2 ? '#2f5d8a' : '#3a6fa0', w, (rise / n) * 0.96, len, 0, rise * t0, l / 2 - len / 2, 0.012);
+    for (let i = 1; i < n; i++) {
+      const len = l * (1 - i / n);
+      p.slab('matte', i % 2 ? '#2f5d8a' : '#3a6fa0', w, (rise / n) * 0.96, len, 0, (rise * (i - 1)) / n, l / 2 - len / 2, 0.012);
     }
+    p.add(wedge(l, w - 0.02, rise - 0.03), 'matte', '#2f5d8a', 0, 0, 0);
     const ang = Math.atan2(rise, l);
     p.add(G.box(w, 0.02, Math.hypot(l, rise)), 'teak', null, 0, rise / 2 + 0.008, 0, -ang, 0, 0);
   },

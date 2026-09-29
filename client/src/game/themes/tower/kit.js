@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { M } from '@rc/shared';
-import { marbleTex, marbleNormal, fabricNormal, orangePeel, wearRough, glowTex } from '../../textures.js';
+import { fabricNormal, orangePeel, wearRough, glowTex } from '../../textures.js';
 
 // ------------------------------------------------------------- hashing
 // deterministic: the same book is the same colour on every client
@@ -82,6 +82,40 @@ const walnutTex = () => canvas('twalnut', 512, 256, (g, w, h) => {
     }
   }
 }, { repeat: [1 / 1.6, 1 / 0.4] });
+
+// White statuary marble for walls and tops: soft grey veins, book-matched
+// (the right half mirrors the left), one 1.2 m slab per tile.
+const whiteMarbleTex = () => canvas('twhitemarble', 512, 512, (g, w, h) => {
+  g.fillStyle = '#eeeae4';
+  g.fillRect(0, 0, w, h);
+  let s = 404;
+  const r = () => hash(s++);
+  for (let i = 0; i < 30; i++) {
+    const x = r() * w / 2, y = r() * h, rr = 30 + r() * 90;
+    const grd = g.createRadialGradient(x, y, 0, x, y, rr);
+    grd.addColorStop(0, `rgba(${200 + r() * 30},${198 + r() * 30},${195 + r() * 30},0.3)`);
+    grd.addColorStop(1, 'rgba(230,228,224,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, w / 2, h);
+  }
+  // veins: soft, drawn as several passes of widening, fading strokes
+  for (let i = 0; i < 9; i++) {
+    const pts = [];
+    let x = r() * w / 2, y = -20;
+    const dx = (r() - 0.5) * 60;
+    while (y < h + 20) { pts.push([x, y]); x += dx * 0.3 + (r() - 0.5) * 34; y += 20 + r() * 30; }
+    const bold = i < 3;
+    for (const [lw, a] of [[9, 0.03], [4, 0.06], [1.4, bold ? 0.4 : 0.18]]) {
+      g.strokeStyle = `rgba(140,140,146,${a})`;
+      g.lineWidth = lw * (bold ? 1.3 : 0.8);
+      g.beginPath();
+      pts.forEach(([px, py], k) => (k ? g.lineTo(px, py) : g.moveTo(px, py)));
+      g.stroke();
+    }
+  }
+  // book-match: mirror the left half onto the right
+  g.save(); g.translate(w, 0); g.scale(-1, 1); g.drawImage(g.canvas, 0, 0, w / 2, h, 0, 0, w / 2, h); g.restore();
+}, { repeat: [1 / 1.2, 1 / 1.2] });
 
 // Black marble (Nero Marquina): near-black with bright white veins.
 const blackMarbleTex = () => canvas('tblackmarble', 256, 256, (g, w, h) => {
@@ -204,6 +238,25 @@ export const starTex = () => canvas('tstar', 512, 512, (g, w, h) => {
   g.fillStyle = '#b8893b'; g.fillText('N', 0, -196);
 }, { wrap: false });
 
+// Big abstract canvases for the long walls: colour fields, a Rothko the
+// board bought at auction.
+export const artTex = (key, cols) => canvas(`tart${key}`, 256, 320, (g, w, h) => {
+  g.fillStyle = cols[0]; g.fillRect(0, 0, w, h);
+  let s = key.length * 31;
+  const blocks = [[0.08, 0.06, 0.84, 0.46], [0.08, 0.56, 0.84, 0.36]];
+  blocks.forEach(([x, y, bw, bh], i) => {
+    g.fillStyle = cols[i + 1];
+    g.globalAlpha = 0.92;
+    g.fillRect(x * w, y * h, bw * w, bh * h);
+    // soft, brushed edges
+    for (let k = 0; k < 160; k++) {
+      g.globalAlpha = 0.05;
+      g.fillRect(x * w + (hash(s++) - 0.5) * 10, y * h + hash(s++) * bh * h, bw * w, 3);
+    }
+  });
+  g.globalAlpha = 1;
+}, { wrap: false });
+
 // A sepia world for the globe bar.
 export const globeTex = () => canvas('tglobe', 512, 256, (g, w, h) => {
   g.fillStyle = '#c9b48a'; g.fillRect(0, 0, w, h);
@@ -232,8 +285,7 @@ const DEFS = {
   walnut: () => std({ map: walnutTex(), roughness: 0.5, envMapIntensity: 0.6 }),
   lacquer: () => std({ map: walnutTex(), color: '#c9b3a6', roughness: 0.14, envMapIntensity: 1.3 }),
   marble: () => std({
-    map: marbleTex([1 / 1.2, 1 / 1.2]), normalMap: marbleNormal([1 / 1.2, 1 / 1.2]), normalScale: new THREE.Vector2(0.25, 0.25),
-    color: '#f4f1ec', roughness: 0.12, envMapIntensity: 1.1,
+    map: whiteMarbleTex(), roughness: 0.14, envMapIntensity: 1.1,
   }),
   blackMarble: () => std({ map: blackMarbleTex(), roughness: 0.1, envMapIntensity: 1.2 }),
   onyx: () => std({ map: onyxTex(), emissiveMap: onyxTex(), emissive: '#ffb366', emissiveIntensity: 0.9, roughness: 0.25 }),
@@ -261,6 +313,9 @@ const DEFS = {
   rug2: () => std({ map: rugTex('b', '#1f2a44', '#6b1f1c'), roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 }),
   star: () => std({ map: starTex(), transparent: true, roughness: 0.12, envMapIntensity: 1.1, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 }),
   globe: () => std({ map: globeTex(), roughness: 0.35, envMapIntensity: 0.8 }),
+  art1: () => std({ map: artTex('a', ['#2a1714', '#7a1f18', '#b8622a']), roughness: 0.9 }),
+  art2: () => std({ map: artTex('b', ['#10182a', '#28406e', '#8a8f9a']), roughness: 0.9 }),
+  art3: () => std({ map: artTex('c', ['#2b2620', '#c8a15a', '#5b3a24']), roughness: 0.9 }),
   glass: () => new THREE.MeshPhysicalMaterial({
     color: '#cfe6ee', transparent: true, opacity: 0.14, roughness: 0.04, metalness: 0,
     envMapIntensity: 1.8, side: THREE.DoubleSide, depthWrite: false,

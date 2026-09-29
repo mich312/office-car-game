@@ -24,7 +24,7 @@ import { lightingFor } from '../daylight.js';
 import { mat, G, parts, bakeInto, mergeGroups, placeMatrix, SHADOW_MATS } from './tower/kit.js';
 import { BUILD, COLLIDE, FRICTION, WALL_BUILD, RAMP_BUILD, wallFrame, ceilingParts, C } from './tower/build.js';
 import { CityView } from './tower/view.jsx';
-import { Lifts, VideoWall, Signs, Ticker, Fire, Terrace, Pools, FloorSounds } from './tower/live.jsx';
+import { Lifts, VideoWall, Signs, Ticker, Fire, Terrace, Pools, FloorSounds, RainGlass } from './tower/live.jsx';
 import { PROPS as TOWER_PROPS } from './tower/props.jsx';
 
 const H = 3.3;
@@ -68,7 +68,7 @@ function bakeFloor(map) {
   const lamps = ceilingParts(p, map);
   // the video wall's black frame and the ticker's housing
   const V = map.VIDEO_WALL;
-  if (V) p.box('matte', C.black, 0.06, V.h + 0.06, V.w + 0.06, V.x - 0.02, V.y0 + V.h / 2, V.z, 0.01);
+  if (V) p.box('matte', C.black, 0.06, V.h + 0.06, V.w + 0.06, V.x - 0.215, V.y0 + V.h / 2, V.z, 0.01);
   const T = map.TICKER;
   if (T) p.box('matte', C.black, T.w + 0.06, T.w * 0.035 + 0.06, 0.05, T.at[0], T.at[1], T.at[2] + 0.028, 0.01);
   bakeInto(groups, p.list, placeMatrix(0, 0, 0));
@@ -113,6 +113,7 @@ export function Dressing({ map }) {
       <Terrace map={map} />
       <Pools spots={baked.lamps} />
       <FloorSounds map={map} />
+      <RainGlass map={map} />
     </group>
   );
 }

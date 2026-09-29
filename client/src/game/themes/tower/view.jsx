@@ -13,12 +13,13 @@
 // grid and the tower tops sit exactly where the real ones would. Five draws:
 // sky, ground (streets, river, traffic — all procedural, in one shader),
 // towers (instanced, windows procedural), beacons, clouds.
-import { useMemo, useRef, useLayoutEffect } from 'react';
+import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useStore } from '../../../store.js';
 import { hash, canvas } from './kit.js';
+import { audio } from '../../../audio.js';
 
 // world units per real metre out there: the city at 1/14 scale
 export const CITY = M / 14;
@@ -354,6 +355,69 @@ export function CityView() {
       <instancedMesh ref={clouds} args={[null, mats.cloud, cloudData.length]} frustumCulled={false}>
         <planeGeometry args={[1, 1]} />
       </instancedMesh>
+      <Helicopter />
+    </group>
+  );
+}
+
+// ------------------------------------------------------------ helicopter
+// Every minute or so an executive's helicopter crosses the view a little
+// above eye level, strobes blinking, rotor chop faint through the glass.
+const HELI_PERIOD = 75, HELI_PASS = 26;
+function chopper() {
+  const G = audio.graph();
+  if (!G) return null;
+  const { ctx, bus, noiseBuffer } = G;
+  const src = ctx.createBufferSource(); src.buffer = noiseBuffer(2); src.loop = true;
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320;
+  const am = ctx.createGain(); am.gain.value = 0.5;
+  const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 11;
+  const depth = ctx.createGain(); depth.gain.value = 0.5;
+  lfo.connect(depth); depth.connect(am.gain);
+  const out = ctx.createGain(); out.gain.value = 0;
+  src.connect(lp); lp.connect(am); am.connect(out); out.connect(bus.amb);
+  src.start(); lfo.start();
+  return { ctx, out };
+}
+
+function Helicopter() {
+  const ref = useRef();
+  const strobe = useRef();
+  const snd = useRef(undefined);
+  const body = useMemo(() => new THREE.MeshBasicMaterial({ color: '#15171c', fog: false }), []);
+  const light = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff3020', toneMapped: false, fog: false }), []);
+  const rotor = useMemo(() => new THREE.MeshBasicMaterial({ color: '#15171c', transparent: true, opacity: 0.25, depthWrite: false, fog: false }), []);
+  useEffect(() => () => { if (snd.current) snd.current.out.gain.value = 0; }, []);
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime + 30;
+    const k = (t % HELI_PERIOD) / HELI_PASS; // 0..1 while crossing
+    const on = k < 1;
+    const g = ref.current;
+    if (!g) return;
+    g.visible = on;
+    // a different line across the sky on every pass
+    const pass = Math.floor(t / HELI_PERIOD);
+    const a = hash(pass * 7) * Math.PI * 2;
+    const d = 210 + hash(pass * 7 + 1) * 120;
+    const cx = Math.sin(a) * d, cz = Math.cos(a) * d;
+    const ex = Math.cos(a), ez = -Math.sin(a);
+    const along = (k - 0.5) * 520;
+    g.position.set(cx + ex * along, 6 + hash(pass) * 10, cz + ez * along);
+    g.rotation.set(0, Math.atan2(ex, ez), 0);
+    if (strobe.current) strobe.current.visible = (t % 1.2) < 0.12;
+    // the chop: loudest at the closest point of the pass
+    if (snd.current === undefined) snd.current = chopper();
+    if (snd.current) {
+      const vol = on ? Math.max(0, 1 - Math.abs(k - 0.5) * 2.2) * 0.05 : 0;
+      snd.current.out.gain.setTargetAtTime(vol, snd.current.ctx.currentTime, 0.3);
+    }
+  });
+  return (
+    <group ref={ref} visible={false}>
+      <mesh material={body} scale={[1, 0.8, 2]}><sphereGeometry args={[1.2, 10, 8]} /></mesh>
+      <mesh material={body} position={[0, 0.3, -3]}><boxGeometry args={[0.25, 0.3, 3.4]} /></mesh>
+      <mesh material={rotor} position={[0, 1.2, 0]}><cylinderGeometry args={[4.2, 4.2, 0.03, 20]} /></mesh>
+      <mesh ref={strobe} material={light} position={[0, -0.9, 0]}><sphereGeometry args={[0.35, 8, 6]} /></mesh>
     </group>
   );
 }
