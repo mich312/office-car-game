@@ -9,7 +9,7 @@
 export const MODE_VARIANTS = {
   desk_dash: [
     { id: 'classic', name: 'Desk Dash', desc: '' },
-    { id: 'reverse', name: 'Reverse', desc: 'Same office, the other way round. Every corner you knew is new.' },
+    { id: 'reverse', name: 'Reverse', desc: 'Same track, the other way round. Every corner you knew is new.' },
   ],
   sumo: [
     { id: 'classic', name: 'Meeting Room Sumo', desc: '' },

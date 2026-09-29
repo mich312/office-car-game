@@ -249,7 +249,7 @@ const cp = (x, z) => ({ x: u(x), z: u(z) });
 // once on the corridor straight (too early to count) and then take it
 // properly, crossing the traffic you were part of a lap ago.
 const CHECKPOINTS = [
-  cp(-11.5, 1), // start/finish, corridor west
+  cp(-11.5, 1), // corridor west, off the grid
   cp(-1.5, 1), // corridor, before the crossroads
   cp(11.5, 1), // corridor east, past the second column
   cp(15, 4.6), // into the helpdesk
@@ -262,6 +262,9 @@ const CHECKPOINTS = [
   cp(-4.5, -4.9), // e-waste, past the cage
   cp(-10.5, -6), // loading dock
   cp(-13.5, -3.4), // up to the corridor
+  // the lap closes back in the corridor by the grid — without this the
+  // finish line was the dock ramp above, behind the corridor wall
+  cp(-13.5, 0.5),
 ];
 
 // Bot driving line — every door threaded, round both columns.

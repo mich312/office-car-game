@@ -7,8 +7,8 @@ import { RigidBody, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import TextSprite from './TextSprite.jsx';
 import {
-  POWERUP_EFFECT, M,
-  raceCheckpoints,
+  POWERUP_EFFECT, M, MODES,
+  raceCheckpoints, raceLaps,
 } from '@rc/shared';
 import { useMap } from './activeMap.js';
 import { THEMES } from './themes/index.js';
@@ -26,7 +26,7 @@ export default function ModeObjects() {
       <Puddles />
       <Rockets />
       <Robot />
-      {active && modeId === 'desk_dash' && <RaceCheckpoints />}
+      {active && modeId === 'desk_dash' && <NextCheckpoint />}
       {active && modeId === 'coffee_run' && <><Beans /><CoffeeMachine /></>}
       {active && modeId === 'battery' && <Battery />}
       {active && modeId === 'soccer' && <><SoccerBall /><Goals /></>}
@@ -157,6 +157,14 @@ function LockedRooms() {
 }
 
 // ------------------------------------------------------------- race
+// A finished car has no next checkpoint: its progress reads [laps, 0], and
+// a beacon on checkpoint 0 said "go round again".
+function NextCheckpoint() {
+  const myId = useStore((s) => s.myId);
+  const lap = useStore((s) => s.raceProgress[myId]?.[0] ?? 0);
+  return lap >= raceLaps(useMap(), MODES.desk_dash.laps) ? null : <RaceCheckpoints />;
+}
+
 function RaceCheckpoints() {
   const myId = useStore((s) => s.myId);
   const prog = useStore((s) => s.raceProgress[myId]);

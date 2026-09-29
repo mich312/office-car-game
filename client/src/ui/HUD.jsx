@@ -314,11 +314,15 @@ function MatchHUD() {
       <div className="hud-top">
         <div className={`timer-chip ${left > 0 && left <= 30 ? 'low' : ''}`}>{mm}:{ss}</div>
         <div className="hud-top-row">
-          {modeId === 'desk_dash' && prog && (
+          {modeId === 'desk_dash' && prog && (prog[0] >= raceLaps(map, MODES.desk_dash.laps) ? (
             <div className="chip"><Icon name="flag" size={15} />
-              LAP {Math.min(prog[0] + 1, raceLaps(map, MODES.desk_dash.laps))}/{raceLaps(map, MODES.desk_dash.laps)} · CP {prog[1]}/{map.CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
+              FINISHED{net.racePlace ? ` · ${net.racePlace}${['st', 'nd', 'rd'][net.racePlace - 1] || 'th'}` : ''}
             </div>
-          )}
+          ) : (
+            <div className="chip"><Icon name="flag" size={15} />
+              LAP {prog[0] + 1}/{raceLaps(map, MODES.desk_dash.laps)} · CP {prog[1]}/{map.CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
+            </div>
+          ))}
           {modeId === 'coffee_run' && (
             <div className="chip"><Icon name="coffee" size={15} /> carrying {myBeans}/{MODES.coffee_run.maxCarry}</div>
           )}
@@ -521,7 +525,7 @@ function Minimap() {
         g.fillStyle = '#fff';
         g.beginPath(); g.arc(px(net.ball.p[0]), pz(net.ball.p[2]), 3, 0, 7); g.fill();
       }
-      if (st.modeId === 'desk_dash') {
+      if (st.modeId === 'desk_dash' && !(st.raceProgress[st.myId]?.[0] >= raceLaps(map, MODES.desk_dash.laps))) {
         const prog = st.raceProgress[st.myId];
         const cps = raceCheckpoints(st.variant, map);
         const cp = cps[(prog?.[1] ?? 0) % cps.length];
@@ -630,8 +634,12 @@ function Podium() {
     [],
   );
   if (!podium) return null;
-  const top3 = podium.slice(0, 3);
-  const mine = podium.find((p) => p.id === myId);
+  // The grand ceremony honours the cup, not whoever won its last round
+  const rows = cup?.final && cup.standings ? cup.standings : podium;
+  const top3 = rows.slice(0, 3);
+  const mine = rows.find((p) => p.id === myId);
+  // the cup table: the top five, plus your own row wherever you stand
+  const cupRows = cup?.standings ? cup.standings.filter((s, i) => i < 5 || s.id === myId) : null;
   const title = cup?.final ? 'OFFICE CUP CHAMPION'
     : cup ? `ROUND ${cup.round}/${cup.total} DONE`
       : 'EMPLOYEES OF THE MATCH';
@@ -662,19 +670,19 @@ function Podium() {
         {cup?.standings && (
           <div className="cup-standings">
             <span className="label">cup standings</span>
-            {cup.standings.slice(0, 5).map((s, i) => (
+            {cupRows.map((s) => (
               <div key={s.id} className={`score-row ${s.id === myId ? 'me' : ''}`}>
-                <span className="place">{i + 1}</span>
+                <span className="place">{s.place}</span>
                 <span />
                 <span className="pname">{s.name}</span>
-                <b>{s.score}</b>
+                <b>{s.score}{s.roundPts > 0 && <span className="cup-gain">+{s.roundPts}</span>}</b>
               </div>
             ))}
           </div>
         )}
         {mine && (
           <p className="pod-mine">
-            You placed <b>{mine.place}{['st', 'nd', 'rd'][mine.place - 1] || 'th'}</b> · +XP earned
+            You placed <b>{mine.place}{['st', 'nd', 'rd'][mine.place - 1] || 'th'}</b>{cup?.final ? ' in the cup' : ''} · +XP earned
           </p>
         )}
         {rivalry && rivalry.n >= 2 && (

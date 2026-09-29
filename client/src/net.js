@@ -24,6 +24,8 @@ export const net = {
   padCooldowns: new Map(),
   spawnIndex: 0,
   teams: {},
+  joinSpawn: null, // { x, y, z, rotY } — where the server put us on a mid-match join
+  racePlace: 0, // our Desk Dash finishing place, once we have one
 };
 // debug/tooling hook (mirrors window.__rcTelemetry in LocalCar)
 if (typeof window !== 'undefined') window.__rcNet = net;
@@ -132,11 +134,20 @@ function handleMessage(msg) {
         mutator: msg.mutator || null,
         variant: msg.variant || 'classic',
         mapId: msg.map || DEFAULT_MAP,
-        powerup: null, spectating: false, spectateTarget: null,
+        powerup: null, spectateTarget: null,
         event: null, eventWarn: null, podium: null,
         scores: {}, raceProgress: {}, myBeans: 0,
         itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, lcs: null,
+        // a Last Car Standing drop-in after the first knockout watches
+        spectating: !!msg.spectating,
+        // always set, so a reconnect into a non-cup room drops a stale chip
+        cup: msg.cup || null,
       });
+      // a drop-in is put down by the server (the respawn policy): LocalCar
+      // mounts there, or teleports there if it is already running
+      net.joinSpawn = msg.spawn || null;
+      net.racePlace = 0;
+      if (msg.spawn) emit('respawn_at', { ...msg.spawn, freeze: 0, protect: 0 });
       break;
     }
     case MSG.LOBBY: {
@@ -164,6 +175,8 @@ function handleMessage(msg) {
       for (const p of msg.players) players[p.id] = p;
       net.spawnIndex = msg.spawns?.[net.myId] ?? 0;
       net.teams = msg.teams || {};
+      net.joinSpawn = null;
+      net.racePlace = 0;
       net.remotes.clear();
       net.puddles = [];
       net.rockets = [];
@@ -260,6 +273,7 @@ function handleMessage(msg) {
     case MSG.EFFECT:
       if (msg.type === 'pad_taken') net.padCooldowns.set(msg.pad, msg.until);
       if (msg.type === 'eliminated' && msg.id === net.myId) S.setState({ spectating: true });
+      if (msg.type === 'race_finish' && msg.id === net.myId) net.racePlace = msg.place;
       if (msg.type === 'ability' && msg.id === net.myId) S.setState({ abilityReadyAt: msg.readyAt || 0 });
       if (msg.type === 'printer' && msg.targets?.includes(net.myId)) {
         S.setState({ printerFlashUntil: Date.now() + (msg.blindMs || 1400) });

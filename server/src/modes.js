@@ -128,7 +128,10 @@ class LastStandingMode {
   }
   // only a real fall eliminates — a courtesy R-key respawn shouldn't
   onFall(p) { if (p.p[1] < -6) this.eliminate(p, 'went over the edge'); }
-  onJoin(p) { p.eliminated = false; p.zapT = 0; } // drop-ins join the fray
+  // Drop-ins join the fray until the first car is out or the first room
+  // shuts. After that they spectate: a reconnect is a new id, so an
+  // eliminated player could otherwise reload the page and rejoin alive.
+  onJoin(p) { p.eliminated = this.outCount > 0 || this.locked.length > 0; p.zapT = 0; }
   // a disconnect can leave one car standing just like an elimination can —
   // without this the survivor idles out the whole remaining match timer
   onLeave() { this.checkLastStanding(); }
@@ -163,8 +166,15 @@ class RaceMode {
             p.finished = true;
             this.finished.push(p.id);
             const place = this.finished.length;
-            p.finishBonus = PLACE_SCORE[Math.min(place - 1, PLACE_SCORE.length - 1)];
+            // strictly decreasing all the way down: a flat +100 from 6th on
+            // tied every late finisher, and the podium fell back to join order
+            p.finishBonus = PLACE_SCORE[place - 1] ?? Math.max(10, PLACE_SCORE.at(-1) - 10 * (place - PLACE_SCORE.length));
+            p.finishPlace = place;
+            // out of the running: a finished car holds no item to fire into
+            // the cars still racing (usePowerup and the pads skip it too)
+            if (p.powerup) { p.powerup = null; this.room.sendTo?.(p, { t: MSG.PICKUP, powerup: null }); }
             this.room.feed(`🏁 ${p.name} finished ${['1st', '2nd', '3rd'][place - 1] || `${place}th`}!`);
+            this.room.broadcast({ t: MSG.EFFECT, type: 'race_finish', id: p.id, place }); // the HUD's FINISHED chip
             this.room.scoreChanged();
             if (place >= Math.min(3, this.room.players.size)) this.room.endsAt = Math.min(this.room.endsAt, now() + 12000);
           } else {
@@ -180,8 +190,9 @@ class RaceMode {
     }
   }
   rocketTarget(player) {
-    // The car directly ahead of you in race order
-    const order = [...this.room.players.values()].sort((a, b) => b.score - a.score);
+    // The car directly ahead of you in race order — among the cars still
+    // racing: a finished car has the top score but nothing left to lose
+    const order = [...this.room.players.values()].filter((p) => !p.finished).sort((a, b) => b.score - a.score);
     const i = order.indexOf(player);
     return i > 0 ? order[i - 1] : null;
   }
@@ -255,6 +266,9 @@ class CoffeeMode {
   onHit(attacker, victim) { this.spill(victim, attacker ? attacker.name : null); }
   // only a real fall spills — a courtesy R-key flip recovery shouldn't
   onFall(p) { if (p.p[1] < -6) this.spill(p, 'gravity', true); }
+  // …but beans don't ride a respawn: they stay where the car was, or R is a
+  // free teleport to the machine (the cellar grid is next to it)
+  onRespawn(p) { this.spill(p, 'respawned', true); }
   rocketTarget(player) {
     const order = [...this.room.players.values()].filter((p) => p !== player)
       .sort((a, b) => (b.score + b.beans * 5) - (a.score + a.beans * 5));
@@ -312,6 +326,9 @@ class BatteryMode {
   }
   // only a real fall drops the battery — an R-key flip recovery shouldn't
   onFall(p) { if (p.p[1] < -6) this.drop(p); }
+  // …but it doesn't ride the respawn either: it stays where the carrier was
+  // (R every second kept it, spawn-protected, out of everyone's reach)
+  onRespawn(p) { this.drop(p); }
   onLeave(p) { this.drop(p); }
   rocketTarget(player) {
     if (this.battery.carrier && this.battery.carrier !== player.id) return this.room.players.get(this.battery.carrier);

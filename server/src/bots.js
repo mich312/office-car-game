@@ -57,6 +57,40 @@ function nearestWp(x, z, path) {
   return best;
 }
 
+// Which segment of the bots' line (waypoint i → i+1) carries each
+// checkpoint, walking the line in lap order: the first segment after the
+// previous checkpoint's that passes within reach, else the nearest. A
+// checkpoint the line crosses twice (the cellar crossroads) gets the pass
+// that counts. Cached per (line, checkpoint list).
+const segCache = new WeakMap();
+function segDist(c, a, b) {
+  const dx = b.x - a.x, dz = b.z - a.z, L = dx * dx + dz * dz || 1;
+  const t = Math.max(0, Math.min(1, ((c.x - a.x) * dx + (c.z - a.z) * dz) / L));
+  return Math.hypot(c.x - (a.x + dx * t), c.z - (a.z + dz * t));
+}
+function cpSegments(path, cps) {
+  let byCps = segCache.get(path);
+  if (!byCps) segCache.set(path, (byCps = new WeakMap()));
+  let segs = byCps.get(cps);
+  if (segs) return segs;
+  segs = [];
+  const N = path.length;
+  let from = 0;
+  for (const c of cps) {
+    let pick = -1, best = -1, bd = Infinity;
+    for (let k = 0; k < N; k++) {
+      const i = (from + k) % N;
+      const d = segDist(c, path[i], path[(i + 1) % N]);
+      if (d < 1.5) { pick = i; break; }
+      if (d < bd) { bd = d; best = i; }
+    }
+    from = pick >= 0 ? pick : best;
+    segs.push(from);
+  }
+  byCps.set(cps, segs);
+  return segs;
+}
+
 export class Bots {
   constructor(room) {
     this.room = room;
@@ -298,7 +332,7 @@ export class Bots {
     const pv = p.v || [0, 0, 0];
     const rivals = [];
     for (const o of this.room.players.values()) {
-      if (o === p || o.eliminated) continue;
+      if (o === p || o.eliminated || o.finished) continue; // a finished racer is no target
       if (this.room.modeId === 'soccer' && o.team === p.team) continue;
       const dx = o.p[0] - p.p[0], dz = o.p[2] - p.p[2];
       const dist = Math.hypot(dx, dz) || 1e-3;
@@ -342,6 +376,30 @@ export class Bots {
       if (d < bd && !lineBlocked(wallBoxesOf(this.room.map), me.x, me.z, pad.x, pad.z)) { bd = d; best = pad; }
     }
     return best;
+  }
+
+  // Put a racing bot's line waypoint back in step with its race progress
+  // after it moved without driving there (a Position Swap, a stuck hop):
+  // the nearest waypoint between its last checkpoint and its next, aimed
+  // at. Without this it drove back to the waypoint it had before — on the
+  // cellar figure-8 that was most of a lap. False when not racing.
+  resync(p, x = p.p[0], z = p.p[2]) {
+    const cps = this.room.mode?.cps;
+    if (this.room.modeId !== 'desk_dash' || !cps || p.finished) return false;
+    const PATH = this.path(), N = PATH.length, n = cps.length;
+    const segs = cpSegments(PATH, cps);
+    const from = (segs[(p.nextCp - 1 + n) % n] + 1) % N;
+    const to = (segs[p.nextCp % n] + 1) % N;
+    let best = from, bd = Infinity;
+    for (let k = 0, i = from; k <= N; k++, i = (i + 1) % N) {
+      const d = Math.hypot(PATH[i].x - x, PATH[i].z - z);
+      if (d < bd) { bd = d; best = i; }
+      if (i === to) break;
+    }
+    if (bd < 5) best = (best + 1) % N; // on it already: aim down the line
+    p.wp = best;
+    p.heading = Math.atan2(PATH[best].x - x, PATH[best].z - z);
+    return true;
   }
 
   // stable per-bot angle so zone-seeking bots spread out instead of stacking
@@ -448,11 +506,12 @@ export class Bots {
     const moved = Math.hypot(px - p.p[0], pz - p.p[2]);
     if (moved < p.speed * dt * 0.3 && p.speed > 5) p.stuckT += dt; else p.stuckT = Math.max(0, p.stuckT - dt);
     if (p.stuckT > 2.5) {
-      // recover: hop to the nearest racing-line waypoint
+      // recover: hop to the nearest racing-line waypoint — in a race, the
+      // nearest one on the stretch to the next checkpoint, not one past it
       const PATH = this.path();
-      const wp = PATH[nearestWp(p.p[0], p.p[2], PATH)];
+      const wp = this.resync(p) ? PATH[p.wp] : PATH[nearestWp(p.p[0], p.p[2], PATH)];
       px = wp.x; pz = wp.z; p.stuckT = 0; p.speed = 0;
-      p.wp = nearestWp(px, pz, PATH);
+      if (!this.resync(p, px, pz)) p.wp = nearestWp(px, pz, PATH);
     }
     p.v = [(px - p.p[0]) / dt, 0, (pz - p.p[2]) / dt];
     // ride height matches suspension sag; a spring item arcs it

@@ -131,6 +131,12 @@ for (const id of MAP_IDS) {
   }));
   check(`${tag} the grid faces the first checkpoint (worst slot ${(worst * 180 / Math.PI).toFixed(0)}°)`, worst < Math.PI / 2);
   check(`${tag} twelve grid slots`, map.SPAWNS.length === 12);
+  // both laps close by the grid (the forward lap on the last checkpoint, the
+  // reverse lap on the first) — not in a room behind a wall from it
+  const gridRooms = new Set(map.SPAWNS.map((s) => map.roomAt(s.x, s.z)?.id));
+  const finishRoom = (c) => map.roomAt(c.x, c.z)?.id;
+  check(`${tag} the lap finishes in the grid's room (forward ${finishRoom(map.CHECKPOINTS.at(-1))}, reverse ${finishRoom(map.CHECKPOINTS[0])})`,
+    gridRooms.has(finishRoom(map.CHECKPOINTS.at(-1))) && gridRooms.has(finishRoom(map.CHECKPOINTS[0])));
 }
 check('modes: a mode list exists to run on these maps', MODE_IDS.length > 0);
 

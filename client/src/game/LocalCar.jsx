@@ -127,7 +127,7 @@ export default function LocalCar() {
     frozenUntil: 0, // respawn input freeze
     protectUntil: 0, // spawn protection (can't hit or be hit)
     pendingRespawnAt: 0, // waiting for the server's RESPAWN_AT
-    safePoses: [], // ring buffer of recent grounded [x, z, yaw]
+    safePoses: [], // ring buffer of recent grounded [x, z, yaw, y]
     lastSafeAt: 0,
     lastFwdSpeed: 0, // forward speed entering this physics step
     selfBump: new Map(), // other id → t of locally-applied bump impulse
@@ -228,7 +228,7 @@ export default function LocalCar() {
         rb.current?.setGravityScale(1, true); // back from the ghost realm
       }),
       on('respawn_at', (msg) => {
-        teleport(msg.x, SPAWN_Y, msg.z, msg.rotY);
+        teleport(msg.x, Math.max(SPAWN_Y, msg.y ?? SPAWN_Y), msg.z, msg.rotY);
         const nowMs = performance.now();
         S.pendingRespawnAt = 0;
         S.frozenUntil = nowMs + (msg.freeze || 0);
@@ -295,9 +295,15 @@ export default function LocalCar() {
             }
             break;
           case 'swap':
-            if (fx.a === me) teleport(fx.pa[0], fx.pa[1] + 0.5, fx.pa[2], 0);
-            if (fx.b === me) teleport(fx.pb[0], fx.pb[1] + 0.5, fx.pb[2], 0);
-            if (fx.a === me || fx.b === me) S.shake = 0.6;
+            if (fx.a === me) teleport(fx.pa[0], fx.pa[1] + 0.5, fx.pa[2], fx.ra || 0);
+            if (fx.b === me) teleport(fx.pb[0], fx.pb[1] + 0.5, fx.pb[2], fx.rb || 0);
+            if (fx.a === me || fx.b === me) {
+              S.shake = 0.6;
+              // the server dropped its record of our old ground; so do we, or
+              // the next respawn proposes a spot it can't match (→ the grid)
+              S.safePoses.length = 0;
+              S.lastSafeAt = 0;
+            }
             break;
           case 'shield':
             if (fx.id === me) S.shieldUntil = performance.now() + (fx.until - Date.now());
@@ -437,7 +443,12 @@ export default function LocalCar() {
     const dt = PHYS_TIMESTEP;
     const nowMs = performance.now();
     const st = useStore.getState();
-    if (st.spectating) return; // ghosts are parked; no forces, no inputs
+    if (st.spectating) {
+      // ghosts are parked; no forces, no inputs. A drop-in that arrives
+      // already out never saw its 'eliminated' effect, so park it here.
+      if (body.gravityScale() !== 0) { body.setGravityScale(0, true); teleport(0, -40, 0, 0); }
+      return;
+    }
     const k = keys.current;
     k.poll?.(); // refresh gamepad axes/buttons once per physics step
 
@@ -591,6 +602,9 @@ export default function LocalCar() {
         Math.round(pos.x * 100) / 100,
         Math.round(pos.z * 100) / 100,
         Math.round(Math.atan2(_fwd.x, _fwd.z) * 100) / 100,
+        // the height too: a pose on a counter top is ON the counter, and put
+        // back at floor height it is inside it
+        Math.round(pos.y * 100) / 100,
       ]);
       if (S.safePoses.length > SAFE_POSE_BUFFER) S.safePoses.shift();
     }
@@ -1080,12 +1094,13 @@ export default function LocalCar() {
       | (nowMs < S.protectUntil ? 64 : 0);
   });
 
-  const startSpawn = currentMap().SPAWNS[0];
+  // a mid-match drop-in starts where the server put it (WELCOME's spawn)
+  const startSpawn = net.joinSpawn || { ...currentMap().SPAWNS[0], y: SPAWN_Y };
   return (
     <>
       <RigidBody
         ref={rb}
-        position={[startSpawn.x, SPAWN_Y, startSpawn.z]}
+        position={[startSpawn.x, Math.max(SPAWN_Y, startSpawn.y), startSpawn.z]}
         rotation={[0, startSpawn.rotY, 0]}
         colliders={false}
         canSleep={false}

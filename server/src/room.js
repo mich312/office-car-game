@@ -8,14 +8,14 @@ import {
   BUMP_REL_SPEED, BUMP_RUB_COOLDOWN_MS, BUMP_HIT_COOLDOWN_MS,
   SPAWN_PROTECT_MS, RESPAWN_FREEZE_MS, NUDGE_MAX_SPEED, PICKUP_RADIUS,
   TELEPORT_SLACK, TELEPORT_STRIKES, TELEPORT_ANCHOR_DIST, SAFE_POSE_MATCH_DIST,
-  SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER,
+  SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, RESPAWN_PROTECT_COOLDOWN_MS, SPAWN_Y,
   MSG, PHASE, MODE_IDS, MODES, OFFICE_EVENTS, CAR_IDS, CARS, sanitizeStyle, sanitizeTune, tunedStats,
   POWERUP_IDS, POWERUPS, POWERUP_EFFECT as FX,
   M, EMOTES, COSMETIC_IDS, MAP_IDS, DEFAULT_MAP, mapById,
   ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
   MUTATORS, MUTATOR_CHANCE, CUP_POOL,
   encodeSnapshot,
-  rollVariant, variantOf, MODE_VARIANTS,
+  rollVariant, variantOf, MODE_VARIANTS, raceSpawn, BOOST_MAX, newDriftState,
 } from '@rc/shared';
 import { createMode } from './modes.js';
 import { Bots } from './bots.js';
@@ -54,6 +54,9 @@ function clampSpeed(v, max) {
 const POS_SLACK = 20;
 
 let nextId = 1;
+
+// Office Cup points for 1st, 2nd, … in a round; nothing past 8th.
+const CUP_POINTS = [10, 8, 6, 5, 4, 3, 2, 1];
 
 export class Room {
   // code/isPrivate come from the RoomManager (rooms.js); a bare Room() is a
@@ -135,6 +138,18 @@ export class Room {
         // otherwise every client renders the joiner with the default team
         // until the next lobby refresh.
         if (this.phase === PHASE.PLAYING && this.mode) this.mode.onJoin?.(p);
+        // …and put down by the respawn policy, not on grid slot 0 whatever
+        // the mode: that was a locked room in Last Car Standing, the far end
+        // of the floor from the pitch in soccer. Ghosts get no spot.
+        let spawn = null;
+        if (this.mode && this.phase !== PHASE.PODIUM) {
+          p.spawnIndex = this.players.size - 1;
+          if (!p.eliminated) {
+            const s = this.respawnSpot(p, null);
+            this.placeAt(p, s);
+            spawn = { x: r2(s.x), y: r2(s.y ?? SPAWN_Y), z: r2(s.z), rotY: r2(s.rotY || 0) };
+          }
+        }
         ws.send(JSON.stringify({
           t: MSG.WELCOME, id, phase: this.phase,
           room: this.code, private: this.isPrivate,
@@ -146,6 +161,9 @@ export class Room {
           mutator: this.mutator?.id || null,
           variant: this.variant || 'classic',
           map: this.mapId,
+          spawn, spectating: !!p.eliminated,
+          // the cup round chip — START carries it, but a drop-in missed START
+          cup: this.cup ? { round: this.cup.round + 1, total: MODES.office_cup.rounds } : null,
         }));
         this.broadcast({ t: MSG.PLAYER_JOIN, player: this.publicPlayer(p) }, id);
         this.sendLobby();
@@ -213,7 +231,7 @@ export class Room {
         // be checked against somewhere it actually drove (see respawnPlayer).
         if (t - (player.lastPoseAt || 0) > SAFE_POSE_INTERVAL_MS && player.grounded) {
           player.lastPoseAt = t;
-          player.poseRing.push([p[0], p[2]]);
+          player.poseRing.push([p[0], p[2], p[1]]);
           if (player.poseRing.length > SAFE_POSE_BUFFER) player.poseRing.shift();
         }
         break;
@@ -394,14 +412,29 @@ export class Room {
         score: 0, lap: 0, nextCp: 0, beans: 0, hasBattery: false,
         powerup: null, shieldUntil: 0, stunUntil: 0, shrinkUntil: 0,
         spawnProtectUntil: 0, sumoDead: false,
-        spawnIndex: i++, finished: false, finishBonus: 0, rejects: 0, rejectAnchor: null,
+        spawnIndex: i++, finished: false, finishBonus: 0, finishPlace: 0, rejects: 0, rejectAnchor: null,
         poseRing: [], lastPoseAt: 0, eliminated: false, zapT: 0,
-        abilityReadyAt: 0, ramUntil: 0,
+        abilityReadyAt: 0, ramUntil: 0, lastProtectAt: 0,
         // everyone teleports to the spawn grid client-side — sanction it
         allowTeleportUntil: now() + (COUNTDOWN_SECONDS + 2) * 1000,
       });
     }
     this.mode = createMode(this.modeId, this);
+    // Bots line up where the humans' clients put themselves. After the mode
+    // exists, because soccer assigns the teams that pick the kickoff half.
+    // Office Cup rounds keep their bots, so this also clears everything a
+    // bot carried out of the last round: where it stood, which way it faced,
+    // its waypoint and speed.
+    for (const p of this.players.values()) {
+      if (!p.bot) continue;
+      const s = this.startSpot(p);
+      Object.assign(p, {
+        p: [s.x, 0.24, s.z], q: [0, Math.sin(s.rotY / 2), 0, Math.cos(s.rotY / 2)], v: [0, 0, 0],
+        heading: s.rotY, wp: 0, speed: 0, kick: { x: 0, z: 0 }, stuckT: 0,
+        boost: BOOST_MAX, boosting: false, drift: newDriftState(),
+        boostUntil: 0, itemAt: 0, oilUntil: 0, hopAt: 0,
+      });
+    }
     // per-mode length (Open Office runs long); env override wins for testing
     const len = Number(process.env.RC_MATCH_SECONDS) || MODES[this.modeId]?.seconds || MATCH_SECONDS;
     this.endsAt = now() + (COUNTDOWN_SECONDS + len) * 1000;
@@ -441,15 +474,32 @@ export class Room {
     // Cup intermissions are brisk; the grand ceremony gets the full podium
     const cupFinal = this.cup ? this.cup.round >= MODES.office_cup.rounds - 1 : false;
     this.phaseUntil = now() + (this.cup && !cupFinal ? 7 : PODIUM_SECONDS) * 1000;
+    // Office Cup: a round pays placement points, not its raw score. Every
+    // mode scores on its own scale (a Desk Dash spread is ~600, a standup
+    // ~100), so summing raw scores let one round decide the whole cup.
+    // Tied cars share the best place their tie spans (1-2-2-4); round wins
+    // and then the raw total break ties in the standings.
     if (this.cup) {
-      for (const p of this.players.values()) {
-        this.cup.scores.set(p.id, (this.cup.scores.get(p.id) || 0) + Math.round(p.score));
-      }
+      const ranked = [...this.players.values()].sort((a, b) => Math.round(b.score) - Math.round(a.score));
+      let place = 0;
+      ranked.forEach((p, i) => {
+        if (i > 0 && Math.round(p.score) !== Math.round(ranked[i - 1].score)) place = i;
+        const rec = this.cup.scores.get(p.id) || { points: 0, wins: 0, raw: 0 };
+        rec.roundPts = CUP_POINTS[place] ?? 0;
+        rec.points += rec.roundPts;
+        rec.wins += place === 0 ? 1 : 0;
+        rec.raw += Math.round(p.score);
+        this.cup.scores.set(p.id, rec);
+      });
     }
     const cupStandings = this.cup
       ? [...this.players.values()]
-        .map((p) => ({ id: p.id, name: p.name, score: this.cup.scores.get(p.id) || 0, bot: p.bot }))
-        .sort((a, b) => b.score - a.score)
+        .map((p) => {
+          const rec = this.cup.scores.get(p.id) || { points: 0, wins: 0, raw: 0, roundPts: 0 };
+          return { id: p.id, name: p.name, car: p.car, paint: p.paint, bot: p.bot, score: rec.points, roundPts: rec.roundPts, wins: rec.wins, raw: rec.raw };
+        })
+        .sort((a, b) => b.score - a.score || b.wins - a.wins || b.raw - a.raw)
+        .map((s, i) => ({ ...s, place: i + 1 }))
       : null;
     if (cupFinal && cupStandings?.length) {
       this.feed(`🏆 ${cupStandings[0].name} wins the OFFICE CUP with ${cupStandings[0].score} points!`);
@@ -544,7 +594,7 @@ export class Room {
     for (const pad of this.pads) {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
-        if (p.eliminated || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
+        if (p.eliminated || p.finished || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < PICKUP_RADIUS) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
@@ -584,7 +634,9 @@ export class Room {
 
   usePowerup(player) {
     const pw = player.powerup;
-    if (!pw || player.eliminated) return; // ghosts don't meddle (yet)
+    // ghosts don't meddle (yet), and a car that has finished its race is
+    // out of the running
+    if (!pw || player.eliminated || player.finished) return;
     player.powerup = null;
     // tell the user's HUD the slot is empty — without this the item tray
     // shows the spent item for the rest of the match
@@ -592,7 +644,9 @@ export class Room {
     const t = now();
     // attacking forfeits spawn protection
     player.spawnProtectUntil = 0;
-    const others = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated);
+    // finished racers are off the table for every item: EMP, shrink, the
+    // nearest-rocket fallback and swap
+    const others = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated && !p.finished);
     switch (pw) {
       case 'turbo':
         this.broadcast({ t: MSG.EFFECT, type: 'turbo', id: player.id });
@@ -629,8 +683,7 @@ export class Room {
         break;
       }
       case 'shrink': {
-        const leader = [...this.players.values()].filter((p) => p.id !== player.id && !p.eliminated)
-          .sort((a, b) => b.score - a.score)[0];
+        const leader = [...others].sort((a, b) => b.score - a.score)[0];
         if (!leader) break;
         leader.shrinkUntil = t + FX.SHRINK_S * 1000;
         this.broadcast({ t: MSG.EFFECT, type: 'shrink', target: leader.id, until: leader.shrinkUntil, scale: FX.SHRINK_SCALE });
@@ -638,12 +691,17 @@ export class Room {
         break;
       }
       case 'swap': {
-        // a car that has already finished its race is out of the running
-        const pool = this.modeId === 'desk_dash' ? others.filter((p) => !p.finished) : others;
-        const other = pool[Math.floor(Math.random() * pool.length)];
-        if (!other || (this.modeId === 'desk_dash' && player.finished)) break;
+        const other = others[Math.floor(Math.random() * others.length)];
+        if (!other) break;
         const pa = [...player.p], pb = [...other.p];
         player.p = pb; other.p = pa;
+        // …facing the way the other car was facing (it used to be north)
+        const yaw = (c) => (c.bot ? c.heading : 2 * Math.atan2(c.q[1], c.q[3]));
+        const ya = yaw(player), yb = yaw(other);
+        for (const [c, h] of [[player, yb], [other, ya]]) {
+          c.q = [0, Math.sin(h / 2), 0, Math.cos(h / 2)];
+          if (c.bot) c.heading = h;
+        }
         if (this.modeId === 'desk_dash') {
           // Trading places has to trade RACE places too. Swapping bodies but
           // not progress left a car that was swapped forward with its next
@@ -651,10 +709,12 @@ export class Room {
           // a bot — so "trade places" never traded places.
           for (const k of ['lap', 'nextCp', 'score']) [player[k], other[k]] = [other[k], player[k]];
           player.poseRing = []; other.poseRing = []; // old ground is no longer "ours" to respawn on
+          // a bot's line waypoint belongs to its old spot on the lap
+          for (const c of [player, other]) if (c.bot) this.bots.resync(c);
           this.scoreChanged();
         }
         player.allowTeleportUntil = other.allowTeleportUntil = t + 1500;
-        this.broadcast({ t: MSG.EFFECT, type: 'swap', a: player.id, b: other.id, pa: pb, pb: pa });
+        this.broadcast({ t: MSG.EFFECT, type: 'swap', a: player.id, b: other.id, pa: pb, pb: pa, ra: r2(yb), rb: r2(ya) });
         this.feed(`🔀 ${player.name} swapped with ${other.name}`);
         break;
       }
@@ -760,27 +820,57 @@ export class Room {
   }
 
   // ------------------------------------------------------------- respawning
+  // A player's place at the start of a round, exactly where LocalCar's
+  // match_start teleport puts a human: soccer on its team's kickoff spots
+  // (by ordinal within the team, in the order START lists the teams), every
+  // other mode on the grid, turned for a reverse race.
+  startSpot(player) {
+    if (this.modeId === 'soccer') {
+      const kick = this.map.SOCCER.kickoff;
+      const team = player.team || 0;
+      const spots = kick.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
+      const ord = [...this.players.values()].filter((p) => (p.team || 0) === team).indexOf(player);
+      return spots[Math.max(0, ord) % spots.length] || kick[0];
+    }
+    return raceSpawn(player.spawnIndex ?? 0, this.modeId === 'desk_dash' ? this.variant : 'classic', this.map);
+  }
+
+  // The respawn policy, one place for every mode:
+  //   where  — races go back to where the car was (its validated safe pose,
+  //            else its last checkpoint facing the next); tag and sumo are a
+  //            recovery on the spot too, never an escape across the map;
+  //            soccer returns to the team's kickoff half; Last Car Standing
+  //            to a room that isn't locked or closing; the rest take the
+  //            scored grid slot.
+  //   cost   — whatever the car carried stays where it was (mode onRespawn:
+  //            the battery, the beans); the input freeze always applies.
+  //   spam   — spawn protection once per RESPAWN_PROTECT_COOLDOWN_MS, and
+  //            never for the It car.
   respawnPlayer(player, safe) {
     const t = now();
     // consequences of leaving the field fire first (spill beans, drop battery,
     // sumo elimination)
     this.mode?.onFall?.(player);
-    let spot = null;
-    // Races respawn at the client's safe-pose proposal (last pose that was
-    // grounded on valid floor) so nobody walks back three rooms. In-bounds
-    // isn't enough of a check — that would let a client name any point on the
-    // floor, including one just short of the next checkpoint. So we match the
-    // proposal against our own record of where we watched this car drive.
-    if (this.modeId === 'desk_dash') {
-      const s = finiteVec(safe, 3);
-      if (s && s[0] > this.map.MAP_BOUNDS.minX && s[0] < this.map.MAP_BOUNDS.maxX
-          && s[1] > this.map.MAP_BOUNDS.minZ && s[1] < this.map.MAP_BOUNDS.maxZ
-          && player.poseRing.some((q) => Math.hypot(s[0] - q[0], s[1] - q[1]) < SAFE_POSE_MATCH_DIST)) {
-        spot = { x: s[0], z: s[1], rotY: s[2] };
-      }
+    this.mode?.onRespawn?.(player);
+    const spot = this.respawnSpot(player, safe);
+    this.placeAt(player, spot, t);
+    // courtesy protection, not a renewable shield
+    const hunted = this.modeId === 'tag' && this.mode?.it === player.id;
+    if (hunted) player.spawnProtectUntil = 0;
+    else if (t - (player.lastProtectAt || -Infinity) >= RESPAWN_PROTECT_COOLDOWN_MS) {
+      player.lastProtectAt = t;
+      player.spawnProtectUntil = t + RESPAWN_FREEZE_MS + SPAWN_PROTECT_MS;
     }
-    if (!spot) spot = this.pickSpawn(player);
-    player.p = [spot.x, 1, spot.z];
+    this.sendTo(player, {
+      t: MSG.RESPAWN_AT, x: r2(spot.x), y: r2(spot.y ?? SPAWN_Y), z: r2(spot.z), rotY: r2(spot.rotY || 0),
+      freeze: RESPAWN_FREEZE_MS, protect: Math.max(0, player.spawnProtectUntil - t - RESPAWN_FREEZE_MS),
+    });
+  }
+
+  // Server-side half of a sanctioned teleport: the client follows on
+  // RESPAWN_AT (or WELCOME's spawn for a drop-in).
+  placeAt(player, spot, t = now()) {
+    player.p = [spot.x, spot.y ?? 1, spot.z];
     player.v = [0, 0, 0];
     const half = (spot.rotY || 0) / 2;
     player.q = [0, Math.sin(half), 0, Math.cos(half)];
@@ -788,29 +878,111 @@ export class Room {
     player.rejectAnchor = null;
     player.poseRing.length = 0; // history before the respawn proves nothing after it
     player.allowTeleportUntil = t + 2000;
-    player.spawnProtectUntil = t + RESPAWN_FREEZE_MS + SPAWN_PROTECT_MS;
-    this.sendTo(player, {
-      t: MSG.RESPAWN_AT, x: r2(spot.x), z: r2(spot.z), rotY: r2(spot.rotY || 0),
-      freeze: RESPAWN_FREEZE_MS, protect: SPAWN_PROTECT_MS,
-    });
+  }
+
+  respawnSpot(player, safe) {
+    const pose = this.matchSafePose(player, safe);
+    switch (this.modeId) {
+      case 'desk_dash':
+        return pose || this.raceRecoverySpot(player);
+      case 'tag':
+      case 'sumo': {
+        // recover where you were; with no pose, the spot nearest the car
+        // (tag: not an escape hatch) or the ring (sumo: not an elimination)
+        if (pose) return pose;
+        const z = this.modeId === 'sumo' ? this.mode?.zone : null;
+        const from = z ? { x: z.x, z: z.z } : { x: player.p[0], z: player.p[2] };
+        return this.nearestSpot(this.openSpots(), from);
+      }
+      case 'soccer': {
+        const kick = this.map.SOCCER.kickoff;
+        const team = player.team || 0;
+        return this.pickSpawn(player, kick.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team), `kick${team}`);
+      }
+      case 'last_standing':
+        if (pose && this.roomIsOpen(pose)) return pose;
+        return this.pickSpawn(player, this.openSpots(), 'lcs');
+      default:
+        return this.pickSpawn(player);
+    }
+  }
+
+  // Races (and the recovery modes) respawn at the client's safe-pose
+  // proposal (last pose that was grounded on valid floor) so nobody walks
+  // back three rooms. In-bounds isn't enough of a check — that would let a
+  // client name any point on the floor, including one just short of the next
+  // checkpoint. So we match the proposal against our own record of where we
+  // watched this car drive, height included: a pose on a kitchen counter
+  // put back on the floor is inside the counter.
+  matchSafePose(player, safe) {
+    const s = finiteVec(safe, 4) || finiteVec(safe, 3); // [x, z, yaw, y?]
+    if (!s || !(s[0] > this.map.MAP_BOUNDS.minX && s[0] < this.map.MAP_BOUNDS.maxX
+        && s[1] > this.map.MAP_BOUNDS.minZ && s[1] < this.map.MAP_BOUNDS.maxZ)) return null;
+    const y = s.length > 3 ? s[3] : SPAWN_Y;
+    const seen = player.poseRing.find((q) => Math.hypot(s[0] - q[0], s[1] - q[1]) < SAFE_POSE_MATCH_DIST
+      && Math.abs(y - q[2]) < 1);
+    // the height is our own record, not the client's claim
+    return seen ? { x: s[0], z: s[1], rotY: s[2], y: Math.max(SPAWN_Y, seen[2] + 0.03) } : null;
+  }
+
+  // No usable pose in a race: back to the last checkpoint passed, facing the
+  // next — not the start grid. A car that hasn't passed one yet (or a
+  // drop-in) gets a grid slot, facing the way this race leaves.
+  raceRecoverySpot(player) {
+    const cps = this.mode?.cps;
+    if (!cps || (!player.lap && !player.nextCp)) {
+      const rotY = raceSpawn(0, this.variant, this.map).rotY;
+      return { ...this.pickSpawn(player), rotY };
+    }
+    const n = cps.length;
+    const a = cps[(player.nextCp - 1 + n) % n], b = cps[player.nextCp % n];
+    return { x: a.x, z: a.z, rotY: Math.atan2(b.x - a.x, b.z - a.z) };
+  }
+
+  // Last Car Standing: a room nobody is about to be zapped in.
+  roomIsOpen(pt) {
+    const m = this.modeId === 'last_standing' ? this.mode : null;
+    if (!m) return true;
+    const rm = this.map.roomAt(pt.x, pt.z);
+    return !rm || (!m.locked.includes(rm.id) && m.warn?.room !== rm.id);
+  }
+
+  // Places a car can be put down in any mode: the grid and the standup
+  // spots (which the maps keep clear of furniture), minus closed rooms. If
+  // every one is closed, the middle of a room that isn't.
+  openSpots() {
+    const spots = [...this.map.SPAWNS, ...this.map.KOTH_SPOTS.map((k) => ({ x: k.x, z: k.z, rotY: 0 }))]
+      .filter((sp) => this.roomIsOpen(sp));
+    if (spots.length) return spots;
+    const open = this.map.ROOMS.filter((r) => this.roomIsOpen(r));
+    return (open.length ? open : this.map.ROOMS).map((r) => ({ x: r.x, z: r.z, rotY: 0 }));
+  }
+
+  nearestSpot(spots, from) {
+    let best = spots[0], bd = Infinity;
+    for (const sp of spots) {
+      const d = Math.hypot(sp.x - from.x, sp.z - from.z);
+      if (d < bd) { bd = d; best = sp; }
+    }
+    return best;
   }
 
   // Halo-style spawn scoring: the free slot farthest from the nearest
   // opponent wins, with penalties for occupied and recently-used slots.
-  pickSpawn(player) {
+  pickSpawn(player, spots = this.map.SPAWNS, key = 'grid') {
     const t = now();
     const others = [...this.players.values()].filter((p) => p.id !== player.id);
     let best = null, bestScore = -Infinity;
-    this.map.SPAWNS.forEach((sp, i) => {
+    spots.forEach((sp, i) => {
       let nearest = Infinity;
       for (const o of others) nearest = Math.min(nearest, Math.hypot(o.p[0] - sp.x, o.p[2] - sp.z));
       let score = Math.min(nearest, 25);
       if (nearest < 2.5) score -= 30; // someone is parked on it
-      if (t - (this.lastSpawnUse[i] || 0) < 4000) score -= 15;
+      if (t - (this.lastSpawnUse[`${key}${i}`] || 0) < 4000) score -= 15;
       score += Math.random(); // tiebreak
       if (score > bestScore) { bestScore = score; best = { ...sp, i }; }
     });
-    this.lastSpawnUse[best.i] = t;
+    this.lastSpawnUse[`${key}${best.i}`] = t;
     return best;
   }
 
@@ -836,7 +1008,7 @@ export class Room {
         if (Math.hypot(p.p[0] - this.map.VENDING.x, p.p[2] - this.map.VENDING.z) > this.map.VENDING.radius) continue;
         this.vendReadyAt = t + this.map.VENDING.cooldownS * 1000;
         const golden = Math.random() < this.map.VENDING.goldenChance;
-        if (golden && !p.powerup && (!p.bot || this.bots.items)) {
+        if (golden && !p.powerup && !p.finished && (!p.bot || this.bots.items)) {
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup });
           else p.itemAt = t; // bots decide when (botbrain.js)
