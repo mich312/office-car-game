@@ -138,6 +138,8 @@ export class Room {
         // otherwise every client renders the joiner with the default team
         // until the next lobby refresh.
         if (this.phase === PHASE.PLAYING && this.mode) this.mode.onJoin?.(p);
+        // Tiny Cars shrinks everyone for the round — drop-ins included
+        if (this.mutator?.id === 'tiny_cars' && (this.phase === PHASE.PLAYING || this.phase === PHASE.COUNTDOWN)) p.shrinkUntil = this.endsAt;
         ws.send(JSON.stringify({
           t: MSG.WELCOME, id, phase: this.phase,
           room: this.code, private: this.isPrivate,
@@ -588,6 +590,7 @@ export class Room {
     let total = 0;
     const weights = POWERUP_IDS.map((id) => {
       if (id === 'rocket' && this.rockets.length > 0) return 0;
+      if (id === 'shrink' && this.mutator?.id === 'tiny_cars') return 0; // everyone's already tiny
       const f = FRONT[id] ?? 1, b = BACK[id] ?? 1;
       const v = f + (b - f) * frac;
       total += v;
@@ -651,7 +654,8 @@ export class Room {
         const leader = [...this.players.values()].filter((p) => p.id !== player.id && !isOut(p))
           .sort((a, b) => b.score - a.score)[0];
         if (!leader) break;
-        leader.shrinkUntil = t + FX.SHRINK_S * 1000;
+        // never shorter than a shrink already running (Tiny Cars lasts the round)
+        leader.shrinkUntil = Math.max(leader.shrinkUntil || 0, t + FX.SHRINK_S * 1000);
         this.broadcast({ t: MSG.EFFECT, type: 'shrink', target: leader.id, until: leader.shrinkUntil, scale: FX.SHRINK_SCALE });
         this.feed(`🔬 ${player.name} shrunk ${leader.name}!`);
         break;

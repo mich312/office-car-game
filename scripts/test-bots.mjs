@@ -9,7 +9,7 @@ import { createSim } from './bot-sim.mjs';
 import {
   shouldUseItem, padWorthDetour, ITEM_REACT_S, ITEM_FALLBACK_S, SHIELD_ROCKET_RANGE,
 } from '../server/src/botbrain.js';
-import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, KOTH_RADIUS } from '../shared/src/index.js';
+import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, KOTH_RADIUS, MUTATORS } from '../shared/src/index.js';
 import { MAPS, MAP_IDS } from '../shared/src/index.js';
 
 let fails = 0;
@@ -265,6 +265,28 @@ for (const mapId of MAP_IDS) {
   check(`${mapId} lcs: bots don't drive into closed rooms to die (${blunders} of ${elims} eliminations)`, blunders <= elims * 0.25);
   check(`${mapId} lcs: the match ends with a crown (${crowned}/${seeds.length})`, crowned >= seeds.length - 1);
   check(`${mapId} lcs: eliminated bots leave the floor (no invisible cars where they died)`, ghostsOnFloor === 0);
+}
+
+// ------------------------------------------------------ Tiny Cars
+{
+  // the Shrink item used to overwrite the round-long Tiny Cars shrink with
+  // its own 8 s, so the leader grew back (and ran 15% faster than everyone
+  // for the rest of the round); drop-ins were never shrunk at all
+  const sim = await createSim({ seed: 1, mode: 'koth' });
+  sim.room.mutator = MUTATORS.tiny_cars;
+  for (const p of sim.room.players.values()) p.shrinkUntil = sim.room.endsAt;
+  const [a, b] = sim.bots;
+  b.score = 999; a.powerup = 'shrink';
+  sim.room.usePowerup(a);
+  check('tiny cars: a Shrink never cuts the round-long shrink short', b.shrinkUntil >= sim.room.endsAt);
+  let n = 0;
+  for (let i = 0; i < 500; i++) if (sim.room.rollPowerup(a) === 'shrink') n++;
+  check('tiny cars: nobody draws a Shrink when everyone is already tiny', n === 0);
+  const ws = { send() {}, readyState: 1 };
+  sim.room.pending++;
+  sim.room.onMessage(ws, { t: 'hello', name: 'Late' });
+  const late = sim.room.players.get(ws.playerId);
+  check('tiny cars: a drop-in is tiny too', !!late && late.shrinkUntil >= sim.room.endsAt);
 }
 
 // ------------------------------------------ every standup is reachable
