@@ -245,8 +245,11 @@ function counter(f, ctx) {
   const long = W >= D;
   const L = long ? W : D, S = long ? D : W;
   const run = () => {
-    // carcass (sides show at the ends), toe kick
-    p.add('laminateWhite', rbox(L - inset * 2, H - wt - kick, S - inset * 2, 0.006), [0, kick + (H - wt - kick) / 2, 0]);
+    // carcass: charcoal, so the 4 mm gaps between doors read as clean dark
+    // lines; the ends get a white panel
+    // (4 mm shy of the doors' backs, or the gaps z-fight into dotted lines)
+    p.add('laminateCharcoal', rbox(L - inset * 2, H - wt - kick, S - inset * 2 - 0.008, 0.006), [0, kick + (H - wt - kick) / 2, 0]);
+    for (const e of [-1, 1]) p.add('laminateWhite', rbox(0.018, H - wt - kick + 0.01, S - inset * 2 + 0.02, 0.004, 1), [e * (L / 2 - inset), kick + (H - wt - kick) / 2, 0.01]);
     p.add('powderBlack', rbox(L - inset * 2 - 0.02, kick, S - inset * 2 - 0.12, 0.004, 1), [0, kick / 2, 0]);
     const n = Math.max(1, Math.round((L - inset * 2) / 0.6));
     const mw = (L - inset * 2) / n;
@@ -443,8 +446,9 @@ function rack(f, ctx) {
         // the servers: faces from the atlas, a dark void behind
         p.add('serverFaces', card(W - 0.14, faceH, atlasRect('servers')), [0, pl + 0.05 + faceH / 2, -0.07]);
       } else {
-        // the back: cable waterfalls and a blue-lit power strip
-        p.add('plasticBlack', box(W - 0.12, faceH, 0.01), [0, pl + 0.05 + faceH / 2, -0.12]);
+        // the back: the servers' rear ends, cable waterfalls in front of
+        // them and a blue-lit power strip
+        p.add('serverFaces', card(W - 0.14, faceH, atlasRect('servers')), [0, pl + 0.05 + faceH / 2, -0.13]);
         for (let k = 0; k < 3; k++) {
           const x = -0.2 + k * 0.2;
           cableRun(p, [[x, H - 0.1, -0.1], [x + 0.02, H * 0.6, -0.08], [x - 0.01, 0.25, -0.09], [x, pl + 0.03, -0.14]], 3, 0.007, k + ctx.index);
@@ -1097,14 +1101,18 @@ function bench(f) {
   const long = D >= W;
   const L = long ? D : W, S = long ? W : D;
   p.at([0, 0, 0], long ? [0, Math.PI / 2, 0] : null, () => {
-    for (let i = 0; i < 5; i++) p.add('teak', rbox(L, 0.035, 0.09, 0.008), [0, H - 0.0175, -0.22 + i * 0.11]);
+    for (let i = 0; i < 5; i++) p.add('teak', rbox(L, 0.035, 0.09, 0.008), [0, H - 0.0175, -0.26 + i * 0.11]);
+    // a backrest on the +z side: three slats leaning back 15°
+    for (let i = 0; i < 3; i++) p.add('teak', rbox(L, 0.09, 0.03, 0.008), [0, H + 0.12 + i * 0.12, S / 2 - 0.05 + i * 0.03], [-15 * DEG, 0, 0]);
     for (const s of [-1, 1]) {
       const x = s * (L / 2 - 0.15 / M);
       p.at([x, 0, 0], null, () => {
         for (const z of [-1, 1]) p.add('powderBlack', rbox(0.04, H - 0.035, 0.05, 0.008, 1), [0, (H - 0.035) / 2, z * (S / 2 - 0.08)], [z * 8 * DEG, 0, 0]);
         p.add('powderBlack', rbox(0.045, 0.045, S - 0.04, 0.008, 1), [0, H - 0.06, 0]);
         p.add('powderBlack', rbox(0.04, 0.03, S - 0.12, 0.006, 1), [0, 0.12, 0]);
-        p.add('powderBlack', tube([[0, H - 0.04, S / 2 - 0.08], [0, 0.64, S / 2 - 0.13], [0, 0.66, 0], [0, 0.64, -S / 2 + 0.13], [0, H - 0.04, -S / 2 + 0.08]], 0.016, 8), [0, 0, 0]);
+        // the cast end: back post up behind the backrest, armrest forward
+        p.add('powderBlack', tube([[0, H - 0.04, S / 2 - 0.06], [0, H + 0.25, S / 2 - 0.02], [0, H + 0.48, S / 2 + 0.03]], 0.018, 8), [0, 0, 0]);
+        p.add('powderBlack', tube([[0, H + 0.2, S / 2 - 0.03], [0, H + 0.22, 0], [0, H + 0.18, -S / 2 + 0.1], [0, H - 0.04, -S / 2 + 0.08]], 0.016, 8), [0, 0, 0]);
       });
     }
   });

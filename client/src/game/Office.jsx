@@ -388,9 +388,11 @@ function Leds({ built }) {
       for (const l of b.leds) {
         o.position.set(...l.at);
         o.rotation.set(0, l.yaw || 0, 0);
-        o.scale.setScalar(0.012);
+        o.scale.setScalar(0.016);
         o.updateMatrix();
-        out.push({ ...l, m: world.clone().multiply(o.matrix), color: new THREE.Color(l.c) });
+        // over-bright on purpose: they sit behind a perforated door, and the
+        // bloom is what makes a rack read as alive from across the room
+        out.push({ ...l, m: world.clone().multiply(o.matrix), color: new THREE.Color(l.c).multiplyScalar(2.2) });
       }
     }
     return out;

@@ -792,7 +792,7 @@ export const perfAlphaTex = () =>
         g.beginPath();
         for (let i = 0; i < 6; i++) {
           const a = i / 6 * Math.PI * 2 + Math.PI / 6;
-          g[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * 5.2, y + Math.sin(a) * 5.2);
+          g[i ? 'lineTo' : 'moveTo'](x + Math.cos(a) * 6.9, y + Math.sin(a) * 6.9);
         }
         g.fill();
       }
@@ -1143,12 +1143,12 @@ export const labelAtlas = () =>
         if (kind < 0.2) { // blanking panel
           g.fillStyle = '#1b1d22'; g.fillRect(14, y, w - 28, hh);
         } else {
-          g.fillStyle = kind < 0.6 ? '#2a2e35' : kind < 0.85 ? '#3a3f47' : '#c8ccd2';
+          g.fillStyle = kind < 0.5 ? '#454b55' : kind < 0.8 ? '#6a717b' : '#c8ccd2';
           g.fillRect(14, y, w - 28, hh);
           // drive bays
           const bays = u === 2 ? 12 : 8;
           for (let b = 0; b < bays; b++) {
-            g.fillStyle = kind < 0.85 ? '#15171b' : '#8d949c';
+            g.fillStyle = kind < 0.8 ? (b % 3 ? '#23262c' : '#2e4a6a') : '#8d949c';
             g.fillRect(40 + b * ((w - 110) / bays), y + 3, (w - 110) / bays - 3, hh - 6);
           }
           // vent slots + ears

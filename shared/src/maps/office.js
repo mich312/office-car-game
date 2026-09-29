@@ -182,7 +182,7 @@ export const FURNITURE = [
   f('desk', 2.5, -1.45, 1.6, 0.8, 0.74), f('desk', 2.5, -0.55, 1.6, 0.8, 0.74),
   f('desk', -4.5, 3.55, 1.6, 0.8, 0.74), f('desk', -4.5, 4.45, 1.6, 0.8, 0.74),
   f('desk', 2.5, 3.55, 1.6, 0.8, 0.74), f('desk', 2.5, 4.45, 1.6, 0.8, 0.74),
-  f('art', -7.85, -2, 1.4, 0.1, 1.2, Math.PI / 2),
+  f('art', -7.85, -3.2, 1.4, 0.1, 1.2, Math.PI / 2), // beside the bathroom door, not over it
   // Server room — offset rack rows make a slalom
   f('rack', 7.5, 3.3, 0.8, 0.8, 2.2), f('rack', 8.7, 3.3, 0.8, 0.8, 2.2),
   f('rack', 9.9, 3.3, 0.8, 0.8, 2.2), f('rack', 11.1, 3.3, 0.8, 0.8, 2.2),

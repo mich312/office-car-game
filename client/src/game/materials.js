@@ -59,7 +59,9 @@ const MAKERS = {
   powderGrey: () => std({ color: '#8e959c', metalness: 0.25, roughness: 0.5, normalMap: peel(), normalScale: V(0.35) }),
   powderOrange: () => std({ color: '#d86f2a', metalness: 0.15, roughness: 0.45, normalMap: peel(), normalScale: V(0.35) }),
   powderBlue: () => std({ color: '#2f5f9e', metalness: 0.15, roughness: 0.45, normalMap: peel(), normalScale: V(0.35) }),
-  brushedSteel: () => std({ color: '#b8bec6', metalness: 0.9, roughness: 1, roughnessMap: brushedRough(), envMapIntensity: 1.1 }),
+  // Less metal than real steel on purpose: an office's environment is dim
+  // and warm, and at 0.9 every steel front went a muddy brown.
+  brushedSteel: () => std({ color: '#c3c9d0', metalness: 0.6, roughness: 1, roughnessMap: brushedRough(), envMapIntensity: 1.2 }),
   chrome: () => std({ color: '#dfe4ea', metalness: 1, roughness: 0.12, envMapIntensity: 1.3 }),
   brass: () => std({ color: '#c9a24a', metalness: 1, roughness: 0.3 }),
   // hex-perforated steel: rack doors. alphaTest cuts real holes, so the
@@ -116,7 +118,8 @@ const MAKERS = {
   books: () => std({ map: labelAtlas(), vertexColors: true, roughness: 0.7 }),
   // backlit panels: the vending header, screens, the copier's touch panel
   labelsGlow: () => std({ map: labelAtlas(), emissiveMap: labelAtlas(), emissive: '#ffffff', emissiveIntensity: 0.9, roughness: 0.3, toneMapped: false }),
-  serverFaces: () => std({ map: labelAtlas(), emissiveMap: labelAtlas(), emissive: '#6d7680', emissiveIntensity: 0.25, roughness: 0.5, metalness: 0.3 }),
+  // lit a little from inside, so a rack behind its door isn't a black box
+  serverFaces: () => std({ map: labelAtlas(), emissiveMap: labelAtlas(), emissive: '#9fb3c8', emissiveIntensity: 0.55, roughness: 0.5, metalness: 0.3 }),
   whiteboard: () => std({ map: labelAtlas(), roughness: 0.18, envMapIntensity: 0.6 }),
   backlight: () => new THREE.MeshBasicMaterial({ color: '#fff1d6', toneMapped: false }),
   lampStrip: () => new THREE.MeshBasicMaterial({ color: '#fff4e0', toneMapped: false }),
