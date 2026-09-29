@@ -2,7 +2,7 @@
 // kill feed, minimap, scoreboard, event toasts, podium. Everything anchors
 // to the HUD safe-area frame and composes the shared chip/toast primitives.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODES, MODE_IDS, MAPS, MAP_IDS, raceLaps, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf } from '@rc/shared';
+import { MODES, MODE_IDS, MAPS, MAP_IDS, raceLaps, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf, perched } from '@rc/shared';
 import { useMap, currentMap } from '../game/activeMap.js';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
@@ -313,6 +313,9 @@ function MatchHUD() {
   const finale = modeId === 'last_standing' ? net.zone : null;
   const outsideRing = !!(finale && !spectating && Math.hypot(telemetry.x - finale.x, telemetry.z - finale.z) > finale.r);
   const inLockedRoom = !!(modeId === 'last_standing' && ((myRoom && lcs?.locked?.includes(myRoom.id)) || outsideRing));
+  // holding It or the battery up on the furniture: it won't stay there long
+  const holding = (modeId === 'tag' && itId === myId) || (modeId === 'battery' && ((net.flags.get(myId) || 0) & 32));
+  const perchWarn = !!holding && !spectating && perched(map, telemetry.x, telemetry.y, telemetry.z);
 
   return (
     <>
@@ -353,6 +356,11 @@ function MatchHUD() {
           {modeId === 'tag' && (
             <div className="chip"><Icon name="crown" size={15} />
               {itId === myId ? "YOU'RE IT — keep scoring!" : itId ? `${players[itId]?.name || '???'} is It — bump them!` : '…'}
+            </div>
+          )}
+          {perchWarn && (
+            <div className="chip mutator-chip"><Icon name="warning" size={15} />
+              up on the furniture — {modeId === 'tag' ? 'It passes on' : 'the battery slides off'} in a moment
             </div>
           )}
           {modeId === 'sumo' && (

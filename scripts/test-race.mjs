@@ -2,7 +2,7 @@
 // harness (bot-sim.mjs) for whole races, a bare Room on the same virtual
 // clock for the cup flow and the respawn policy.
 import { createSim } from './bot-sim.mjs';
-import { MAPS, MODES, PHASE, MSG, SPAWN_Y, RESPAWN_PROTECT_COOLDOWN_MS, raceCheckpoints, raceSpawn } from '../shared/src/index.js';
+import { MAPS, MODES, PHASE, MSG, M as MU, SPAWN_Y, RESPAWN_PROTECT_COOLDOWN_MS, raceCheckpoints, raceSpawn, groundAt } from '../shared/src/index.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -267,6 +267,33 @@ for (const map of ['office', 'cellar']) {
   check(`drop-in: …the office event already running (${w.event?.id}, ${w.event?.left} ms left)`,
     !!room.event && w.event?.id === room.event.id && w.event.left > 0 && w.event.left <= w.event.duration * 1000 && !!w.event.name);
   check('drop-in: …and the pads already taken', w.pads.some(([i, until]) => i === pad.i && until === pad.readyAt));
+}
+
+// ------------------------------- nobody keeps It or the battery on a desk
+// Bots can't climb: a human parked on the garage desk row (0.74 m up the
+// plank ramp) kept It / the battery for the whole minute, a bot under the
+// desk 90 % of the time
+for (const mode of ['tag', 'battery']) {
+  const sim = await createSim({ seed: 3, mode, map: 'garage' });
+  const room = sim.room;
+  const h = human(sim, 'Percher');
+  const x = -1.5 * MU, z = -3.5 * MU; // metres → units
+  const y = groundAt(room.map, x, z, 10) + 0.24;
+  const sit = () => { h.me.allowTeleportUntil = Infinity; room.onMessage(h.ws, { t: MSG.STATE, p: [x, y, z], q: [0, 0, 0, 1], v: [0, 0, 0], g: 1 }); };
+  sit();
+  if (mode === 'tag') room.mode.setIt(h.me);
+  else Object.assign(room.mode.battery, { carrier: h.me.id, grabbedAt: sim.now() }), h.me.hasBattery = true;
+  let kept = 0, fell = null;
+  sim.run(8, (s) => {
+    sit();
+    if (mode === 'tag' ? s.room.mode.it === h.me.id : s.room.mode.battery.carrier === h.me.id) kept++;
+    else if (!fell && mode === 'battery') fell = { ...s.room.mode.battery };
+  });
+  check(`garage ${mode}: held up on a desk, it doesn't stay (${(kept * sim.dt).toFixed(1)} s of 8)`, kept * sim.dt < 6);
+  if (mode === 'battery') {
+    check('garage battery: …it slides off onto the floor beside the desk', !!fell && !fell.carrier && fell.y === 0
+      && groundAt(room.map, fell.x, fell.z, 10) === 0 && Math.hypot(fell.x - x, fell.z - z) < 12);
+  }
 }
 
 // ------------------------------------------------------------ Office Cup
