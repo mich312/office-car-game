@@ -1,0 +1,38 @@
+You are one of six parallel reviewer-fixers on "Tiny RC Mayhem" (repo mich312/office-car-game), a multiplayer browser game: 18 cm RC cars racing and brawling through workplaces at toy scale. Five floors (office, IT cellar, management tower, dev garage, printer factory) and every 3D model were just rebuilt by parallel builders and integrated on branch `claude/maps`. Before it ships, each reviewer takes one lane, hunts for REAL defects in it, fixes what is inside the lane, and reports the rest. The other five work in their own containers at the same time — stay strictly inside your lane (below); the owner merges all branches afterwards.
+
+The owner's bar, in their words: the levels must be "really nice" and look like the offices they are (a software-dev garage, an IT cellar with flickering fluorescent tubes, a management tower with a war room, a printer assembly line), every 3D model improved, and every game mode working.
+
+## Start
+- You are on a checkout of `claude/maps`. Work on top of it and push to your outcome branch (given below; `git push -u origin <branch>`, retry on network failure). Do NOT open a pull request.
+- `npm ci`, then `npm run build` and `npm test` — the baseline is green; keep it green.
+- Stack: React Three Fiber + @react-three/rapier client (client/src), authoritative Node/ws server (server/src), shared pure modules (shared/src). Scale: 1 world unit = 22.5 cm; `M` = 4.444 units per metre. Maps are authored in metres (`u(v) = v * M`). The chase camera sits low behind the car, so a desk is a building and a skirting board is a kerb.
+
+## Where things are
+- Maps: `shared/src/maps/{office,cellar,tower,garage,factory}.js`, registered in `shared/src/map.js` (`build()` adds roomAt, reverse lap, widens the sumo ring). Furniture entries follow the rotY contract: w/d are the piece's OWN size, +z is its front, the collider and the visual both turn by rotY (`scripts/test-maps.mjs` checks the rotated footprint).
+- Scene: `client/src/game/Office.jsx` (floors, walls, furniture via `furniture.js` builders baked into one batch, ramps, the office ceiling), `architecture.js` (walls, door frames, glass), `kit.js`, `materials.js`, `textures.js`. Themes per floor in `client/src/game/themes/` (registry `themes/index.js`: Dressing, PIECES, PROPS, RAMP_SKINS, WALL_STYLES, Robot). Props: `Props.jsx`, `propBody.jsx`, `propKit.jsx`, `propModels.js`. Cars: `CarModel.jsx`, `carParts.js`, `carShell.js`, `carKit.js`, `RemoteCars.jsx`. Mode visuals: `ModeObjects.jsx`. Local car physics, zones, respawn: `LocalCar.jsx`.
+- Server: `server/src/room.js` (match flow, respawn policy, items, events, map choice), `modes.js` (every mode), `bots.js` (bot driving; `nav.js` door graph for koth/sumo/last_standing, `navgrid.js` walkability grid for coffee/battery/soccer/tag). Bots are 2D and collide only with walls (low walls included), never furniture.
+- Modes: desk_dash (race; variant reverse), coffee_run, battery, soccer, koth (variant rush), sumo (variant drift = "Moving Meeting"), tag, last_standing. Headless harness: `scripts/bot-sim.mjs` — `createSim({ seed, mode, bots, variant, map })`, `sim.run(seconds, onTick)`; scripts must `process.exit()`.
+- Tests: test-maps (geometry of every map), test-bots (bots lap every map both ways, every mode runs, standups reachable, sumo knockouts, coffee delivery), test-modes, test-race, smoke, etc. `npm test` runs them all.
+
+## Screenshots — look at the game
+- `scripts/shoot.mjs` (read its header). Setup once: `mkdir -p /tmp/pw && (cd /tmp/pw && npm i --no-save playwright@1.56)`. Chromium is at /opt/pw-browsers/chromium; do NOT run `playwright install`.
+- `npm run build`, then a server pinned to a map: `RC_MAP=<id> PORT=8123 node server/src/index.js &` (restart after shared/ or server/ changes; rebuild after client changes). `PW_DIR=/tmp/pw PORT=8123 node scripts/shoot.mjs /tmp/shots '[["name",x,z,yawDeg]]' --plan` (x/z in metres, yaw 0 = facing +z). Open the PNGs with Read and judge them like an art director AND a QA tester: floating or sunken objects, z-fighting, holes, stretched or missing textures, things poking through walls, a collider you can see is wrong (teleport the car against it: `window.__rcTeleport(x, z, rotY)` in page.evaluate, units), unreadable signs, dark/blown-out lighting, draw calls (printed per shot; aim ≤ 700 in the busiest view).
+- SwiftShader renders slowly but faithfully; allow ~20 s for the page to come up.
+
+## What counts as a finding
+Real defects only, with evidence (file:line, a screenshot, or a bot-sim number): wrong at runtime (crash, visual breakage, desync between clients, leak that grows each map switch — quick play changes map every round), gameplay (a mode unplayable or unfair on a map, bots stuck, soft-locks, exploits), a collider that disagrees with what the player sees, per-frame allocation or heavy work in hot loops, audio spam. Also plain ugliness from the car's seat on your floor: that is a defect here. Not style preferences in code.
+
+## Rules
+- Fix what is inside your lane, minimal and in the surrounding code's voice (short comments that say why; no TypeScript; no external assets — procedural only; cache geometry/materials at module level or useMemo; never allocate in useFrame). Anything outside your lane: do NOT edit it — report it with file:line, evidence and a proposed patch.
+- Every fix proven: reproduce first where possible, then show it fixed (screenshot, test, bot-sim number). `npm run build` and `npm test` green before you push.
+- Commit messages: a short summary line, a blank line, a paragraph of what/why, ending with exactly these two lines:
+  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  Claude-Session: https://claude.ai/code/session_01Wv8a6nVQS2E4Ti4cLoM4Lx
+- Do not put any model name or identifier anywhere else in the repo.
+
+## Your report
+Write it to `reports/review-garage.md` in your outcome branch (commit it last) AND make it your final message. Under ~500 words: what you fixed (by file, with the evidence it was broken and is now right), and a list of out-of-lane findings — each with severity (critical/major/minor), file:line, evidence and the proposed patch — then anything you checked and found fine.
+## Your lane: the DEV GARAGE floor (outcome branch `claude/review-garage`)
+Files you may edit: `shared/src/maps/garage.js` and `client/src/game/themes/garage*.js(x)` (garage.jsx, garageCar.js, garageKit.js, garagePieces.jsx, garageProps.jsx, garageWorld.jsx).
+The owner asked for a software-dev garage: day 400 of a startup in the founder's double garage that has taken over the house next to it — driveway, garage bay with the founder's classic car (the lap goes over it on a plank), dev pit, server-room laundry, kitchen, boardroom living room, founder's room, backyard and front lawn.
+Hunt: every room and yard from the car's seat (and the plan); the car-bonnet jump (is it drivable and does it look right?); outdoor/indoor transitions and the sky; theme pieces' colliders against their visuals; props; cleanup on unmount (timers, listeners, audio, textures — the map changes every quick-play round); per-frame allocation; the lap and every mode on this map with bot-sim (the Moving Meeting ring starts on the driveway and slides into the house; soccer in the dev pit; coffee; koth discs); draw calls.
