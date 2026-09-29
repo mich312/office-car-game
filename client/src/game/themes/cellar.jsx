@@ -26,7 +26,7 @@ import { buildWalls, buildGlass, buildDoors, buildFloors, buildMarkings, buildCe
 import { buildPiece, pieceFrame, crt, tower, keyboard, C } from './cellar-pieces.js';
 import Tubes from './cellar-tubes.jsx';
 import {
-  RackLeds, Boiler, Dock, NowServing, Scope, Curtains, RollingShelf, Badge, Sprinklers, Drips, Puddles, FloorBumps, CellarSound,
+  RackLeds, Boiler, Dock, NowServing, Scope, Curtains, RollingShelf, Badge, Sprinklers, Drips, Puddles, FloorBumps, CellarSound, useDispose,
 } from './cellar-live.jsx';
 
 export { tubeLevel } from './cellar-tubes.jsx';
@@ -273,9 +273,11 @@ const scrubberParts = () => {
 };
 function Robot() {
   const parts = useMemo(scrubberParts, []);
+  useEffect(() => () => parts.forEach((p) => p.geometry.dispose()), [parts]);
   const mats = cellarMats();
   const beacon = useRef();
   const glow = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffae2a', toneMapped: false }), []);
+  useDispose(glow);
   useFrame(({ clock }) => {
     const on = Math.sin(clock.elapsedTime * 9) > 0;
     glow.color.setRGB(on ? 3 : 0.4, on ? 1.5 : 0.2, on ? 0.2 : 0.03);

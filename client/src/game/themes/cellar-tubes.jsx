@@ -12,12 +12,13 @@
 // Old tubes are not all one colour: each is a few percent off by hash, their
 // last 6 cm are blackened, and every room has one warm replacement somebody
 // fitted from the wrong box.
-import { useMemo, useRef, useLayoutEffect } from 'react';
+import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useStore } from '../../store.js';
 import { audio } from '../../audio.js';
+import { net } from '../../net.js';
 import { glowTex } from '../textures.js';
 import { louvreTex } from './cellar-tex.js';
 import { Kit } from './cellar-kit.js';
@@ -26,34 +27,39 @@ const FIX_L = 1.5, FIX_W = 0.22; // metres
 const TUBE_L = 1.44, TUBE_R = 0.013;
 
 // ------------------------------------------------------------ flicker
-// Deterministic value noise: the same tube misbehaves the same way on every
-// client, so a flicker two players drive through is the same flicker.
+// Deterministic value noise on the server's clock: the same tube misbehaves
+// the same way on every client, so a flicker two players drive through is
+// the same flicker. Wrapped to the hour (a multiple of every cycle below) so
+// the hash inputs stay small integers.
+export const cellarNow = () => (((performance.now() + net.clockOffset) / 1000) % 3600 + 3600) % 3600;
 export const hash = (n) => {
   let h = (n * 374761393) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
-// → brightness 0…1 for a tube of this kind at time t
+// → brightness 0…1 for a tube of this kind at time t. Hard on/off steps come
+// at most 5 a second — three flashes a second is the photosensitivity limit,
+// and this is a big, bright patch of the screen with a real light under it.
 export function tubeLevel(kind, t, seed = 0) {
   switch (kind) {
     case 'dying': {
       // a 7.5 s cycle: stutter while it tries to strike, catch and hold with a
       // faint flutter, then drop out and sit dark before the next attempt
       const c = (t + seed * 3.1) % 7.5;
-      if (c < 1.4) return hash(Math.floor(t * 16) + seed * 977) > 0.5 ? 1 : 0.05;
+      if (c < 1.4) return hash(Math.floor(t * 5) + seed * 977) > 0.5 ? 1 : 0.05;
       if (c < 5.6) return 0.9 + 0.1 * Math.sin(t * 90);
       return 0.04;
     }
     case 'stutter':
       // mostly on, with short bursts of dropout
-      return hash(Math.floor(t * 10) + seed * 131) > 0.92 ? 0.1 : 0.95;
+      return hash(Math.floor(t * 5) + seed * 131) > 0.92 ? 0.1 : 0.95;
     case 'pulse':
       // an old starter: slow breathing brightness
       return 0.45 + 0.4 * (0.5 + 0.5 * Math.sin(t * 2.2 + seed));
     case 'dead':
       // dark, and every few seconds a flash that makes you look
-      return hash(Math.floor(t * 8) + seed * 53) > 0.975 ? 1 : 0.02;
+      return hash(Math.floor(t * 5) + seed * 53) > 0.965 ? 1 : 0.02;
     default:
       return 1;
   }
@@ -219,6 +225,11 @@ export default function Tubes({ map }) {
     c.offsetHSL((hash(i * 13 + j) - 0.5) * 0.02, 0, 0);
     return c.multiplyScalar(2.1 * v);
   })), [tubes]);
+  // the map changes every quick-play round: give the GPU its buffers back
+  useEffect(() => () => {
+    for (const g of Object.values(G)) g.dispose();
+    for (const m of Object.values(mats)) m.dispose();
+  }, [G, mats]);
   const POOL = useMemo(() => new THREE.Color('#bff5dc'), []);
   const LOUV = useMemo(() => new THREE.Color(1.15, 1.25, 1.2), []);
   const EMBER = useMemo(() => new THREE.Color(2.6, 0.95, 0.5), []); // #ff8a5c, over-bright
@@ -282,8 +293,8 @@ export default function Tubes({ map }) {
     }
   }, [tubes, H, base, bad, wash, POOL, LOUV]);
 
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime;
+  useFrame(() => {
+    const t = cellarNow();
     const tm = tubeMesh.current, p = pools.current, lv = louvre.current, pl = plate.current, en = ends.current, wa = washes.current;
     if (!tm || !p) return;
     if (lightsOut) {
@@ -326,7 +337,7 @@ export default function Tubes({ map }) {
       const prev = lastLevel.current.get(i) ?? l;
       // a strike: the tube catches — buzz from where it hangs (throttled so a
       // stutter is a crackle, not a machine gun)
-      if (prev < 0.3 && l > 0.7 && (tb.kind === 'dying' || tb.kind === 'dead') && t - lastBuzz.current > 0.12) {
+      if (prev < 0.3 && l > 0.7 && (tb.kind === 'dying' || tb.kind === 'dead') && Math.abs(t - lastBuzz.current) > 0.12) { // abs: the clock wraps hourly
         lastBuzz.current = t;
         audio.tubeBuzz([tb.x * M, H, tb.z * M], tb.kind === 'dead' ? 0.6 : 1);
       }
