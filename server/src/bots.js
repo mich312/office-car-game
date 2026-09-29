@@ -85,9 +85,16 @@ export class Bots {
     this.items = process.env.RC_BOT_ITEMS !== 'off';
   }
 
+  // Top the room up to `count` cars — and take bots out again when the room
+  // has outgrown the grid: a cup keeps its room between rounds, and 11
+  // drop-ins on top of 5 bots put two cars on each of five grid slots.
   fillTo(count) {
-    const current = this.room.players.size;
-    for (let i = current; i < count; i++) this.add();
+    const grid = this.room.map.SPAWNS.length;
+    for (const [id, p] of this.room.players) {
+      if (this.room.players.size <= grid) break;
+      if (p.bot) this.room.players.delete(id);
+    }
+    for (let i = this.room.players.size; i < count; i++) this.add();
   }
 
   add() {

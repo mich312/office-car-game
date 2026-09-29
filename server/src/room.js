@@ -15,7 +15,7 @@ import {
   ABILITIES, ABILITY_COOLDOWN_S, ABILITY_FX,
   MUTATORS, MUTATOR_CHANCE, CUP_POOL,
   encodeSnapshot,
-  rollVariant, variantOf, MODE_VARIANTS, raceSpawn, BOOST_MAX, newDriftState,
+  rollVariant, variantOf, MODE_VARIANTS, raceSpawn, BOOST_MAX, newDriftState, wallBetween,
 } from '@rc/shared';
 import { createMode } from './modes.js';
 import { Bots } from './bots.js';
@@ -967,14 +967,23 @@ export class Room {
     switch (this.modeId) {
       case 'desk_dash':
         return pose || this.raceRecoverySpot(player);
-      case 'tag':
-      case 'sumo': {
-        // recover where you were; with no pose, the spot nearest the car
-        // (tag: not an escape hatch) or the ring (sumo: not an elimination)
+      case 'tag': {
+        // recover where you were (not an escape hatch)
         if (pose) return pose;
-        const z = this.modeId === 'sumo' ? this.mode?.zone : null;
-        const from = z ? { x: z.x, z: z.z } : { x: player.p[0], z: player.p[2] };
-        return this.nearestSpot(this.openSpots(), from);
+        return this.nearestSpot(this.openSpots(), { x: player.p[0], z: player.p[2] });
+      }
+      case 'sumo': {
+        const here = { x: player.p[0], z: player.p[2], rotY: 2 * Math.atan2(player.q[1], player.q[3]) };
+        // a knocked-out car (or a drop-in waiting for the round) is a chicane:
+        // any clear spot, never the knot of live cars round the centre
+        if (player.sumoDead) return this.pickSpawn(player, this.openSpots());
+        // R never rescues a ring-out: shoved outside the ring (or already
+        // counting down out there) you recover where you are, the countdown
+        // running on. Pressed on the bell with no pose, it used to land you
+        // on the centre — and that took the win bonus.
+        const Z = this.mode?.zone;
+        if (Z && (Math.hypot(here.x - Z.x, here.z - Z.z) > Z.r || player.sumoOutT > 0)) return here;
+        return pose || here;
       }
       case 'soccer': {
         const kick = this.map.SOCCER.kickoff;
@@ -989,6 +998,13 @@ export class Room {
           return pose || { x: player.p[0], z: player.p[2], rotY: 2 * Math.atan2(player.q[1], player.q[3]) };
         }
         if (pose && this.roomIsOpen(pose)) return pose;
+        // in the finale only inside the ring is safe: a spot far from the
+        // others (pickSpawn's choice) is outside it, and zapped at once
+        const F = this.mode?.finale;
+        if (F) {
+          const inRing = this.openSpots().filter((s) => Math.hypot(s.x - F.x, s.z - F.z) < F.r * 0.8);
+          return inRing.length ? this.pickSpawn(player, inRing, 'lcs') : { x: F.x, z: F.z, rotY: 0 };
+        }
         return this.pickSpawn(player, this.openSpots(), 'lcs');
       }
       default:
@@ -1008,8 +1024,10 @@ export class Room {
     if (!s || !(s[0] > this.map.MAP_BOUNDS.minX && s[0] < this.map.MAP_BOUNDS.maxX
         && s[1] > this.map.MAP_BOUNDS.minZ && s[1] < this.map.MAP_BOUNDS.maxZ)) return null;
     const y = s.length > 3 ? s[3] : SPAWN_Y;
+    // ...and on this side of any wall: a point 4 u from a pose we saw, through
+    // a thin wall, walked a car out of a locked room without a door
     const seen = player.poseRing.find((q) => Math.hypot(s[0] - q[0], s[1] - q[1]) < SAFE_POSE_MATCH_DIST
-      && Math.abs(y - q[2]) < 1);
+      && Math.abs(y - q[2]) < 1 && !wallBetween(this.map, q[0], q[1], s[0], s[1]));
     // the height is our own record, not the client's claim
     return seen ? { x: s[0], z: s[1], rotY: s[2], y: Math.max(SPAWN_Y, seen[2] + 0.03) } : null;
   }

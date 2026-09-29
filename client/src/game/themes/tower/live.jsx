@@ -9,7 +9,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { M, MODES } from '@rc/shared';
 import { useStore } from '../../../store.js';
 import { audio } from '../../../audio.js';
-import { on } from '../../../net.js';
+import { on, net } from '../../../net.js';
 import { lightingFor } from '../../daylight.js';
 import { mat, canvas, hash, glowTex, parts, G, bakeInto, mergeGroups, placeMatrix, CONTINENTS } from './kit.js';
 import { C } from './build.js';
@@ -477,7 +477,7 @@ export function Terrace({ map }) {
   const haloRef = useRef();
   useFrame(({ clock }, dt) => {
     const t = clock.elapsedTime;
-    const now = Date.now() / 1000;
+    const now = (performance.now() + net.clockOffset) / 1000; // the gust's own clock (LocalCar)
     const blowing = gust && now % (gust.period || 15) < (gust.dur || 3);
     const target = blowing ? 0.3 : 0.03 * Math.sin(t * 0.9);
     lean.current += (target - lean.current) * Math.min(1, dt * (blowing ? 5 : 1.5));

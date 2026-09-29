@@ -22,7 +22,7 @@
 // at night.
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Sparkles } from '@react-three/drei';
+import { Dust } from '../dust.jsx';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M } from '@rc/shared';
@@ -495,7 +495,7 @@ function DustMotes() {
   const opacity = { morning: 0.35, afternoon: 0.3, golden: 0.7, night: 0 }[hour] ?? 0.3;
   if (!opacity) return null;
   return (
-    <Sparkles count={90} scale={[5.5 * M, 2.2 * M, 4 * M]} position={[-14 * M, 1.2 * M, -2.2 * M]} size={5}
+    <Dust count={90} scale={[5.5 * M, 2.2 * M, 4 * M]} position={[-14 * M, 1.2 * M, -2.2 * M]} size={5}
       speed={0.12} opacity={opacity} color={hour === 'golden' ? '#ffc98a' : '#fff4e0'} noise={0.4} />
   );
 }

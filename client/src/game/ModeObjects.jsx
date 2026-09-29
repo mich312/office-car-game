@@ -17,6 +17,7 @@ import { THEMES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { net, on, sampleRemote } from '../net.js';
 import { burst } from './particles.jsx';
+import { useEventLight } from './eventLight.jsx';
 
 export default function ModeObjects() {
   const modeId = useStore((s) => s.modeId);
@@ -888,11 +889,16 @@ function Robot() {
   const brushes = useRef([]);
   const led = useRef();
   const Skin = THEMES[useMap().theme]?.Robot;
+  // its red warning light is the pooled event light (eventLight.jsx); a
+  // skin brings its own
+  const warn = useEventLight('#ff3322', 6, 9);
   useFrame(({ clock }, dt) => {
     const r = net.robot;
     if (!group.current) return;
     group.current.visible = !!r;
+    const L = warn(!!r && !Skin);
     if (!r) return;
+    if (L) L.position.set(0, 1.4, 0).applyMatrix4(group.current.matrixWorld);
     const cur = group.current.position;
     const nx = cur.x + (r.x - cur.x) * 0.15, nz = cur.z + (r.z - cur.z) * 0.15;
     const dx = nx - cur.x, dz = nz - cur.z;
@@ -965,7 +971,6 @@ function Robot() {
           ))}
         </group>
       ))}
-      <pointLight position={[0, 1.4, 0]} intensity={6} distance={9} color="#ff3322" />
     </group>
   );
 }

@@ -7,7 +7,7 @@
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, ConvexHullCollider } from '@react-three/rapier';
-import { Sparkles } from '@react-three/drei';
+import { Dust } from '../dust.jsx';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useStore } from '../../store.js';
@@ -201,7 +201,7 @@ export function Dock({ map }) {
           ))}
         </group>
       </group>
-      <Sparkles count={36} scale={[w * M, 0.5 * M, 1.4 * M]} position={[cx * M, 0.25 * M, (zf + 0.7) * M]}
+      <Dust count={36} scale={[w * M, 0.5 * M, 1.4 * M]} position={[cx * M, 0.25 * M, (zf + 0.7) * M]}
         size={1.6} speed={0.18} opacity={0.55} color="#ffcf8a" noise={0.6} />
     </group>
   );

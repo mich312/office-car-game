@@ -237,7 +237,7 @@ const FURNITURE = [
   f('factory_ppm', 15.8, 12.0, 1.6, 1.2, 1.5),
   // ---- the supervisor's office
   f('desk', 20.2, 11.8, 1.6, 0.8, 0.74),
-  f('cabinet', 21.55, 8.2, 0.6, 1.2, 1.3),
+  f('cabinet', 21.55, 8.2, 1.2, 0.6, 1.3, -Math.PI / 2), // drawers facing into the office
   f('whiteboard', 17.75, 9.8, 1.6, 0.1, 1.8, Math.PI / 2),
   // ---- yellow bollards: rack ends, the column corners, the dock doors
   ...[[-20.4, 2.6], [-16.8, 2.6], [-13.2, 2.6], [-19.9, -12.3], [-17.1, -12.3], [-15.9, -12.3], [-13.1, -12.3],

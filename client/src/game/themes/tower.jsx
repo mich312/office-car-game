@@ -155,8 +155,9 @@ export function Robot() {
   const amber = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffaa22', toneMapped: false }), []);
   useEffect(() => () => { body.dispose(); grey.dispose(); amber.dispose(); }, [body, grey, amber]);
   useFrame(({ clock }) => {
-    const L = beacon.current;
-    if (!L || !group.current) return;
+    // lit only while the robot is out (its group is always mounted)
+    const L = beacon(!!group.current?.parent?.visible);
+    if (!L) return;
     L.position.set(0.9, 1.5, 0).applyMatrix4(group.current.matrixWorld);
     L.intensity = 3 + Math.sin(clock.elapsedTime * 12) * 2.5;
   });

@@ -2559,7 +2559,8 @@ export function Robot() {
     } else last.current = p.clone();
     g.rotation.y = heading.current - g.parent.rotation.y;
     if (lidar.current) lidar.current.rotation.y = clock.elapsedTime * 8;
-    if (glow.current) glow.current.position.set(0, m(0.5), m(0.6)).applyMatrix4(g.matrixWorld);
+    const L = glow(g.parent.visible); // only while the robot is out
+    if (L) L.position.set(0, m(0.5), m(0.6)).applyMatrix4(g.matrixWorld);
   });
   const spot = useMemo(() => new THREE.MeshBasicMaterial({
     map: glowTex(), color: '#3d7bff', transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false,

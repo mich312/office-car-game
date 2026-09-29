@@ -236,6 +236,10 @@ export default function LocalCar() {
       }),
       on('respawn_at', (msg) => {
         teleport(msg.x, Math.max(SPAWN_Y, msg.y ?? SPAWN_Y), msg.z, msg.rotY);
+        // a car put into play is never a weightless ghost: an LCS ghost that
+        // reconnected into a later match came back on a WELCOME spawn with
+        // gravity still off, and only a START ever turned it on again
+        if (!useStore.getState().spectating) rb.current?.setGravityScale(1, true);
         const nowMs = performance.now();
         S.pendingRespawnAt = 0;
         S.frozenUntil = nowMs + (msg.freeze || 0);
@@ -643,7 +647,8 @@ export default function LocalCar() {
         const tr = body.translation();
         body.setTranslation({ x: tr.x + zn.push[0] * dt, y: tr.y, z: tr.z + zn.push[1] * dt }, true);
       }
-      if (zn.gust && (Date.now() / 1000) % (zn.period || 15) < (zn.dur || 3)) {
+      // on the server's clock, so every player feels the same gust at once
+      if (zn.gust && ((performance.now() + net.clockOffset) / 1000) % (zn.period || 15) < (zn.dur || 3)) {
         body.applyImpulse({ x: zn.gust[0] * dt * mass * 0.12, y: 0, z: zn.gust[1] * dt * mass * 0.12 }, true);
       }
     }

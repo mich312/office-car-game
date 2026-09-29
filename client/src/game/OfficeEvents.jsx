@@ -108,9 +108,10 @@ function ServerSparks() {
   const racks = useMemo(() => currentMap().FURNITURE.filter((f) => SERVER_RACKS.has(f.type)), []);
   const mid = useMemo(() => racks.reduce((a, r) => [a[0] + r.x / racks.length, a[1] + r.z / racks.length], [0, 0]), [racks]);
   // the orange glow over them: the pooled event light (eventLight.jsx)
-  const glow = useEventLight('#ff7733', 10, 30, racks.length > 0);
+  const glow = useEventLight('#ff7733', 10, 30);
   useFrame((_, dt) => {
-    if (glow.current) glow.current.position.set(mid[0], 6, mid[1]);
+    const L = glow(racks.length > 0);
+    if (L) L.position.set(mid[0], 6, mid[1]);
     acc.current += dt;
     if (acc.current > 0.22 && racks.length) {
       acc.current = 0;
