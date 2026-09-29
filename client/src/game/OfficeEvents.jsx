@@ -7,6 +7,7 @@ import { M } from '@rc/shared';
 import { currentMap } from './activeMap.js';
 import { useStore } from '../store.js';
 import { burst } from './particles.jsx';
+import { useEventLight } from './eventLight.jsx';
 
 const bounds = () => currentMap().MAP_BOUNDS;
 
@@ -106,7 +107,10 @@ function ServerSparks() {
   // sparks fly off whichever server racks this map has
   const racks = useMemo(() => currentMap().FURNITURE.filter((f) => SERVER_RACKS.has(f.type)), []);
   const mid = useMemo(() => racks.reduce((a, r) => [a[0] + r.x / racks.length, a[1] + r.z / racks.length], [0, 0]), [racks]);
+  // the orange glow over them: the pooled event light (eventLight.jsx)
+  const glow = useEventLight('#ff7733', 10, 30, racks.length > 0);
   useFrame((_, dt) => {
+    if (glow.current) glow.current.position.set(mid[0], 6, mid[1]);
     acc.current += dt;
     if (acc.current > 0.22 && racks.length) {
       acc.current = 0;
@@ -116,10 +120,7 @@ function ServerSparks() {
       burst([x, 2.2 * M * Math.random() + 2, z], { count: 8, color: ['#ffe27a', '#ff9d3c', '#fff'], speed: 7, size: 0.06, ttl: 0.6 });
     }
   });
-  // no racks, no glow (it used to hang at the world origin)
-  return racks.length ? (
-    <pointLight position={[mid[0], 6, mid[1]]} intensity={10} distance={30} color="#ff7733" />
-  ) : null;
+  return null;
 }
 
 function WindStreaks() {

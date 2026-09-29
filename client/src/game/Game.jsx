@@ -6,6 +6,7 @@ import { useStore } from '../store.js';
 import { connect, disconnect } from '../net.js';
 import { audio } from '../audio.js';
 import Lighting from './Lighting.jsx';
+import { EventLightRig } from './eventLight.jsx';
 import Office from './Office.jsx';
 import Props from './Props.jsx';
 import LocalCar from './LocalCar.jsx';
@@ -36,7 +37,8 @@ function Stats() {
     else gl.info.autoReset = false;
   }, [gl]);
   useFrame(LOWFX ? () => {} : () => {
-    window.__glStats = { calls: gl.info.render.calls, triangles: gl.info.render.triangles };
+    // programs: a count that jumps mid-match means a recompile hitch
+    window.__glStats = { calls: gl.info.render.calls, triangles: gl.info.render.triangles, programs: gl.info.programs?.length };
     gl.info.reset();
   }, LOWFX ? 0 : 100);
   return null;
@@ -82,6 +84,7 @@ export default function Game() {
       <fog attach="fog" args={['#141a2a', 170, 420]} />
       <Suspense fallback={null}>
         <Lighting />
+        <EventLightRig />
         <Physics gravity={[0, gravity, 0]} timeStep={1 / 60} maxCcdSubsteps={2}>
           <Office />
           <Props key={`props-${mapId}`} />

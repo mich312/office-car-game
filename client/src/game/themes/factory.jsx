@@ -35,6 +35,7 @@ import { net, on } from '../../net.js';
 import { Body } from '../propBody.jsx';
 import { glowTex } from '../textures.js';
 import { roundedBox } from '../roundedGeo.js';
+import { useEventLight } from '../eventLight.jsx';
 
 const m = (v) => v * M; // metres → world units
 
@@ -2526,6 +2527,8 @@ export const RAMP_SKINS = {
 // direction of travel instead.
 export function Robot() {
   const inner = useRef();
+  // its blue floor light is the pooled event light (eventLight.jsx)
+  const glow = useEventLight('#3d7bff', 4, m(4));
   const last = useRef(null);
   const heading = useRef(0);
   const lidar = useRef();
@@ -2556,6 +2559,7 @@ export function Robot() {
     } else last.current = p.clone();
     g.rotation.y = heading.current - g.parent.rotation.y;
     if (lidar.current) lidar.current.rotation.y = clock.elapsedTime * 8;
+    if (glow.current) glow.current.position.set(0, m(0.5), m(0.6)).applyMatrix4(g.matrixWorld);
   });
   const spot = useMemo(() => new THREE.MeshBasicMaterial({
     map: glowTex(), color: '#3d7bff', transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false,
@@ -2571,7 +2575,6 @@ export function Robot() {
       <mesh position={[0, 0.03, m(1.4)]} rotation-x={-Math.PI / 2} material={spot}>
         <circleGeometry args={[m(0.4), 20]} />
       </mesh>
-      <pointLight position={[0, m(0.5), m(0.6)]} intensity={4} distance={m(4)} color="#3d7bff" />
     </group>
   );
 }

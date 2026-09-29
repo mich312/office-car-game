@@ -26,6 +26,7 @@ import { BUILD, COLLIDE, FRICTION, WALL_BUILD, RAMP_BUILD, wallFrame, ceilingPar
 import { CityView } from './tower/view.jsx';
 import { Lifts, VideoWall, Signs, Ticker, Fire, Terrace, Pools, FloorSounds, RainGlass } from './tower/live.jsx';
 import { PROPS as TOWER_PROPS } from './tower/props.jsx';
+import { useEventLight } from '../eventLight.jsx';
 
 const H = 3.3;
 const u = (v) => v * M;
@@ -146,16 +147,21 @@ export const WALL_STYLES = Object.fromEntries(Object.keys(WALL_BUILD).map((k) =>
 // The cleaning-robot event on this floor: an autonomous floor scrubber,
 // yellow and grey, amber beacon turning, doing slow laps of the lobby marble.
 export function Robot() {
-  const beacon = useRef();
+  const group = useRef();
+  // the turning beacon's light is the pooled event light (eventLight.jsx)
+  const beacon = useEventLight('#ffaa22', 4, 8);
   const body = useMemo(() => new THREE.MeshStandardMaterial({ color: '#f2c21a', roughness: 0.4 }), []);
   const grey = useMemo(() => new THREE.MeshStandardMaterial({ color: '#3a3d44', roughness: 0.5, metalness: 0.3 }), []);
   const amber = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffaa22', toneMapped: false }), []);
   useEffect(() => () => { body.dispose(); grey.dispose(); amber.dispose(); }, [body, grey, amber]);
   useFrame(({ clock }) => {
-    if (beacon.current) beacon.current.intensity = 3 + Math.sin(clock.elapsedTime * 12) * 2.5;
+    const L = beacon.current;
+    if (!L || !group.current) return;
+    L.position.set(0.9, 1.5, 0).applyMatrix4(group.current.matrixWorld);
+    L.intensity = 3 + Math.sin(clock.elapsedTime * 12) * 2.5;
   });
   return (
-    <group>
+    <group ref={group}>
       <mesh position={[0, 0.12, 0]} material={grey} castShadow>
         <cylinderGeometry args={[1.9, 1.95, 0.22, 28]} />
       </mesh>
@@ -171,7 +177,6 @@ export function Robot() {
       <mesh position={[-0.6, 1.0, 0]} material={grey}>
         <boxGeometry args={[0.9, 0.1, 0.9]} />
       </mesh>
-      <pointLight ref={beacon} position={[0.9, 1.5, 0]} intensity={4} distance={8} color="#ffaa22" />
     </group>
   );
 }
