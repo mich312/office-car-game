@@ -423,7 +423,7 @@ export function Sprinklers({ heads }) {
   const ref = useRef();
   const drops = useMemo(() => Array.from({ length: SPRAY }, (_, i) => ({ h: 0, t: (i * 0.618) % 1, a: i * 2.39996, r: 0.3 + ((i * 0.37) % 1) })), []);
   const geo = useMemo(() => new THREE.BoxGeometry(0.007 * M, 0.16 * M, 0.007 * M), []);
-  const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#d8f0ff', transparent: true, opacity: 0.75, depthWrite: false }), []);
+  const mat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#d8f0ff', transparent: true, opacity: 0.7, depthWrite: false }), []);
   const near = useRef([]);
   const acc = useRef(9);
   useFrame(({ camera }, dt) => {
@@ -436,9 +436,10 @@ export function Sprinklers({ heads }) {
         .sort((a, b) => a[0] - b[0]).slice(0, 8).map((e) => e[1]);
     }
     const hs = near.current;
+    const step = Math.min(dt, 0.1) * 0.9;
     drops.forEach((d, i) => {
-      d.t += dt * 0.9;
-      if (d.t > 1) { d.t -= 1; d.h = hs[i % hs.length] ?? 0; }
+      d.t += step;
+      if (d.t > 1) { d.t %= 1; d.h = hs[i % hs.length] ?? 0; }
       const h = heads[d.h];
       const fall = d.t;
       // out of the deflector sideways, then down

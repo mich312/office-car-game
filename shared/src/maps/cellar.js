@@ -144,6 +144,8 @@ const FURNITURE = [
   // cooler, and the fire doors held back against both walls
   f('vending', 17.4, 1.9, 1, 0.8, 1.9, -Math.PI / 2),
   f('cellar_cooler', 4.8, -0.68, 0.34, 0.34, 1.15, N),
+  f('cellar_radiator', 11.1, 2.84, 1.2, 0.12, 0.7, S), f('cellar_radiator', -10.7, -0.84, 1.2, 0.12, 0.7, N),
+  f('cellar_radiator', 11.5, 10.84, 1.2, 0.12, 0.7, S),
   ff('cellar_leaf', -8.7, 2.87, 1.8, 0.05, 2.05, S, { magnet: true }),
   ff('cellar_leaf', -8.7, -0.87, 1.8, 0.05, 2.05, N, { magnet: true }),
   // Loading dock — the platform along the west wall, the roller shutter in
@@ -477,6 +479,13 @@ export const CELLAR = {
     gaps: [[0.4, 2.6], [-6.6, -5.4], [7.4, 8.6], [-3.4, -2.6], [9.6, 10.4]],
     // the box junction at the crossroads: [x, z, w, d]
     junctions: [[1.5, 1, 1.8, 3.8]],
+    // the dock's walkway lines and the keep-clear box at the shutter:
+    // [x1, z1, x2, z2, width, colour] and [x, z, w, d]
+    lines: [
+      [-15.2, -10.8, -15.2, -1.2, 0.08, '#d9b21f'], [-9.4, -3, -12.4, -3, 0.08, '#d9b21f'],
+      [4.5, -10.9, 4.5, -1.1, 0.05, '#d9d6c8'], // the lab's halfway line
+    ],
+    hatch: [[-13, -10.4, 2.8, 0.9]],
   },
   // stencils and signs: at [x, y, z] meters, rotY, width in meters
   SIGNS: [

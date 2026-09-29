@@ -275,11 +275,15 @@ function counter(k, { w, d, h }, f, r) {
     // customer side (+z): a full-height modesty front on a steel kick,
     // a high ledge; staff side: a desk-height worktop and a monitor
     k.block('steel', [w, 0.1, 0.05], [0, 0, d / 2 - 0.04], { c: '#555a5e' });
-    k.block('matt', [w, h - 0.14, 0.04], [0, 0.1, d / 2 - 0.04], { c: '#5f7488' });
+    k.block('matt', [w, h - 0.14, 0.04], [0, 0.1, d / 2 - 0.04], { c: '#7f93a6' });
     k.block('matt', [w + 0.06, 0.04, d * 0.45], [0, h - 0.04, d / 2 - d * 0.2], { c: '#d9d3bf' });
     k.block('matt', [w, 0.03, d * 0.6], [0, 0.74, -d * 0.18], { c: '#d9d3bf' });
     for (const sx of [-1, 1]) k.block('matt', [0.03, 0.74, d * 0.6], [sx * (w / 2 - 0.015), 0, -d * 0.18], { c: '#5f7488' });
     k.box('label', [0.9, 0.2, 0.002], [0, 0.65, d / 2 - 0.018], { uv: k.slots.helpdeskFront });
+    for (let i = 1; i < 4; i++) k.box('matt', [0.008, h - 0.18, 0.004], [-w / 2 + (i * w) / 4, 0.1 + (h - 0.18) / 2, d / 2 - 0.018], { c: '#4d6072' });
+    // the sneeze screen: perspex on steel posts, a slot at the bottom
+    for (const sx of [-1, 0, 1]) k.block('steel', [0.025, 0.55, 0.025], [sx * (w / 2 - 0.05), h, d / 2 - 0.15], { c: C.chrome });
+    k.box('glass', [w - 0.1, 0.46, 0.008], [0, h + 0.33, d / 2 - 0.15], { c: '#ffffff' });
     // ticket dispenser, a bell, the staff monitor seen from behind
     k.block('plastic', [0.14, 0.2, 0.12], [-w / 2 + 0.2, h, d / 2 - 0.12], { c: '#c62828' });
     k.box('matt', [0.06, 0.004, 0.08], [-w / 2 + 0.2, h + 0.1, d / 2 - 0.03], { r: [0.4, 0, 0], c: '#f0e9c8' });
@@ -615,6 +619,24 @@ function palletjack(k, { w, d, h }) {
   }
 }
 
+// An old column radiator on the wall: sections, top and bottom manifolds, a
+// valve at each end and the pipes down into the floor.
+function radiator(k, { w, d, h }) {
+  const n = Math.round(w / 0.065);
+  const sw = w / n;
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + (i + 0.5) * sw;
+    k.block('paint', [sw * 0.72, h - 0.16, d * 0.8], [x, 0.12, 0], { c: '#d9d6c8' });
+  }
+  for (const y of [0.13, h - 0.07]) k.box('paint', [w, 0.05, d * 0.5], [0, y, 0], { c: '#cfccbe' });
+  for (const s of [-1, 1]) {
+    k.rod('paint', 0.012, [s * (w / 2 + 0.05), 0, 0], [s * (w / 2 + 0.05), 0.14, 0], { c: '#cfccbe', seg: 6 });
+    k.rod('paint', 0.012, [s * (w / 2 + 0.05), 0.14, 0], [s * (w / 2 - 0.01), 0.14, 0], { c: '#cfccbe', seg: 6 });
+    k.cyl('steel', 0.02, 0.05, [s * (w / 2 + 0.05), 0.19, 0], { c: s < 0 ? '#e8e8e2' : '#b9bdbd', seg: 8 });
+  }
+  k.block('matt', [w + 0.2, 0.004, d + 0.06], [0, 0, 0], { c: '#2a2622' }); // a dusty shadow line under it
+}
+
 function bollard(k, { h }) {
   k.cyl('steel', 0.1, 0.012, [0, 0.006, 0], { c: '#555', seg: 12 });
   k.cyl('paint', 0.055, h, [0, h / 2, 0], { c: C.yellow, seg: 14 });
@@ -627,7 +649,7 @@ export const BUILDERS = {
   cellar_boiler: boiler, cellar_heater: heater, cellar_counter: counter, cellar_shelf: shelf, cellar_pallet: pallet,
   cellar_cage: cage, cellar_bin: bin, cellar_heap: heap, cellar_bench: bench, cellar_mobile: mobile,
   cellar_cabinet: cabinet, cellar_ticketpost: ticketpost, cellar_trolley: trolley, cellar_cooler: cooler,
-  cellar_leaf: leaf, cellar_dock: dock, cellar_palletjack: palletjack, cellar_bollard: bollard,
+  cellar_leaf: leaf, cellar_dock: dock, cellar_palletjack: palletjack, cellar_bollard: bollard, cellar_radiator: radiator,
 };
 
 // Build one furniture entry into the kit (skipping the rolling shelf — it

@@ -195,6 +195,8 @@ export function buildFloors(k, map) {
       rect('esd', x1, z1, x2, z2);
     } else if (room.floor === 'concrete') {
       rect('conc', x1, z1, x2, z2);
+    } else if (room.floor === 'carpet' || room.floor === 'carpet2') {
+      rect('carpet', x1, z1, x2, z2, room.floor === 'carpet' ? '#9aa8b8' : '#a8988a');
     }
   }
   // decals: [kind, x, z, w, d, rotation, opacity]
@@ -237,6 +239,18 @@ export function buildMarkings(k, map) {
       }
     }
   }
+  // painted lines on the floor: [x1, z1, x2, z2, width, colour]
+  for (const [x1, z1, x2, z2, lw, col] of marks.lines || []) {
+    k.cell = map.roomAt(((x1 + x2) / 2) * M, ((z1 + z2) / 2) * M)?.id || 'corridor';
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    k.quad('paint', [lw, len], [(x1 + x2) / 2, MARK_Y, (z1 + z2) / 2], { r: [-Math.PI / 2, 0, Math.atan2(x2 - x1, z2 - z1)], c: col });
+  }
+  // hatched keep-clear boxes: [x, z, w, d]
+  for (const [x, z, w, d] of marks.hatch || []) {
+    k.cell = map.roomAt(x * M, z * M)?.id || 'corridor';
+    k.quad('hazard', [w, d], [x, MARK_Y, z], { r: [-Math.PI / 2, 0, 0], c: '#ffffff' });
+  }
+  k.cell = 'corridor';
   for (const [x, y, z, w, d, rotX] of marks.hazard || []) {
     k.quad('hazard', [w, d], [x, y, z], { r: [rotX, 0, 0], c: '#ffffff' });
   }
@@ -247,7 +261,6 @@ export function buildMarkings(k, map) {
       const len = Math.min(0.88, 2.88 - z);
       k.part('rubber', prism('hump', prof.map(([a, b]) => [a * M, b * M]), 1), [hx, 0, z + len / 2], { s: [1 / M, 1 / M, len], c: '#1e1e1e' });
       k.box('paint', [0.12, 0.004, len - 0.02], [hx, 0.051, z + len / 2], { c: '#d9b21f' });
-      for (const s of [-1, 1]) k.box('paint', [0.03, 0.004, len - 0.04], [hx + s * 0.16, 0.03, z + len / 2], { r: [0, 0, s * -0.3], c: C.yellow });
     }
   }
   // the archive's floor rails

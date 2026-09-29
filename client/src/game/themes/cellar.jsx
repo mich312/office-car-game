@@ -12,7 +12,8 @@
 // The pieces themselves (PIECES) are colliders only — static boxes and
 // cylinders the server's list agrees with; what you see of them is in the
 // batch.
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
+import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
@@ -121,7 +122,7 @@ export const PIECES = Object.fromEntries([
   'cellar_rack', 'cellar_crac', 'cellar_ups', 'cellar_cylinder', 'cellar_tiles', 'cellar_boiler', 'cellar_heater',
   'cellar_counter', 'cellar_shelf', 'cellar_pallet', 'cellar_cage', 'cellar_bin', 'cellar_heap', 'cellar_bench',
   'cellar_mobile', 'cellar_cabinet', 'cellar_ticketpost', 'cellar_trolley', 'cellar_cooler', 'cellar_leaf',
-  'cellar_dock', 'cellar_palletjack', 'cellar_bollard',
+  'cellar_dock', 'cellar_palletjack', 'cellar_bollard', 'cellar_radiator',
 ].map((t) => [t, Piece]));
 
 // Walls are drawn by the batch above; the styles only tell Office.jsx not to.
@@ -254,6 +255,39 @@ const propOf = (type) => function CellarPropType({ p }) {
   return <CellarProp p={p} spec={PROP_SPECS[type]} type={type} map={useMap()} />;
 };
 export const PROPS = Object.fromEntries(Object.keys(PROP_SPECS).map((t) => [t, propOf(t)]));
+
+// ---------------------------------------------------------------- robot
+// The cleaning-robot event, cellar edition: a round autonomous scrubber in
+// safety yellow, brush skirt, squeegee, and an amber beacon that means it.
+const scrubberParts = () => {
+  const k = new Kit(WORLD_UV);
+  k.cyl('matt', 0.37, 0.05, [0, 0.035, 0], { c: '#2f6fd6', seg: 24 }); // brush skirt
+  k.cyl('paint', 0.36, 0.12, [0, 0.12, 0], { c: '#3a3d42', seg: 24 });
+  k.cyl('paint', 0.32, 0.26, [0, 0.31, 0], { top: 0.85, c: C.yellow, seg: 24 });
+  k.sphere('paint', 0.27, [0, 0.44, 0], { sy: 0.35, c: C.yellow, seg: 18 });
+  k.box('matt', [0.62, 0.04, 0.05], [0, 0.03, -0.34], { c: '#111' }); // squeegee
+  k.box('paint', [0.18, 0.08, 0.004], [0, 0.34, 0.285], { c: '#1a1a1a' });
+  k.box('glow', [0.1, 0.03, 0.002], [0, 0.35, 0.288], { c: '#3dff7a' });
+  k.cyl('paint', 0.03, 0.05, [0, 0.54, 0], { c: '#222' });
+  return k.finish();
+};
+function Robot() {
+  const parts = useMemo(scrubberParts, []);
+  const mats = cellarMats();
+  const beacon = useRef();
+  const glow = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffae2a', toneMapped: false }), []);
+  useFrame(({ clock }) => {
+    const on = Math.sin(clock.elapsedTime * 9) > 0;
+    glow.color.setRGB(on ? 3 : 0.4, on ? 1.5 : 0.2, on ? 0.2 : 0.03);
+  });
+  return (
+    <group>
+      {parts.map((q, i) => <mesh key={i} geometry={q.geometry} material={mats[q.mat]} castShadow={CASTS.has(q.mat)} />)}
+      <mesh ref={beacon} position={[0, 0.6 * M, 0]} material={glow}><sphereGeometry args={[0.04 * M, 10, 8]} /></mesh>
+    </group>
+  );
+}
+export { Robot };
 
 // ----------------------------------------------------------- ramp skins
 // Drawn in the ramp's frame (rising toward +z, foot at z = −l/2). A steel dock

@@ -247,6 +247,30 @@ export const esdTex = () => tex('esd', 512, 512, (g, W, H, r) => {
   blotches(g, W, H, r, 8, 60, '70,80,90', 0.1);
 }, { repeat: [1 / 2.4, 1 / 2.4] });
 
+// Carpet tiles, 50 cm, laid quarter-turned so the pile catches the light
+// differently tile to tile; a few replaced from a newer batch.
+export const carpetTileTex = () => tex('carpetTile', 512, 512, (g, W, H, r) => {
+  const n = 4, s = W / n;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const v = (i + j) % 2 ? 118 : 104;
+      const odd = r() < 0.08 ? 14 : 0;
+      g.fillStyle = `rgb(${v + odd},${v + odd},${v + odd + 4})`;
+      g.fillRect(i * s, j * s, s, s);
+      // the pile direction: fine streaks one way or the other
+      for (let k = 0; k < 90; k++) {
+        g.fillStyle = `rgba(${r() > 0.5 ? '255,255,255' : '0,0,0'},0.06)`;
+        const x = i * s + r() * s, y = j * s + r() * s;
+        if ((i + j) % 2) g.fillRect(x, y, 1, 6); else g.fillRect(x, y, 6, 1);
+      }
+      g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1.2;
+      g.strokeRect(i * s + 0.5, j * s + 0.5, s - 1, s - 1);
+    }
+  }
+  speckle(g, W, H, r, 12000, 1.2, 0.18);
+  blotches(g, W, H, r, 10, 60, '40,36,30', 0.12);
+}, { repeat: [1 / 2, 1 / 2] });
+
 // Bare concrete: power-floated, dirty, with saw-cut joints every 2 m (the
 // engine's concrete seams sit on the same grid).
 export const concTex = () => tex('conc', 1024, 1024, (g, W, H, r) => {
@@ -587,7 +611,7 @@ export class Atlas {
 
 // ---------------------------------------------------------------- materials
 // Surfaces the static batch draws with. World-UV ones are listed in WORLD_UV.
-export const WORLD_UV = new Set(['wallLow', 'wallHigh', 'vinyl', 'raised', 'perf', 'esd', 'conc', 'mesh', 'checker', 'hazard', 'rackdoor', 'ceil']);
+export const WORLD_UV = new Set(['wallLow', 'wallHigh', 'vinyl', 'raised', 'perf', 'esd', 'carpet', 'conc', 'mesh', 'checker', 'hazard', 'rackdoor', 'ceil']);
 
 const std = (o) => new THREE.MeshStandardMaterial({ vertexColors: true, ...o });
 let MATS = null;
@@ -600,6 +624,7 @@ export function cellarMats() {
     vinyl: std({ polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2, map: vinylTex(), normalMap: vinylNormal(), normalScale: v2(0.4), roughness: 0.42 }),
     raised: std({ polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2, map: raisedTex(), roughness: 0.55, metalness: 0.15 }),
     perf: std({ polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2, map: perfTex(), emissiveMap: perfGlow(), emissive: new THREE.Color('#4fa3ff'), emissiveIntensity: 1.2, roughness: 0.5, metalness: 0.3 }),
+    carpet: std({ map: carpetTileTex(), roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),
     esd: std({ polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2, map: esdTex(), roughness: 0.6 }),
     conc: std({ map: concTex(), normalMap: concNormal(), normalScale: v2(0.5), roughness: 0.9 }),
     ceil: std({ map: ceilTex(), roughness: 0.95 }),
