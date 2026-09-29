@@ -9,7 +9,7 @@ import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M } from '@rc/shared';
-import { kit, cached, slotMat, NO_SHADOW, tvTex, rng } from './garageKit.js';
+import { kit, cached, slotMat, useOwned, NO_SHADOW, tvTex, rng } from './garageKit.js';
 import { buildCar, carColliders, CAR } from './garageCar.js';
 import { audio } from '../../audio.js';
 
@@ -34,7 +34,7 @@ const STATIC = {};
 const stat = (type, build) => { STATIC[type] = build; };
 
 export function FurnitureBatch({ map }) {
-  const batches = useMemo(() => {
+  const batches = useOwned(() => {
     const buckets = {};
     const m = new THREE.Matrix4();
     for (const f of map.FURNITURE) {
@@ -592,6 +592,8 @@ function buildFanBlades() {
 
 const _o = new THREE.Object3D();
 const _col = new THREE.Color();
+// the router's power LED, its ports, the switch's ports (parsed once, not per LED per frame)
+const LED = { power: new THREE.Color('#5fa8ff'), port: new THREE.Color('#3aff6a'), sw: new THREE.Color('#ffb13a') };
 function ServerRack({ f }) {
   const { L, D, H } = dims(f);
   const fan = cached('fanblades', buildFanBlades);
@@ -603,7 +605,7 @@ function ServerRack({ f }) {
     for (let i = 0; i < 12; i++) out.push([0.12 + i * 0.03, 1.43, 0.101, i + 20]); // switch ports
     return out;
   }, []);
-  const ledMat = useMemo(() => new THREE.MeshBasicMaterial({ toneMapped: false }), []);
+  const ledMat = useOwned(() => new THREE.MeshBasicMaterial({ toneMapped: false }), []);
   useLayoutEffect(() => {
     ledSpots.forEach(([x, y, z], i) => {
       _o.position.set(x * M, y * M, z * M);
@@ -618,11 +620,12 @@ function ServerRack({ f }) {
     const t = clock.elapsedTime;
     const m = leds.current;
     if (!m) return;
-    ledSpots.forEach(([, , , s], i) => {
+    for (let i = 0; i < ledSpots.length; i++) {
+      const s = ledSpots[i][3];
       // traffic: each port flickers on its own pseudo-random rhythm
       const on = Math.sin(t * (7 + (s % 5) * 3.1) + s * 1.7) + Math.sin(t * 17.3 + s) > 0.2;
-      m.setColorAt(i, _col.set(s < 20 ? (s === 0 ? '#5fa8ff' : '#3aff6a') : '#ffb13a').multiplyScalar(on ? 1.6 : 0.12));
-    });
+      m.setColorAt(i, _col.copy(s < 20 ? (s === 0 ? LED.power : LED.port) : LED.sw).multiplyScalar(on ? 1.6 : 0.12));
+    }
     m.instanceColor.needsUpdate = true;
   });
   const fx = L / 2 + 0.33, fz = 0.25;
@@ -1196,7 +1199,7 @@ const DROPS = 42;
 function Sprinkler({ f }) {
   const head = useRef();
   const drops = useRef();
-  const dropMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#dff4ff', transparent: true, opacity: 0.55, depthWrite: false }), []);
+  const dropMat = useOwned(() => new THREE.MeshBasicMaterial({ color: '#dff4ff', transparent: true, opacity: 0.55, depthWrite: false }), []);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
     // tick round over 7 s in 30 small steps, then swing back in 1.5 s

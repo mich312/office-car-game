@@ -119,8 +119,8 @@ const WALLS = [
   ...vwall(10, 5, 12, [[9.6, 11.4]], { neg: 'house', pos: 'founder' }), // living | founder
 ];
 
-// w and d are always the world x/z extents (the server's box list ignores
-// rotY); a theme piece that faces east or west says so with `face`.
+// A garage_ theme piece keeps rotY 0 (or π), so w and d are its world x/z
+// extents, and says it faces east or west with `face`.
 const f = (type, x, z, w, d, h, rotY = 0, extra = {}) => ({ type, x: u(x), z: u(z), w: u(w), d: u(d), h: u(h), rotY, ...extra });
 const UNDER = { driveUnder: true };
 const DECOR = { decor: true };
@@ -160,7 +160,9 @@ const FURNITURE = [
   f('garage_island', 15.2, 0.4, 2.4, 1.0, 0.92),
   f('garage_counter', 18.6, -3.57, 2.6, 0.65, 0.92),
   f('garage_counter', 19.57, 1.2, 0.65, 2.6, 0.92, 0, { sink: true, face: -Math.PI / 2 }),
-  f('fridge', 19.5, 3.9, 0.75, 0.7, 1.8),
+  // the office's own pieces take the rotY contract (w/d their own, +z
+  // their front): the fridge and the bookshelf face west into their rooms
+  f('fridge', 19.5, 3.9, 0.75, 0.7, 1.8, -Math.PI / 2),
   f('rug', 15.5, -3.35, 1.2, 0.7, 0.01), // the doormat
   // ---- Living room, the "boardroom": the ping-pong table is the meeting
   // table (drive under it), the old sofa, a coffee table you can ramp onto,
@@ -177,7 +179,7 @@ const FURNITURE = [
   // ---- Founder's room: mattress on the floor, a door desk, the whiteboard
   f('garage_mattress', 17.8, 10.4, 1.4, 2.0, 0.2),
   f('garage_doordesk', 12.6, 11.45, 2.0, 0.8, 0.74, Math.PI, UNDER),
-  f('bookshelf', 19.65, 6.2, 0.5, 1.6, 1.8),
+  f('bookshelf', 19.65, 6.2, 1.6, 0.5, 1.8, -Math.PI / 2),
   f('rug', 17.3, 9.8, 2.8, 3.2, 0.01),
   f('garage_rail', 15.4, 11.62, 1.3, 0.45, 1.6, Math.PI),
   // ---- Backyard: the barbecue, a paddling pool, the tree inside the turn,
