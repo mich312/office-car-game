@@ -1,7 +1,7 @@
 // The handcrafted office: floors, walls, glass, windows, ceiling, big
 // furniture, ramps, rain, skyline, dust and floating paper. Static physics.
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
 import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
@@ -300,16 +300,27 @@ function Ceiling({ map }) {
   const slabs = useMemo(() => [ceilingGeometry(3.5, 0, 35.4, 24.4), ceilingGeometry(-17.7, -6.5, 7, 11.4)], []);
   useEffect(() => () => slabs.forEach((g) => g.dispose()), [slabs]);
   const panels = useMemo(() => {
+    // does a troffer centred at (x, z) metres cut through a wall's top?
+    const hitsWall = (x, z) => map.WALLS.some((w) => !w.low
+      && Math.abs(x * M - w.x) < w.w / 2 + 0.62 * M && Math.abs(z * M - w.z) < w.d / 2 + 0.32 * M);
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {
       for (let z = -10.4; z <= 10.4; z += 3.2) {
         if (map.roomAt(x * M, z * M)?.outdoor) continue; // balcony is open sky
         // snapped to the grid: a 1.2 × 0.6 m troffer fills two tiles exactly
-        out.push([Math.round(x / 0.6) * 0.6 * M, (Math.round(z / 0.6 - 0.5) + 0.5) * 0.6 * M]);
+        let sx = Math.round(x / 0.6) * 0.6, sz = (Math.round(z / 0.6 - 0.5) + 0.5) * 0.6;
+        // the z −4 row fell on the long wall between the cafeteria and the
+        // rooms north of it, half a light each side: step one tile clear
+        if (hitsWall(sx, sz)) {
+          const clear = [[0, 0.6], [0, -0.6], [0.6, 0], [-0.6, 0], [0, 1.2], [0, -1.2]].find(([dx, dz]) => !hitsWall(sx + dx, sz + dz));
+          if (!clear) continue;
+          sx += clear[0]; sz += clear[1];
+        }
+        out.push([sx * M, sz * M]);
       }
     }
     return out;
-  }, []);
+  }, [map]);
   const inst = useRef();
   const bezel = useRef();
   useLayoutEffect(() => {
@@ -406,11 +417,17 @@ function StaticBatch({ map, built }) {
     // the building's parts are already in world metres
     const office = !THEMES[map.theme];
     push(buildArchitecture(map, { office, styled: new Set(Object.keys(WALL_STYLES)) }), new THREE.Matrix4().makeScale(M, M, M));
-    const groups = [...bake(all)].map(([key, geo]) => ({ key, geo }));
+    return [...bake(all)].map(([key, geo]) => ({ key, geo }));
+  }, [map, built]);
+  // the old floor's bake is freed once the new one is committed, not while
+  // rendering it: a render can be interrupted or suspended with the old
+  // meshes still drawing, which re-uploads what was just disposed (and then
+  // nothing ever frees it)
+  useEffect(() => {
+    if (lastBake?.groups === groups) return;
     lastBake?.groups.forEach((g) => g.geo.dispose());
     lastBake = { map, groups };
-    return groups;
-  }, [map, built]);
+  }, [map, groups]);
   return groups.map((g) => (
     <mesh key={g.key} geometry={g.geo} material={mat(g.key)} castShadow={castsShadow(g.key)} receiveShadow={receivesShadow(g.key)} />
   ));
@@ -554,6 +571,60 @@ function Rain() {
 }
 
 // -------------------------------------------------- dust + floating paper
+// drei's Sparkles, with its own shaders but a glow that can't blow up: theirs
+// is 0.05 / (distance to the sprite's centre), so a pixel landing right on a
+// mote wrote an infinite alpha into the half-float frame, and bloom smeared
+// it over the whole screen — about every other aerial frame came out black.
+const DUST_VERT = /* glsl */`
+  uniform float pixelRatio;
+  uniform float time;
+  attribute float size;
+  attribute float speed;
+  attribute float opacity;
+  attribute vec3 noise;
+  attribute vec3 color;
+  varying vec3 vColor;
+  varying float vOpacity;
+  void main() {
+    vec4 p = modelMatrix * vec4(position, 1.0);
+    p.y += sin(time * speed + p.x * noise.x * 100.0) * 0.2;
+    p.z += cos(time * speed + p.x * noise.y * 100.0) * 0.2;
+    p.x += cos(time * speed + p.x * noise.z * 100.0) * 0.2;
+    vec4 v = viewMatrix * p;
+    gl_Position = projectionMatrix * v;
+    gl_PointSize = size * 25.0 * pixelRatio / max(-v.z, 0.1);
+    vColor = color;
+    vOpacity = opacity;
+  }
+`;
+const DUST_FRAG = /* glsl */`
+  varying vec3 vColor;
+  varying float vOpacity;
+  void main() {
+    float d = distance(gl_PointCoord, vec2(0.5));
+    float strength = clamp(0.05 / max(d, 0.04) - 0.1, 0.0, 1.0);
+    gl_FragColor = vec4(vColor, strength * vOpacity);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
+
+function Dust(props) {
+  const dpr = useThree((s) => s.viewport.dpr);
+  const material = useMemo(() => new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 }, pixelRatio: { value: 1 } },
+    vertexShader: DUST_VERT, fragmentShader: DUST_FRAG, transparent: true, depthWrite: false,
+  }), []);
+  useEffect(() => () => material.dispose(), [material]);
+  material.uniforms.pixelRatio.value = dpr;
+  useFrame(({ clock }) => { material.uniforms.time.value = clock.elapsedTime; });
+  return (
+    <Sparkles {...props}>
+      <primitive object={material} attach="material" />
+    </Sparkles>
+  );
+}
+
 function Ambience() {
   const papers = useRef();
   const paperData = useMemo(() => Array.from({ length: 12 }, () => ({
@@ -581,7 +652,7 @@ function Ambience() {
   });
   return (
     <group>
-      <Sparkles count={140} scale={[140, 15, 90]} position={[0, 8, 0]} size={2.2} speed={0.25} opacity={0.35} color="#ffe9c9" />
+      <Dust count={140} scale={[140, 15, 90]} position={[0, 8, 0]} size={2.2} speed={0.25} opacity={0.35} color="#ffe9c9" />
       <instancedMesh ref={papers} args={[null, null, 12]} frustumCulled={false}>
         <planeGeometry args={[1.16, 1.65]} />
         <meshStandardMaterial color="#f4f2ec" side={THREE.DoubleSide} roughness={0.9} />

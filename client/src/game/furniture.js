@@ -406,6 +406,9 @@ function sofa(f, ctx) {
     colliders: [
       cuboid(f.w / 2, (f.h * 0.55) / 2, f.d / 2, 0, f.h * 0.275, 0),
       cuboid(f.w / 2, f.h / 2, f.d * 0.14, 0, f.h / 2, -f.d / 2 + f.d * 0.14),
+      // the arms stand 0.2 m proud of the seat: a car landing on it (the
+      // lounge's clipboard ramp) drove through them and off the end
+      ...[-1, 1].map((s) => cuboid(armW / 2 * M, (H * 0.8) / 2 * M, f.d / 2, s * (f.w / 2 - armW / 2 * M), (H * 0.8) / 2 * M, 0)),
     ],
     friction: 1,
   };
@@ -1132,7 +1135,10 @@ function bench(f) {
     parts: p.parts,
     colliders: [
       cuboid(f.w / 2, 0.06, f.d / 2, 0, f.h, 0),
-      ...[-1, 1].map((s) => cuboid(f.w / 2 - 0.05, f.h / 2, 0.06, 0, f.h / 2, s * (f.d / 2 - 0.15))),
+      // the cast ends, across the short side at each end of the long one
+      ...[-1, 1].map((s) => (long
+        ? cuboid(f.w / 2 - 0.05, f.h / 2, 0.06, 0, f.h / 2, s * (f.d / 2 - 0.15))
+        : cuboid(0.06, f.h / 2, f.d / 2 - 0.05, s * (f.w / 2 - 0.15), f.h / 2, 0))),
     ],
     friction: 1,
   };
@@ -1175,6 +1181,27 @@ function planter(f, ctx) {
   return { parts: p.parts, colliders: solidBox(f), friction: 0.8 };
 }
 
+// A steel filing cabinet: drawers stacked on the +z face across its width,
+// each with a recessed pull and a label slot, on a recessed plinth. (It had
+// no builder and drew as a plain white box.)
+function cabinet(f) {
+  const [W, D, H] = dims(f);
+  const p = new Piece();
+  const pl = 0.06, t = 0.018;
+  p.add('powderBlack', rbox(W - 0.04, pl, D - 0.06, 0.004, 1), [0, pl / 2, -0.02]);
+  p.add('powderGrey', rbox(W, H - pl, D - t, 0.008), [0, pl + (H - pl) / 2, -t / 2]);
+  const n = Math.max(2, Math.round((H - pl) / 0.32));
+  const dh = (H - pl - 0.02) / n;
+  for (let i = 0; i < n; i++) {
+    const y = pl + 0.01 + dh / 2 + i * dh;
+    p.add('powderGrey', rbox(W - 0.03, dh - 0.008, t, 0.004, 1), [0, y, D / 2 - t / 2]);
+    p.add('plasticBlack', rbox(Math.min(0.2, W * 0.4), 0.03, 0.01, 0.004, 1), [0, y + dh * 0.22, D / 2 + 0.002]);
+    p.add('brushedSteel', rbox(0.09, 0.035, 0.004, 0.001, 1), [0, y - dh * 0.05, D / 2 + 0.001]);
+    p.add('paper', box(0.075, 0.024, 0.002), [0, y - dh * 0.05, D / 2 + 0.003]);
+  }
+  return { parts: p.parts, colliders: solidBox(f), friction: 0.8 };
+}
+
 // Anything else (a theme's box-shaped type with no model of its own): a
 // rounded laminate box, at least with honest edges and metre UVs.
 function fallback(f) {
@@ -1186,7 +1213,7 @@ function fallback(f) {
 
 export const BUILDERS = {
   desk, table, ceodesk, recdesk, counter, island: counter, sofa, rack, fridge, copier, vending,
-  bookshelf, shelfrack, whiteboard, rug, art, tv, booth, stall, sink, toilet, bartop, foosball, hoop, bench, planter,
+  bookshelf, shelfrack, whiteboard, rug, art, tv, booth, stall, sink, toilet, bartop, foosball, hoop, bench, planter, cabinet,
 };
 
 // ------------------------------------------------------------- context
