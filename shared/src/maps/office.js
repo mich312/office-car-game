@@ -467,6 +467,20 @@ export const OFFICE = {
     clock: { at: [-19.15, 2.32, -11.87], rotY: 0 },
     memos: { at: [-16.05, 1.95, -11.88], rotY: 0 },
   },
+  // Paint. Most of the floor is the house off-white; a few rooms get their
+  // own colour on the walls that face into them (architecture.js), so each
+  // reads as a place from car height: a greige reception, sage kitchen,
+  // aqua washroom, a blue meeting room, a green CEO study, an orange games
+  // corner, a dark server room.
+  LOOK: {
+    wall: '#e8e4da',
+    skirt: '#d8d2c6',
+    frame: '#f3f1ec',
+    rooms: {
+      reception: '#d6cbbb', cafeteria: '#c9d3bd', bathroom: '#bcd4d6', focus: '#d9cfc0',
+      meeting: '#7d95ae', ceo: '#4a6656', games: '#d9a07a', server: '#555c66', storage: '#cfc9bd',
+    },
+  },
   // coffee stains on the floor: [x, z, size] in meters
   STAINS: [
     [-17.5, -4, 2.4], [-1, 0.5, 2], [2.5, -8.8, 3], [9.5, -1, 1.6], [0, 9.7, 2.2],

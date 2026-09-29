@@ -57,7 +57,9 @@ export function doorways(walls) {
 }
 
 // Build a run's parts in a frame where the run lies along +x at the origin,
-// then place that frame on the wall's line.
+// then place that frame on the wall's line. (A z-running wall turns −90°:
+// its local +x is world +z and its local +z face looks toward world −x.)
+const worldAt = (s, x, z) => (s.alongX ? [x, s.line + z] : [s.line - z, x]);
 function onLine(p, s, fn) {
   const pos = s.alongX ? [0, 0, s.line] : [s.line, 0, 0];
   p.at(pos, s.alongX ? null : [0, -Math.PI / 2, 0], fn);
@@ -67,7 +69,25 @@ export function buildArchitecture(map, opts) {
   const p = new Piece();
   const r = rng(7);
   const look = map.LOOK || {};
-  const paint = `wall:${look.wall || '#e8e4da'}`;
+  const base = look.wall || '#e8e4da';
+  // A room can have its own paint (LOOK.rooms: { roomId: colour }): each
+  // face of a wall takes the colour of the room it looks into, as a skin
+  // 1.5 mm proud, so one wall can be blue on one side and green on the
+  // other. All of it is one material, coloured per vertex.
+  const roomPaint = (x, z) => look.rooms?.[map.roomAt(x * M, z * M)?.id];
+  const skins = (s, a, b, y0, y1, t) => {
+    for (const side of [-1, 1]) {
+      let run = null;
+      const flush = (end) => {
+        if (run && end - run.a > 0.05) p.add('wall', box(end - run.a, y1 - y0, 0.003), [(run.a + end) / 2, (y0 + y1) / 2, side * (t / 2 + 0.0015)], null, null, run.c);
+      };
+      for (let x = a; x <= b + 1e-6; x += 0.1) {
+        const c = roomPaint(...worldAt(s, Math.min(x + 0.05, b), side * (t / 2 + 0.25))) || null;
+        if (!run || run.c !== c) { if (run?.c) flush(x); run = { a: x, c }; }
+      }
+      if (run?.c) flush(b);
+    }
+  };
   const skirt = `trim:${look.skirt || '#d8d2c6'}`;
   const frame = `trim:${look.frame || (opts.office ? '#f3f1ec' : look.skirt || '#8c9297')}`;
   const plain = map.WALLS.filter((w) => !(w.style && opts.styled.has(w.style)));
@@ -80,7 +100,8 @@ export function buildArchitecture(map, opts) {
   for (const s of segments(solid)) {
     onLine(p, s, () => {
       const cx = (s.a + s.b) / 2;
-      p.add(paint, box(s.len, s.h, s.t), [cx, s.h / 2, 0]);
+      p.add('wall', box(s.len, s.h, s.t), [cx, s.h / 2, 0], null, null, base);
+      skins(s, s.a, s.b, SKIRT_H - 0.01, s.h, s.t);
       // skirting on both faces and the exposed ends (pillars get all four)
       for (const side of [-1, 1]) {
         p.add(skirt, rbox(s.len + SKIRT_T * 2, SKIRT_H, SKIRT_T, 0.004, 1), [cx, SKIRT_H / 2, side * (s.t / 2 + SKIRT_T / 2)]);
@@ -96,8 +117,8 @@ export function buildArchitecture(map, opts) {
         const x = s.a + (i + 0.5 + (r() - 0.5) * 0.3) * (s.len / n);
         const side = r() < 0.5 ? -1 : 1;
         p.at([x, 0.3, side * (s.t / 2)], side < 0 ? [0, Math.PI, 0] : null, () => {
-          p.add('plasticWhite', rbox(0.146, 0.086, 0.012, 0.004, 1), [0, 0, 0.006]);
-          for (const k of [-1, 1]) p.add('plasticBlack', box(0.03, 0.028, 0.002), [k * 0.036, 0, 0.0125]);
+          p.add('plasticWhite', rbox(0.146, 0.086, 0.012, 0.004, 1), [0, 0, 0.009]);
+          for (const k of [-1, 1]) p.add('plasticBlack', box(0.03, 0.028, 0.002), [k * 0.036, 0, 0.0155]);
         });
       }
       const scuffs = Math.floor(s.len / 2.5);
@@ -105,7 +126,7 @@ export function buildArchitecture(map, opts) {
         const x = s.a + 0.2 + r() * (s.len - 0.4);
         const side = r() < 0.5 ? -1 : 1;
         const w = 0.15 + r() * 0.5, h = 0.04 + r() * 0.12;
-        p.add('scuff', card(w, h, [r() < 0.5 ? 0 : 0.5, 0, r() < 0.5 ? 0.5 : 1, 1]), [x, SKIRT_H + 0.02 + h / 2 + r() * 0.2, side * (s.t / 2 + 0.0015)], side < 0 ? [0, Math.PI, 0] : null);
+        p.add('scuff', card(w, h, [r() < 0.5 ? 0 : 0.5, 0, r() < 0.5 ? 0.5 : 1, 1]), [x, SKIRT_H + 0.02 + h / 2 + r() * 0.2, side * (s.t / 2 + 0.0045)], side < 0 ? [0, Math.PI, 0] : null);
       }
     });
   }
@@ -125,7 +146,9 @@ export function buildArchitecture(map, opts) {
         for (const e of [d.a, d.b]) p.add('aluminium', rbox(0.05, d.h, d.t + 0.02, 0.004, 1), [e, d.h / 2, 0]);
         return;
       }
-      p.add(paint, box(w, d.h - hd, d.t), [cx, hd + (d.h - hd) / 2, 0]);
+      p.add('wall', box(w, d.h - hd, d.t), [cx, hd + (d.h - hd) / 2, 0], null, null, base);
+      skins(d, d.a, d.b, hd, d.h, d.t);
+      if (look.frames === false) return;
       for (const side of [-1, 1]) {
         const z = side * (d.t / 2 + 0.009);
         p.add(frame, rbox(0.07, hd + 0.07, 0.018, 0.005, 1), [d.a - 0.035, (hd + 0.07) / 2, z]);

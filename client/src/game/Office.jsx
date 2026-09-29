@@ -15,7 +15,7 @@ import { mat, castsShadow, receivesShadow } from './materials.js';
 import { bake, placeMatrix } from './kit.js';
 import { buildPiece, pieceContext, rampParts } from './furniture.js';
 import { buildArchitecture } from './architecture.js';
-import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, skylineTex, glowTex, shaftTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
+import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, skylineTex, glowTex, shaftTex, ceilingTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
 
 // Every floor gets three maps, not one. Albedo alone reads as coloured
 // plastic under a directional light; the normal gives the surface something
@@ -255,12 +255,22 @@ function Walls({ map }) {
 }
 
 // ----------------------------------------------------------------- ceiling
+// A suspended ceiling on a 60 cm grid (world-metre UVs, so the grid runs on
+// unbroken over every room), recessed troffers snapped to it.
+function ceilingGeometry(x, z, w, d) {
+  const g = new THREE.PlaneGeometry(w * M, d * M);
+  const pos = g.attributes.position, uv = g.attributes.uv;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, x + pos.getX(i) / M, z - pos.getY(i) / M);
+  return g;
+}
+
 function Ceiling({ map }) {
   const { WALL_HEIGHT } = map;
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
   const panelMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 }), []);
+  const tileMat = useMemo(() => new THREE.MeshStandardMaterial({ map: ceilingTex(), roughness: 0.95, side: THREE.DoubleSide }), []);
   // ease toward the phase target like every other light in the building
   // (Lighting.jsx, LightPools, LightShafts all lerp at ~dt*1.8) — assigning
   // it synchronously made the 140 panels snap while the world cross-faded
@@ -268,17 +278,22 @@ function Ceiling({ map }) {
     const target = lightingFor(hour, lightsOut).panel;
     panelMat.emissiveIntensity += (target - panelMat.emissiveIntensity) * Math.min(1, dt * 1.8);
   });
+  // the main slab covers everything east of the balcony, plus the reception
+  // strip (the balcony above stays open sky)
+  const slabs = useMemo(() => [ceilingGeometry(3.5, 0, 35.4, 24.4), ceilingGeometry(-17.5, -6.5, 7.4, 11.4)], []);
   const panels = useMemo(() => {
     const out = [];
     for (let x = -19.4; x <= 19.4; x += 3.4) {
       for (let z = -10.4; z <= 10.4; z += 3.2) {
         if (map.roomAt(x * M, z * M)?.outdoor) continue; // balcony is open sky
-        out.push([x * M, z * M]);
+        // snapped to the grid: a 1.2 × 0.6 m troffer fills two tiles exactly
+        out.push([Math.round(x / 0.6) * 0.6 * M, (Math.round(z / 0.6 - 0.5) + 0.5) * 0.6 * M]);
       }
     }
     return out;
   }, []);
   const inst = useRef();
+  const bezel = useRef();
   useLayoutEffect(() => {
     const dummy = new THREE.Object3D();
     panels.forEach(([x, z], i) => {
@@ -286,23 +301,24 @@ function Ceiling({ map }) {
       dummy.rotation.set(Math.PI / 2, 0, 0);
       dummy.updateMatrix();
       inst.current.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(x, WALL_HEIGHT - 0.03, z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      bezel.current.setMatrixAt(i, dummy.matrix);
     });
     inst.current.instanceMatrix.needsUpdate = true;
+    bezel.current.instanceMatrix.needsUpdate = true;
   }, [panels]);
   return (
     <group>
-      {/* main slab covers everything east of the balcony… */}
-      <mesh rotation-x={Math.PI / 2} position={[3.5 * M, WALL_HEIGHT, 0]}>
-        <planeGeometry args={[35.4 * M, 24.4 * M]} />
-        <meshStandardMaterial color="#d5d2ca" roughness={0.9} />
-      </mesh>
-      {/* …plus the reception strip (the balcony above stays open sky) */}
-      <mesh rotation-x={Math.PI / 2} position={[-17.5 * M, WALL_HEIGHT, -6.5 * M]}>
-        <planeGeometry args={[7.4 * M, 11.4 * M]} />
-        <meshStandardMaterial color="#d5d2ca" roughness={0.9} />
-      </mesh>
+      <mesh rotation-x={Math.PI / 2} position={[3.5 * M, WALL_HEIGHT, 0]} geometry={slabs[0]} material={tileMat} />
+      <mesh rotation-x={Math.PI / 2} position={[-17.5 * M, WALL_HEIGHT, -6.5 * M]} geometry={slabs[1]} material={tileMat} />
       <instancedMesh ref={inst} args={[null, null, panels.length]} material={panelMat} frustumCulled={false}>
-        <planeGeometry args={[1.2 * M, 0.6 * M]} />
+        <planeGeometry args={[1.16 * M, 0.56 * M]} />
+      </instancedMesh>
+      {/* the troffer's white steel bezel round the diffuser */}
+      <instancedMesh ref={bezel} args={[null, null, panels.length]} material={mat('powderWhite')} frustumCulled={false}>
+        <boxGeometry args={[1.22 * M, 0.06, 0.62 * M]} />
       </instancedMesh>
     </group>
   );

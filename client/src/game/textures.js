@@ -1200,3 +1200,23 @@ export const scuffTex = () =>
       }
     }
   });
+
+// Suspended ceiling: a 60 cm mineral-fibre tile, fissured, in a white T-bar
+// grid. Seen from below at a steep angle it's what makes an office ceiling
+// an office ceiling instead of a grey lid.
+export const ceilingTex = () =>
+  canvasTex('ceiling', 128, 128, (g, w, h) => {
+    const r = rng(17);
+    g.fillStyle = '#e2dfd8';
+    g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 900; i++) {
+      const v = r();
+      g.fillStyle = v > 0.6 ? 'rgba(150,145,135,0.35)' : 'rgba(255,255,255,0.25)';
+      g.fillRect(r() * w, r() * h, 1 + r() * 2.5, 1);
+    }
+    // the T-bar: bright flange, a hairline shadow inside it
+    g.fillStyle = '#f7f6f2';
+    g.fillRect(0, 0, w, 4); g.fillRect(0, 0, 4, h);
+    g.fillStyle = 'rgba(80,76,70,0.45)';
+    g.fillRect(4, 4, w - 4, 1.5); g.fillRect(4, 4, 1.5, h - 4);
+  }, [1 / 0.6, 1 / 0.6]);

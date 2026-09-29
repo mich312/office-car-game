@@ -137,10 +137,12 @@ const paint = (c) => std({ color: c, normalMap: peel(), normalScale: V(0.25), ro
 // Walls: matt emulsion. The orange peel is deliberately almost invisible —
 // its job is to break the perfectly flat specular that made every wall read
 // as an untextured box, especially where a low sun grazes along one.
-const wall = (c) => std({ color: c, normalMap: orangePeel('paint', 0.55, [0.7, 0.7]), normalScale: V(0.35), roughnessMap: wearRough('paint', 218, 16, [0.4, 0.4]), roughness: 1 });
+const wallPaint = () => std({ vertexColors: true, normalMap: orangePeel('paint', 0.55, [0.7, 0.7]), normalScale: V(0.35), roughnessMap: wearRough('paint', 218, 16, [0.4, 0.4]), roughness: 1 });
 // Trim (skirting, architraves): satin, so it catches a rim of light.
+// (the paint colour comes per vertex: every wall in every colour, one draw)
+MAKERS.wall = wallPaint;
 const trim = (c) => std({ color: c, normalMap: orangePeel('paint', 0.55, [0.7, 0.7]), normalScale: V(0.25), roughness: 0.55 });
-const PARAM = { fabric, paint, wall, trim };
+const PARAM = { fabric, paint, trim };
 
 const cache = new Map();
 export function mat(key) {
