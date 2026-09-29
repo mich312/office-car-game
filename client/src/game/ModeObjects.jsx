@@ -15,6 +15,8 @@ import { THEMES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { net, on, sampleRemote } from '../net.js';
 import { burst } from './particles.jsx';
+import { roundedBox } from './roundedGeo.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export default function ModeObjects() {
   const modeId = useStore((s) => s.modeId);
@@ -443,38 +445,71 @@ function Goals() {
 }
 
 // ------------------------------------------------------------- powerups
+// Every pad on the map is two instanced draws: the floor rings and the
+// item cubes (a rounded box with a "?" on every face). A pad cooling down
+// dims its ring and hides its cube.
+const PAD_READY = new THREE.Color('#c77bff');
+const PAD_COOL = new THREE.Color('#2e2140');
+let _padTex = null;
+function padTexture() {
+  if (_padTex) return _padTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#7b2ff2';
+  g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = '#c9a2ff';
+  g.lineWidth = 8;
+  g.strokeRect(8, 8, 112, 112);
+  g.fillStyle = '#ffffff';
+  g.font = '900 92px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('?', 64, 70);
+  _padTex = new THREE.CanvasTexture(c);
+  _padTex.colorSpace = THREE.SRGBColorSpace;
+  _padTex.anisotropy = 4;
+  return _padTex;
+}
 function PowerupPads() {
   const { POWERUP_PADS } = useMap();
-  const refs = useRef([]);
+  const rings = useRef();
+  const cubes = useRef();
+  const n = POWERUP_PADS.length;
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const cubeGeo = useMemo(() => roundedBox(0.55, 0.55, 0.55, 0.1, 3), []);
+  const tex = useMemo(() => padTexture(), []);
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;
+    if (!rings.current || !cubes.current) return;
+    const now = Date.now();
     POWERUP_PADS.forEach((pad, i) => {
-      const g = refs.current[i];
-      if (!g) return;
-      const ready = (net.padCooldowns.get(i) || 0) < Date.now();
-      g.children[1].rotation.y = t * 1.4 + i;
-      g.children[1].position.y = 0.9 + Math.sin(t * 2 + i) * 0.12;
-      g.children[1].visible = ready;
-      g.children[0].material.opacity = ready ? 0.5 : 0.08;
+      const ready = (net.padCooldowns.get(i) || 0) < now;
+      dummy.position.set(pad.x, 0.03, pad.z);
+      dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      rings.current.setMatrixAt(i, dummy.matrix);
+      rings.current.setColorAt(i, ready ? PAD_READY : PAD_COOL);
+      dummy.position.set(pad.x, 0.9 + Math.sin(t * 2 + i) * 0.12, pad.z);
+      dummy.rotation.set(0.35, t * 1.4 + i, 0.2);
+      dummy.scale.setScalar(ready ? 1 : 0.0001);
+      dummy.updateMatrix();
+      cubes.current.setMatrixAt(i, dummy.matrix);
     });
+    rings.current.instanceMatrix.needsUpdate = true;
+    if (rings.current.instanceColor) rings.current.instanceColor.needsUpdate = true;
+    cubes.current.instanceMatrix.needsUpdate = true;
   });
   return (
     <group>
-      {POWERUP_PADS.map((pad, i) => (
-        <group key={i} ref={(el) => (refs.current[i] = el)} position={[pad.x, 0, pad.z]}>
-          <mesh position={[0, 0.03, 0]} rotation-x={-Math.PI / 2}>
-            <ringGeometry args={[0.9, 1.5, 24]} />
-            <meshBasicMaterial color="#c77bff" transparent opacity={0.5} depthWrite={false} side={THREE.DoubleSide} />
-          </mesh>
-          <group position={[0, 0.9, 0]}>
-            <mesh castShadow>
-              <boxGeometry args={[0.55, 0.55, 0.55]} />
-              <meshStandardMaterial color="#7b2ff2" emissive="#a95bff" emissiveIntensity={0.9} roughness={0.2} />
-            </mesh>
-            <TextSprite text="?" size={0.5} color="white" />
-          </group>
-        </group>
-      ))}
+      <instancedMesh key={`r${n}`} ref={rings} args={[null, null, n]} frustumCulled={false}>
+        <ringGeometry args={[0.9, 1.5, 32]} />
+        <meshBasicMaterial transparent opacity={0.55} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh key={`c${n}`} ref={cubes} args={[cubeGeo, null, n]} castShadow frustumCulled={false}>
+        <meshStandardMaterial map={tex} emissiveMap={tex} emissive="#ffffff" emissiveIntensity={0.55} roughness={0.25} />
+      </instancedMesh>
     </group>
   );
 }
@@ -503,51 +538,108 @@ function Puddles() {
   );
 }
 
+// Rockets: body, nose cone and three fins, merged once into one geometry
+// (vertex-coloured) and drawn instanced, each pointing the way it flies.
+let _rocketGeo = null;
+function rocketGeometry() {
+  if (_rocketGeo) return _rocketGeo;
+  const tint = (g, hex) => {
+    const c = new THREE.Color(hex);
+    const n = g.attributes.position.count;
+    const a = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) { a[k * 3] = c.r; a[k * 3 + 1] = c.g; a[k * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+    return g.index ? g.toNonIndexed() : g;
+  };
+  // built along +y, then turned to fly along +z
+  const body = tint(new THREE.CylinderGeometry(0.1, 0.1, 0.36, 12), '#f2f2ee');
+  const band = tint(new THREE.CylinderGeometry(0.103, 0.103, 0.06, 12).translate(0, 0.08, 0), '#e8332a');
+  const nose = tint(new THREE.ConeGeometry(0.1, 0.18, 12).translate(0, 0.27, 0), '#e8332a');
+  const nozzle = tint(new THREE.CylinderGeometry(0.07, 0.05, 0.06, 10).translate(0, -0.21, 0), '#2b2d33');
+  const fins = [0, 1, 2].map((k) => {
+    const f = new THREE.BoxGeometry(0.012, 0.13, 0.1).translate(0, -0.13, 0.13);
+    f.rotateY((k * Math.PI * 2) / 3);
+    return tint(f, '#e8332a');
+  });
+  const parts = [body, band, nose, nozzle, ...fins].map((g) => {
+    const out = g.index ? g.toNonIndexed() : g;
+    if (out.attributes.uv) out.deleteAttribute('uv');
+    return out;
+  });
+  _rocketGeo = mergeGeometries(parts);
+  _rocketGeo.rotateX(Math.PI / 2);
+  _rocketGeo.scale(1.4, 1.4, 1.4);
+  return _rocketGeo;
+}
 function Rockets() {
   const ref = useRef();
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  const geo = useMemo(() => rocketGeometry(), []);
+  const heading = useMemo(() => new Map(), []); // rocket id → last position and facing
   const MAXR = 6;
   useFrame(() => {
     const mesh = ref.current;
     if (!mesh) return;
     const rockets = net.rockets || [];
+    const live = new Set();
     for (let i = 0; i < MAXR; i++) {
       const r = rockets[i];
       if (r) {
-        dummy.position.set(r.p[0], r.p[1] + 0.4, r.p[2]);
+        live.add(r.id);
+        const x = r.p[0], y = r.p[1] + 0.4, z = r.p[2];
+        const h = heading.get(r.id) || { x, y, z, dir: new THREE.Vector3(0, 0, 1) };
+        const d = new THREE.Vector3(x - h.x, y - h.y, z - h.z);
+        if (d.lengthSq() > 1e-4) h.dir.lerp(d.normalize(), 0.5).normalize();
+        h.x = x; h.y = y; h.z = z;
+        heading.set(r.id, h);
+        dummy.position.set(x, y, z);
+        dummy.lookAt(x + h.dir.x, y + h.dir.y, z + h.dir.z);
         dummy.scale.setScalar(1);
-        burst([r.p[0], r.p[1] + 0.4, r.p[2]], { count: 1, color: '#ffb347', speed: 1, size: 0.07, ttl: 0.35, up: 1, gravity: -0.2 });
+        burst([x - h.dir.x * 0.4, y - h.dir.y * 0.4, z - h.dir.z * 0.4], { count: 1, color: '#ffb347', speed: 1, size: 0.07, ttl: 0.35, up: 1, gravity: -0.2 });
       } else {
         dummy.position.set(0, -999, 0);
+        dummy.rotation.set(0, 0, 0);
         dummy.scale.setScalar(0.001);
       }
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
     }
+    for (const id of heading.keys()) if (!live.has(id)) heading.delete(id);
     mesh.instanceMatrix.needsUpdate = true;
   });
   return (
-    <instancedMesh ref={ref} args={[null, null, MAXR]} frustumCulled={false}>
-      <coneGeometry args={[0.14, 0.5, 8]} />
-      <meshStandardMaterial color="#e8332a" emissive="#ff6b35" emissiveIntensity={1.4} />
+    <instancedMesh ref={ref} args={[geo, null, MAXR]} frustumCulled={false}>
+      <meshStandardMaterial vertexColors emissive="#ff6b35" emissiveIntensity={0.35} roughness={0.35} metalness={0.2} />
     </instancedMesh>
   );
 }
 
+// The cleaning robot: a robot vacuum at RC-car scale — a round body with a
+// black front bumper, a lid with a button and a red ring LED round the lidar
+// turret, two spinning side brushes and its two drive wheels. It faces the
+// way it's driving. A floor can dress it its own way (themes/*.jsx Robot).
 function Robot() {
   const group = useRef();
-  // a floor can dress the event its own way (themes/*.jsx Robot)
+  const brushes = useRef([]);
+  const led = useRef();
   const Skin = THEMES[useMap().theme]?.Robot;
-  useFrame(({ clock }) => {
+  useFrame(({ clock }, dt) => {
     const r = net.robot;
     if (!group.current) return;
     group.current.visible = !!r;
     if (!r) return;
     const cur = group.current.position;
-    cur.x += (r.x - cur.x) * 0.15;
-    cur.z += (r.z - cur.z) * 0.15;
-    cur.y = 0;
-    group.current.rotation.y = clock.elapsedTime * 0.7;
+    const nx = cur.x + (r.x - cur.x) * 0.15, nz = cur.z + (r.z - cur.z) * 0.15;
+    const dx = nx - cur.x, dz = nz - cur.z;
+    if (dx * dx + dz * dz > 1e-5) {
+      // turn toward the direction of travel, the short way round
+      let a = Math.atan2(dx, dz) - group.current.rotation.y;
+      a = Math.atan2(Math.sin(a), Math.cos(a));
+      group.current.rotation.y += a * Math.min(1, dt * 6);
+    }
+    cur.set(nx, 0, nz);
+    for (const b of brushes.current) if (b) b.rotation.y += dt * 14 * (b.userData.dir || 1);
+    if (led.current) led.current.material.opacity = 0.6 + Math.sin(clock.elapsedTime * 5) * 0.35;
   });
   if (Skin) {
     return (
@@ -558,18 +650,56 @@ function Robot() {
   }
   return (
     <group ref={group} visible={false}>
-      <mesh position={[0, 0.35, 0]} castShadow>
-        <cylinderGeometry args={[1.7, 1.85, 0.7, 24]} />
-        <meshStandardMaterial color="#33363e" metalness={0.6} roughness={0.3} />
+      {/* body and lid */}
+      <mesh position={[0, 0.42, 0]} castShadow>
+        <cylinderGeometry args={[1.72, 1.82, 0.62, 40]} />
+        <meshStandardMaterial color="#d8dade" metalness={0.15} roughness={0.35} />
       </mesh>
-      <mesh position={[0, 0.74, 0]}>
-        <cylinderGeometry args={[0.5, 0.5, 0.12, 16]} />
-        <meshStandardMaterial color="#22242a" roughness={0.4} />
+      <mesh position={[0, 0.745, 0]}>
+        <cylinderGeometry args={[1.5, 1.6, 0.05, 40]} />
+        <meshStandardMaterial color="#2a2c33" metalness={0.4} roughness={0.25} />
       </mesh>
-      <mesh position={[0, 0.86, 0]}>
-        <sphereGeometry args={[0.16, 10, 10]} />
-        <meshBasicMaterial color="#ff2222" toneMapped={false} />
+      {/* front bumper shell: the leading half, in black */}
+      <mesh position={[0, 0.38, 0]}>
+        <cylinderGeometry args={[1.86, 1.86, 0.46, 40, 1, true, -Math.PI / 2, Math.PI]} />
+        <meshStandardMaterial color="#141519" roughness={0.6} side={THREE.DoubleSide} />
       </mesh>
+      {/* lidar turret and its ring LED */}
+      <mesh position={[0, 0.9, -0.35]} castShadow>
+        <cylinderGeometry args={[0.42, 0.44, 0.3, 24]} />
+        <meshStandardMaterial color="#1b1c21" roughness={0.3} metalness={0.3} />
+      </mesh>
+      <mesh ref={led} position={[0, 0.78, -0.35]} rotation-x={Math.PI / 2}>
+        <torusGeometry args={[0.55, 0.045, 8, 32]} />
+        <meshBasicMaterial color="#ff2222" transparent opacity={0.9} toneMapped={false} />
+      </mesh>
+      {/* the button */}
+      <mesh position={[0, 0.79, 0.8]}>
+        <cylinderGeometry args={[0.2, 0.22, 0.06, 20]} />
+        <meshStandardMaterial color="#e9eaec" roughness={0.3} />
+      </mesh>
+      {/* drive wheels, just showing under the skirt */}
+      {[-1, 1].map((s) => (
+        <mesh key={s} position={[s * 1.66, 0.28, 0]} rotation-z={Math.PI / 2} castShadow>
+          <cylinderGeometry args={[0.28, 0.28, 0.2, 18]} />
+          <meshStandardMaterial color="#18191c" roughness={0.9} />
+        </mesh>
+      ))}
+      {/* side brushes: three prongs each, spinning in opposite directions */}
+      {[-1, 1].map((s, k) => (
+        <group key={s} position={[s * 1.25, 0.05, 1.3]} ref={(el) => { brushes.current[k] = el; if (el) el.userData.dir = s; }}>
+          <mesh>
+            <cylinderGeometry args={[0.14, 0.14, 0.06, 12]} />
+            <meshStandardMaterial color="#2c2e35" />
+          </mesh>
+          {[0, 1, 2].map((j) => (
+            <mesh key={j} rotation-y={(j * Math.PI * 2) / 3} position={[Math.sin((j * Math.PI * 2) / 3) * 0.32, 0, Math.cos((j * Math.PI * 2) / 3) * 0.32]}>
+              <boxGeometry args={[0.03, 0.02, 0.62]} />
+              <meshStandardMaterial color="#c9ced6" roughness={0.8} />
+            </mesh>
+          ))}
+        </group>
+      ))}
       <pointLight position={[0, 1.4, 0]} intensity={6} distance={9} color="#ff3322" />
     </group>
   );
