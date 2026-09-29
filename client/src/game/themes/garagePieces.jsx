@@ -9,7 +9,7 @@ import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M } from '@rc/shared';
-import { kit, cached, slotMat, NO_SHADOW, canvasTex, tvTex, rng } from './garageKit.js';
+import { kit, cached, slotMat, NO_SHADOW, tvTex, rng } from './garageKit.js';
 import { buildCar, carColliders, CAR } from './garageCar.js';
 import { audio } from '../../audio.js';
 
@@ -76,7 +76,7 @@ const key = (...a) => a.map((v) => (typeof v === 'number' ? v.toFixed(2) : Strin
 
 // colours
 const PINE = '#caa874', PLY = '#dcc091', MAPLE = '#dcbc8c', WALNUT = '#6e4b33';
-const BLACK = '#1d1e20', STEEL = '#8d949b', WIRE = '#cfd4d9', RED = '#c8261e', WHITE = '#efece5';
+const BLACK = '#1d1e20', WIRE = '#cfd4d9', RED = '#c8261e', WHITE = '#efece5';
 
 // ------------------------------------------------------------ door desks
 // A hollow-core door on two black folding sawhorses. The underside is the
@@ -133,7 +133,6 @@ function buildDoorDesk(L, D, H, variant) {
 
 function DoorDesk({ f }) {
   const { L, D, H } = dims(f);
-  const variant = f.rotY === Math.PI ? 9 : Math.abs(Math.round(f.x * 3)) % 7;
   const x = L / 2 - 0.28;
   return (
     <Fixed f={f} friction={1}>
@@ -145,8 +144,7 @@ function DoorDesk({ f }) {
 stat('garage_doordesk', (f) => {
   const { L, D, H } = dims(f);
   const variant = f.rotY === Math.PI ? 9 : Math.abs(Math.round(f.x * 3)) % 7;
-  const geos = cached(key('doordesk', L, D, H, variant), () => buildDoorDesk(L, D, H, variant));
-  return geos;
+  return cached(key('doordesk', L, D, H, variant), () => buildDoorDesk(L, D, H, variant));
 });
 
 // ---------------------------------------------------------- workbench
@@ -244,8 +242,7 @@ function Workbench({ f }) {
 }
 stat('garage_workbench', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('bench', L, D, H), () => buildWorkbench(L, D, H));
-  return geos;
+  return cached(key('bench', L, D, H), () => buildWorkbench(L, D, H));
 });
 
 // ------------------------------------------------------------ tool chest
@@ -288,8 +285,7 @@ function ToolChest({ f }) {
 }
 stat('garage_toolchest', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('chest', L, D, H), () => buildToolChest(L, D, H));
-  return geos;
+  return cached(key('chest', L, D, H), () => buildToolChest(L, D, H));
 });
 
 // ------------------------------------------------------ garage shelving
@@ -339,8 +335,7 @@ function Shelf({ f }) {
 }
 stat('garage_shelf', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('shelf', L, D, H), () => buildShelf(L, D, H));
-  return geos;
+  return cached(key('shelf', L, D, H), () => buildShelf(L, D, H));
 });
 
 // ---------------------------------------------------------- tyre stack
@@ -373,8 +368,7 @@ function Tyres({ f }) {
 }
 stat('garage_tyres', (f) => {
   const { L, H } = dims(f);
-  const geos = cached(key('tyres', L, H), () => buildTyres(L, H));
-  return geos;
+  return cached(key('tyres', L, H), () => buildTyres(L, H));
 });
 
 // -------------------------------------------------------- chest freezer
@@ -388,7 +382,14 @@ function buildFreezer(L, D, H) {
   k.box('glow', [0.02, 0.02, 0.004], [L / 2 - 0.12, H - 0.18, D / 2 + 0.003], '#39ff6a');
   // on the lid: a sack of charcoal and a box of lightbulbs
   k.box('matte', [0.45, 0.14, 0.3], [-0.2, H + 0.07, 0], '#2b2b2b', [0, 0.2, 0], 0.05);
-  k.box('matte', [0.25, 0.12, 0.2], [0.3, H + 0.06, 0.05], '#e8c64a');
+  k.box('matte', [0.25, 0.12, 0.2], [0.42, H + 0.06, -0.1], '#e8c64a');
+  // and the cat, asleep on the warm end of the lid
+  const cx = 0.12, cz = 0.14;
+  k.sphere('fabric', 0.13, [cx, H + 0.08, cz], '#e0913a', [1.25, 0.62, 0.95], 12);
+  k.sphere('fabric', 0.075, [cx - 0.15, H + 0.08, cz + 0.06], '#e0913a', null, 10);
+  for (const s of [-1, 1]) k.add('fabric', new THREE.ConeGeometry(0.025, 0.05, 6), '#c9772a', [cx - 0.17, H + 0.15, cz + 0.06 + s * 0.04], [0, 0, 0.3]);
+  k.add('fabric', new THREE.TorusGeometry(0.12, 0.022, 6, 12, Math.PI * 1.1), '#c9772a', [cx + 0.02, H + 0.035, cz + 0.02], [Math.PI / 2, 0, 0.4]);
+  for (let i = 0; i < 3; i++) k.box('matte', [0.05, 0.004, 0.012], [cx - 0.02 + i * 0.07, H + 0.155, cz], '#b2601e', [0, 0.1, 0]);
   return k.build();
 }
 function Freezer({ f }) {
@@ -401,12 +402,11 @@ function Freezer({ f }) {
 }
 stat('garage_freezer', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('freezer', L, D, H), () => buildFreezer(L, D, H));
-  return geos;
+  return cached(key('freezer', L, D, H), () => buildFreezer(L, D, H));
 });
 
 // ------------------------------------------------------------ lawnmower
-function buildMower(L, D, H) {
+function buildMower(L, D) {
   const k = kit();
   k.box('gloss', [L * 0.9, 0.16, D * 0.55], [0, 0.17, 0.1], '#2f8a3a', null, 0.05);
   k.cyl('satin', 0.13, 0.15, 0.14, [0, 0.3, 0.12], '#222', null, 14); // engine
@@ -429,8 +429,7 @@ function Mower({ f }) {
 }
 stat('garage_mower', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('mower', L, D, H), () => buildMower(L, D, H));
-  return geos;
+  return cached(key('mower', L, D, H), () => buildMower(L, D, H));
 });
 
 // --------------------------------------------------------- wheelie bins
@@ -456,8 +455,7 @@ function Bins({ f }) {
 }
 stat('garage_bins', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('bins', L, D, H), () => buildBins(L, D, H));
-  return geos;
+  return cached(key('bins', L, D, H), () => buildBins(L, D, H));
 });
 
 // ------------------------------------------------------------ mini fridge
@@ -486,8 +484,7 @@ function MiniFridge({ f }) {
 }
 stat('garage_minifridge', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('mini', L, D, H), () => buildMiniFridge(L, D, H));
-  return geos;
+  return cached(key('mini', L, D, H), () => buildMiniFridge(L, D, H));
 });
 
 // --------------------------------------------- extension-cord spaghetti
@@ -517,8 +514,7 @@ function Cords() {
 }
 stat('garage_cords', (f) => {
   const { L, D } = dims(f);
-  const geos = cached(key('cords', L, D), () => buildCords(L, D));
-  return geos;
+  return cached(key('cords', L, D), () => buildCords(L, D));
 });
 
 // ------------------------------------------------------ the server shelf
@@ -647,8 +643,7 @@ function ServerRack({ f }) {
 }
 stat('garage_serverrack', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('srv', L, D, H), () => buildServerRack(L, D, H));
-  return geos;
+  return cached(key('srv', L, D, H), () => buildServerRack(L, D, H));
 });
 
 // ------------------------------------------------------- washer / dryer
@@ -695,8 +690,7 @@ function Washer({ f }) {
 }
 stat('garage_washer', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('washer', L, D, H, !!f.dryer), () => buildWasher(L, D, H, !!f.dryer));
-  return geos;
+  return cached(key('washer', L, D, H, !!f.dryer), () => buildWasher(L, D, H, !!f.dryer));
 });
 
 // ------------------------------------------------------ kitchen island
@@ -738,8 +732,7 @@ function Island({ f }) {
 }
 stat('garage_island', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('island', L, D, H), () => buildIsland(L, D, H));
-  return geos;
+  return cached(key('island', L, D, H), () => buildIsland(L, D, H));
 });
 
 // --------------------------------------------------------- kitchen counter
@@ -794,8 +787,7 @@ function Counter({ f }) {
 }
 stat('garage_counter', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('counter', L, D, H, !!f.sink), () => buildCounter(L, D, H, !!f.sink));
-  return geos;
+  return cached(key('counter', L, D, H, !!f.sink), () => buildCounter(L, D, H, !!f.sink));
 });
 
 // ------------------------------------------------------- ping-pong table
@@ -846,8 +838,7 @@ function PingPong({ f }) {
 }
 stat('garage_pingpong', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('pong', L, D, H), () => buildPingPong(L, D, H));
-  return geos;
+  return cached(key('pong', L, D, H), () => buildPingPong(L, D, H));
 });
 
 // ---------------------------------------------------------- coffee table
@@ -875,8 +866,7 @@ function CoffeeTable({ f }) {
 }
 stat('garage_coffeetable', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('ctable', L, D, H), () => buildCoffeeTable(L, D, H));
-  return geos;
+  return cached(key('ctable', L, D, H), () => buildCoffeeTable(L, D, H));
 });
 
 // ------------------------------------------------ sideboard + the inkjet
@@ -919,8 +909,7 @@ function Sideboard({ f }) {
 }
 stat('garage_sideboard', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('side', L, D, H), () => buildSideboard(L, D, H));
-  return geos;
+  return cached(key('side', L, D, H), () => buildSideboard(L, D, H));
 });
 
 // -------------------------------------------------------------- the TV
@@ -940,7 +929,7 @@ function TvStand({ f }) {
 }
 stat('garage_tvstand', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('tv', L, D, H), () => {
+  return cached(key('tv', L, D, H), () => {
     const k = kit();
     k.box('wood', [L, H - 0.08, D], [0, 0.08 + (H - 0.08) / 2, 0], '#e8e2d6', null, 0.01);
     for (const sx of [-1, 1]) k.box('matte', [0.05, 0.08, D - 0.1], [sx * (L / 2 - 0.1), 0.04, 0], '#2a2a2a');
@@ -953,7 +942,6 @@ stat('garage_tvstand', (f) => {
     k.box('satin', [1.25, 0.73, 0.05], [0.1, H + 0.5, -0.08], '#141416', null, 0.01);
     return k.build();
   });
-  return geos;
 });
 
 // ---------------------------------------------------------- floor lamp
@@ -967,7 +955,7 @@ function Lamp({ f }) {
 }
 stat('garage_lamp', (f) => {
   const { H } = dims(f);
-  const geos = cached(key('lamp', H), () => {
+  return cached(key('lamp', H), () => {
     const k = kit();
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2;
@@ -978,7 +966,6 @@ stat('garage_lamp', (f) => {
     k.cyl('warm', 0.18, 0.24, 0.26, [0, H - 0.1, 0], '#ffcf8a', null, 16, true);
     return k.build();
   });
-  return geos;
 });
 
 // ------------------------------------------------------------ mattress
@@ -1002,12 +989,11 @@ function Mattress({ f }) {
 }
 stat('garage_mattress', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('mattress', L, D, H), () => buildMattress(L, D, H));
-  return geos;
+  return cached(key('mattress', L, D, H), () => buildMattress(L, D, H));
 });
 
 // ---------------------------------------------------------------- bbq
-function buildBbq(L, D, H) {
+function buildBbq(L, D) {
   const k = kit();
   const bh = 0.82;
   k.box('satin', [L * 0.62, 0.3, D * 0.8], [0, bh - 0.1, 0], '#1f2124', null, 0.03);
@@ -1033,14 +1019,13 @@ function Bbq({ f }) {
 }
 stat('garage_bbq', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('bbq', L, D, H), () => buildBbq(L, D, H));
-  return geos;
+  return cached(key('bbq', L, D, H), () => buildBbq(L, D, H));
 });
 
 // ------------------------------------------------------- paddling pool
 let _water = null;
 function Pool({ f }) {
-  const { L, H } = dims(f);
+  const { L } = dims(f);
   if (!_water) _water = new THREE.MeshStandardMaterial({ color: '#7fd0ff', roughness: 0.04, metalness: 0.1, transparent: true, opacity: 0.55, envMapIntensity: 1.6 });
   return (
     <group position={[f.x, 0, f.z]}>
@@ -1052,7 +1037,7 @@ function Pool({ f }) {
 }
 stat('garage_pool', (f) => {
   const { L, H } = dims(f);
-  const geos = cached(key('pool', L, H), () => {
+  return cached(key('pool', L, H), () => {
     const k = kit();
     const R = L / 2;
     for (let i = 0; i < 2; i++) k.torus('gloss', R - 0.08, 0.06, [0, 0.06 + i * 0.1, 0], ['#3aa0e8', '#f2f2f2'][i], [Math.PI / 2, 0, 0], 32);
@@ -1062,7 +1047,6 @@ stat('garage_pool', (f) => {
     k.sphere('gloss', 0.035, [0.34, 0.16, 0.2], '#f7d21e', null, 10);
     return k.build();
   });
-  return geos;
 });
 
 // ----------------------------------------------------------------- tree
@@ -1085,7 +1069,6 @@ export function buildTree(H, seed = 1) {
   return k.build();
 }
 function Tree({ f }) {
-  const { H } = dims(f);
   return (
     <Fixed f={f}>
       <CylinderCollider args={[1.5 * M, 0.18 * M]} position={[0, 1.5 * M, 0]} />
@@ -1094,8 +1077,7 @@ function Tree({ f }) {
 }
 stat('garage_tree', (f) => {
   const { H } = dims(f);
-  const geos = cached(key('tree', H, f.x), () => buildTree(H, Math.round(f.x * 7)));
-  return geos;
+  return cached(key('tree', H, f.x), () => buildTree(H, Math.round(f.x * 7)));
 });
 
 // ---------------------------------------------------------- veg bed
@@ -1126,8 +1108,7 @@ function VegBed({ f }) {
 }
 stat('garage_vegbed', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('veg', L, D, H), () => buildVegBed(L, D, H));
-  return geos;
+  return cached(key('veg', L, D, H), () => buildVegBed(L, D, H));
 });
 
 // ------------------------------------------------------------- funbox
@@ -1155,15 +1136,14 @@ function Funbox({ f }) {
 }
 stat('garage_funbox', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('funbox', L, D, H), () => buildFunbox(L, D, H));
-  return geos;
+  return cached(key('funbox', L, D, H), () => buildFunbox(L, D, H));
 });
 
 // ---------------------------------------------------------- garden hose
 // Across the driveway: a 3 cm bump (a real collider) with a reel at the
 // house end.
 function Hose({ f }) {
-  const { L, D } = dims(f);
+  const { D } = dims(f);
   return (
     <group position={[f.x, 0, f.z]} rotation-y={yawOf(f)}>
       <RigidBody type="fixed" colliders={false} friction={1}>
@@ -1174,7 +1154,7 @@ function Hose({ f }) {
 }
 stat('garage_hose', (f) => {
   const { L, D } = dims(f);
-  const geos = cached(key('hose', L, D), () => {
+  return cached(key('hose', L, D), () => {
     const k = kit();
     const pts = [];
     for (let i = 0; i <= 14; i++) {
@@ -1188,7 +1168,6 @@ stat('garage_hose', (f) => {
     k.box('satin', [0.05, 0.14, 0.16], [pts[0].x, 0.05, -D / 2 - 0.05], '#f07a1a', [0.3, 0, 0], 0.01);
     return k.build();
   });
-  return geos;
 });
 
 // -------------------------------------------------------------- mailbox
@@ -1199,9 +1178,8 @@ function Mailbox({ f }) {
     </Fixed>
   );
 }
-stat('garage_mailbox', (f) => {
-
-  const geos = cached('mailbox', () => {
+stat('garage_mailbox', () => {
+  return cached('mailbox', () => {
     const k = kit();
     k.box('wood', [0.09, 1.0, 0.09], [0, 0.5, 0], '#f1efe8');
     k.box('gloss', [0.2, 0.2, 0.46], [0, 1.08, 0], '#1f2a3a', null, 0.05);
@@ -1209,7 +1187,6 @@ stat('garage_mailbox', (f) => {
     k.box('matte', [0.002, 0.05, 0.16], [0.101, 1.06, 0.05], '#f1efe8'); // house number
     return k.build();
   });
-  return geos;
 });
 
 // ------------------------------------------------------------ sprinkler
@@ -1255,15 +1232,13 @@ function Sprinkler({ f }) {
     </group>
   );
 }
-stat('garage_sprinkler', (f) => {
-
-  const geos = cached('sprinkler', () => {
+stat('garage_sprinkler', () => {
+  return cached('sprinkler', () => {
     const k = kit();
     k.cyl('satin', 0.08, 0.1, 0.03, [0, 0.015, 0], '#2a2d31', null, 12);
     k.cyl('metal', 0.012, 0.012, 0.18, [0, 0.12, 0], '#b08d57', null, 8);
     return k.build();
   });
-  return geos;
 });
 
 // ------------------------------------------------------------- shrubs
@@ -1278,7 +1253,7 @@ function Shrubs({ f }) {
 }
 stat('garage_shrubs', (f) => {
   const { L, D, H } = dims(f);
-  const geos = cached(key('shrubs', L, D, H), () => {
+  return cached(key('shrubs', L, D, H), () => {
     const k = kit();
     k.box('matte', [L, 0.04, D], [0, 0.02, 0], '#4a3322');
     const r = rng(Math.round(L * 10));
@@ -1290,7 +1265,6 @@ stat('garage_shrubs', (f) => {
     }
     return k.build();
   });
-  return geos;
 });
 
 // ------------------------------------------------------ clothes airer
@@ -1338,7 +1312,7 @@ function buildBasket(L, D, H) {
   k.box('fabric', [0.3, 0.1, 0.2], [0.05, H + 0.05, 0.02], '#d9745a', [0.3, 0.6, 0.1], 0.04);
   return k.build();
 }
-function buildDogBed(L, D, H) {
+function buildDogBed(L) {
   const k = kit();
   k.torus('fabric', L / 2 - 0.1, 0.1, [0, 0.1, 0], '#8a6a52', [Math.PI / 2, 0, 0], 24);
   k.cyl('fabric', L / 2 - 0.12, L / 2 - 0.12, 0.08, [0, 0.05, 0], '#c9b89a', null, 24);
@@ -1427,11 +1401,7 @@ function ClassicCar({ f }) {
     </Fixed>
   );
 }
-stat('garage_classic', (f) => {
-
-  const geos = cached('classic', buildCar);
-  return geos;
-});
+stat('garage_classic', () => cached('classic', buildCar));
 
 // what themes/index.js registers
 export const PIECES = {

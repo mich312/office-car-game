@@ -15,7 +15,7 @@ import { audio } from '../../audio.js';
 import { lightingFor } from '../daylight.js';
 import { glowTex } from '../textures.js';
 import { kit, slotMat, defineSlot, FINISH_TEX, canvasTex, rng } from './garageKit.js';
-import { KitMeshes, buildTree } from './garagePieces.jsx';
+import { buildTree } from './garagePieces.jsx';
 
 // ------------------------------------------------------------ slots
 // textured slots for the outside, tinted by vertex colour

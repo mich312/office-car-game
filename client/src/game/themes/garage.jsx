@@ -22,6 +22,7 @@
 // at night.
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Sparkles } from '@react-three/drei';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { M } from '@rc/shared';
@@ -459,6 +460,7 @@ export function Dressing({ map }) {
       <Chalk map={map} />
       <Practicals map={map} />
       <FloorPools map={map} />
+      <DustMotes />
       <Soundscape map={map} />
     </group>
   );
@@ -481,6 +483,18 @@ function Practicals({ map }) {
     warm.color.setScalar(c + (want - c) * Math.min(1, dt * 2));
   });
   return null;
+}
+
+// ---- dust in the sunbeam: motes drifting in the roller door's light, in
+// the hours the sun is actually coming in
+function DustMotes() {
+  const hour = useStore((s) => s.timeOfDay);
+  const opacity = { morning: 0.35, afternoon: 0.3, golden: 0.7, night: 0 }[hour] ?? 0.3;
+  if (!opacity) return null;
+  return (
+    <Sparkles count={90} scale={[5.5 * M, 2.2 * M, 4 * M]} position={[-14 * M, 1.2 * M, -2.2 * M]} size={5}
+      speed={0.12} opacity={opacity} color={hour === 'golden' ? '#ffc98a' : '#fff4e0'} noise={0.4} />
+  );
 }
 
 // ---- light on the floor: additive pools under the practicals, strongest
