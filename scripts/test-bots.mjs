@@ -10,7 +10,7 @@ import {
   shouldUseItem, padWorthDetour, ITEM_REACT_S, ITEM_FALLBACK_S, SHIELD_ROCKET_RANGE,
 } from '../server/src/botbrain.js';
 import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, MSG } from '../shared/src/index.js';
-import { MAPS, MAP_IDS, clearDropSpot } from '../shared/src/index.js';
+import { MAPS, MAP_IDS, clearDropSpot, soccerKickoff } from '../shared/src/index.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -283,6 +283,47 @@ for (const map of MAP_IDS) {
     }
   }
   check(`${map} battery: a bot reaches a loose battery in every room within 40 s (missed ${missed.length}/${tried}${missed.length ? `: ${missed.join(', ')}` : ''})`, missed.length === 0);
+}
+
+// ------------------------------------------------------------ RC Soccer
+for (const map of MAP_IDS) {
+  const M = MAPS[map];
+  let goals = 0, own = 0, touchAt = 0, placed = true;
+  const SEEDS2 = [1, 2, 3, 4];
+  for (const seed of SEEDS2) {
+    const sim = await createSim({ seed, mode: 'soccer', map });
+    // bots start on their team's kickoff spots, like humans do (they used
+    // to start on the race grid, a pitch away from the ball)
+    const ord = [0, 0];
+    for (const b of sim.bots) {
+      const sp = soccerKickoff(M, b.team, ord[b.team]++);
+      if (Math.hypot(b.p[0] - sp.x, b.p[2] - sp.z) > 1) placed = false; // GO's first tick has run
+    }
+    const t0 = sim.now();
+    let first = null;
+    const m = sim.room.mode;
+    sim.run(240, (s) => { if (first === null && m.ball.lastTouch) first = (s.now() - t0) / 1000; });
+    touchAt = Math.max(touchAt, first ?? 99);
+    goals += sim.events.filter((e) => e.type === 'goal').length;
+    own += sim.events.filter((e) => e.t === 'feed' && /OWN GOAL/.test(e.text)).length;
+  }
+  check(`${map} soccer: bots kick off from their team's kickoff spots`, placed);
+  check(`${map} soccer: the ball is contested within 3 s of GO (${touchAt.toFixed(1)} s)`, touchAt < 3);
+  // own goals were 30-57 % of all goals: bots came at the ball from the goal side
+  check(`${map} soccer: bots score (${(goals / SEEDS2.length).toFixed(1)} goals a match)`, goals / SEEDS2.length >= 2);
+  check(`${map} soccer: few own goals (${own}/${goals})`, own / Math.max(1, goals) < 0.25);
+}
+{
+  // a countdown joiner is a drop-in: onto the smaller team, not always Orange
+  const sim = await createSim({ seed: 1, mode: 'soccer', map: 'office', bots: 7 });
+  sim.room.startCountdown('soccer');
+  const teams = () => [...sim.room.players.values()].reduce((n, p) => { n[p.team]++; return n; }, [0, 0]);
+  const [o, b] = teams();
+  const ws = { send() {}, on() {} };
+  sim.room.pending++;
+  sim.room.onMessage(ws, { t: MSG.HELLO, name: 'Late' });
+  const late = sim.room.players.get(ws.playerId);
+  check(`soccer: a countdown joiner evens the teams (${o}/${b} → ${teams().join('/')})`, Math.abs(teams()[0] - teams()[1]) <= 1 && late.team === (o > b ? 1 : 0));
 }
 
 // --------------------------------------------------- every mode still runs

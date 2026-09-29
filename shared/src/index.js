@@ -12,3 +12,4 @@ export * from './surfaces.js';
 export * from './protocol.js';
 export * from './snapshot.js';
 export * from './ground.js';
+export * from './soccer.js';

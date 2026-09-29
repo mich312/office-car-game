@@ -142,7 +142,13 @@ export class Room {
         // assignment) is already on the player everyone hears about —
         // otherwise every client renders the joiner with the default team
         // until the next lobby refresh.
-        if (this.phase === PHASE.PLAYING && this.mode) this.mode.onJoin?.(p);
+        // The mode exists from the countdown on: a countdown joiner is as
+        // much a drop-in as a mid-match one (soccer put them all on Orange).
+        if ((this.phase === PHASE.PLAYING || this.phase === PHASE.COUNTDOWN) && this.mode) {
+          this.mode.onJoin?.(p);
+          // their client moves itself to its spot (a soccer kickoff spot)
+          p.allowTeleportUntil = now() + (COUNTDOWN_SECONDS + 2) * 1000;
+        }
         ws.send(JSON.stringify({
           t: MSG.WELCOME, id, phase: this.phase,
           room: this.code, private: this.isPrivate,
@@ -411,6 +417,7 @@ export class Room {
       });
     }
     this.mode = createMode(this.modeId, this);
+    this.bots.placeForStart(); // after the mode: soccer teams are assigned in it
     // per-mode length (Open Office runs long); env override wins for testing
     const len = Number(process.env.RC_MATCH_SECONDS) || MODES[this.modeId]?.seconds || MATCH_SECONDS;
     this.endsAt = now() + (COUNTDOWN_SECONDS + len) * 1000;

@@ -3,7 +3,7 @@
 // way to its win condition pays out what it says it does.
 import {
   CHECKPOINTS, MODES, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS, BEAN_SPAWNS, PICKUP_RADIUS, MAP_IDS,
-  clearDropSpot, groundAt, wallBetween, M,
+  clearDropSpot, groundAt, wallBetween, M, MUTATORS, soccerGoalHeight,
   raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
@@ -244,6 +244,102 @@ for (const mapId of MAP_IDS) {
   check('battery: a drop on the loading dock lands on top of it', onDock && Math.abs(mode.battery.y - dock.h) < 0.01);
   check('battery: the dock top is a surface groundAt knows', Math.abs(groundAt(map, dock.x, dock.z, dock.h + 1) - dock.h) < 1e-9
     && groundAt(map, dock.x, dock.z, 0.5) === 0);
+}
+
+// ------------------------------------------------------------ RC Soccer
+// A stub room with nobody near the ball: the ball alone against the map.
+function soccerRoom(mapId, mutator = null) {
+  const a = player('p1', 'Alice');
+  a.p = [1e4, 0, 1e4]; // far off, never touches the ball
+  const room = stubRoom([a]);
+  room.map = MAPS[mapId];
+  room.mutator = mutator;
+  const mode = createMode('soccer', room);
+  return { room, mode };
+}
+const SOCCER_SPAWN = () => MAPS.office.SOCCER.ballSpawn;
+const runBall = (mode, secs, each) => { for (let i = 0; i < secs * 20; i++) { mode.update(0.05); each?.(); } };
+for (const mapId of MAP_IDS) {
+  const map = MAPS[mapId];
+  for (const mut of [null, MUTATORS.giant_ball]) {
+    for (const g of map.SOCCER.goals) {
+      const { mode } = soccerRoom(mapId, mut);
+      const R = mode.R;
+      mode.ball = { p: [g.x + g.dir * 4, R, g.z], v: [-g.dir * 20, 0, 0] };
+      runBall(mode, 1);
+      check(`${mapId} soccer: a ${mut ? 'giant ' : ''}ball rolled through the ${g.name} scores`, mode.teamScores[1 - g.team] === 1);
+    }
+  }
+  for (const g of map.SOCCER.goals) {
+    // lofted under the crossbar, then drifting out of the mouth band
+    const { mode } = soccerRoom(mapId);
+    const R = mode.R;
+    mode.ball = { p: [g.x + g.dir * 0.5, R + 2.0, g.z + g.width * 0.1], v: [-g.dir * 50, 0, 12] };
+    mode.update(0.05);
+    check(`${mapId} soccer: a lofted shot over the line under the bar counts (${g.name})`, mode.teamScores[1 - g.team] === 1);
+    const hi = soccerRoom(mapId).mode;
+    hi.ball = { p: [g.x + g.dir * 1.5, R + soccerGoalHeight(R) + 1, g.z], v: [-g.dir * 30, 0, 0] };
+    hi.update(0.05);
+    check(`${mapId} soccer: over the bar is no goal (${g.name})`, hi.teamScores[1 - g.team] === 0);
+    const back = soccerRoom(mapId).mode;
+    back.ball = { p: [g.x - g.dir * (R + 3), R, g.z], v: [g.dir * 20, 0, 0] };
+    runBall(back, 0.3);
+    check(`${mapId} soccer: rolling out of a goal from behind is no goal (${g.name})`, back.teamScores[0] + back.teamScores[1] === 0);
+  }
+  {
+    // out of play: off the pitch (not through a goal) for a moment → dropped
+    // back on the spot, with a word in the feed; on the pitch it plays on
+    const { room, mode } = soccerRoom(mapId);
+    const A = map.SOCCER.arena, R = mode.R;
+    const feed = [];
+    room.feed = (t) => feed.push(t);
+    const outside = [
+      { x: (A.minX + A.maxX) / 2, z: A.minZ - R - 3 }, { x: (A.minX + A.maxX) / 2, z: A.maxZ + R + 3 },
+    ].find((pt) => map.roomAt(pt.x, pt.z)) || { x: A.minX - 6, z: A.minZ + 1 };
+    mode.ball = { p: [outside.x, R, outside.z], v: [0, 0, 0] };
+    runBall(mode, 1);
+    check(`${mapId} soccer: a ball off the pitch plays on for a moment`, Math.hypot(mode.ball.p[0] - outside.x, mode.ball.p[2] - outside.z) < 3);
+    runBall(mode, 1);
+    const s = map.SOCCER.ballSpawn;
+    check(`${mapId} soccer: …then is dropped back on the spot, announced`, Math.hypot(mode.ball.p[0] - s.x, mode.ball.p[2] - s.z) < 0.01 && feed.some((t) => /Out of play/.test(t)));
+    const on = soccerRoom(mapId).mode;
+    on.ball = { p: [(A.minX + A.maxX) / 2 + 3, on.R, (A.minZ + A.maxZ) / 2], v: [0, 0, 0] };
+    runBall(on, 3);
+    check(`${mapId} soccer: a ball on the pitch is never reset`, on.outT === 0 && Math.abs(on.ball.p[0] - ((A.minX + A.maxX) / 2 + 3)) < 0.5);
+  }
+}
+{
+  // Moon Gravity floats the ball like it floats the cars
+  const fall = (mut) => {
+    const { mode } = soccerRoom('office', mut);
+    mode.ball = { p: [SOCCER_SPAWN().x, 10, SOCCER_SPAWN().z], v: [0, 0, 0] };
+    let n = 0;
+    while (mode.ball.p[1] > mode.R + 0.01 && n < 200) { mode.update(0.05); n++; }
+    return n;
+  };
+  check(`soccer: moon gravity slows the ball's fall (${fall(MUTATORS.moon_gravity)} vs ${fall(null)} ticks)`, fall(MUTATORS.moon_gravity) > fall(null) * 1.3);
+}
+{
+  // the ball rides up ramps and is pushed out of a box it ends up inside
+  const map = MAPS.cellar;
+  const ramp = map.RAMPS.find((r) => r.x > 0 && r.x < 9 * M && r.z < 0); // the lab's bench ramp
+  const { mode } = soccerRoom('cellar');
+  const c = Math.cos(ramp.rotY), sn = Math.sin(ramp.rotY); // local +z = uphill
+  const lo = ramp.l / 2 + mode.R;
+  mode.ball = { p: [ramp.x - sn * lo, mode.R, ramp.z - c * lo], v: [sn * 15, 0, c * 15] };
+  let top = 0;
+  runBall(mode, 0.6, () => { top = Math.max(top, mode.ball.p[1] - mode.R); });
+  check(`soccer: the ball rolls up a ramp instead of through it (${top.toFixed(2)} of ${ramp.rise.toFixed(2)} up)`, top > ramp.rise * 0.6);
+  const desk = MAPS.office.FURNITURE.find((f) => f.type === 'desk');
+  const o = soccerRoom('office').mode;
+  o.ball = { p: [desk.x, o.R, desk.z], v: [0, 0, 0] };
+  o.update(0.05);
+  const inDesk = Math.abs(o.ball.p[0] - desk.x) < desk.w / 2 && Math.abs(o.ball.p[2] - desk.z) < desk.d / 2;
+  check('soccer: a ball inside a desk box is pushed out of it', !inDesk);
+  o.ball = { p: [desk.x, desk.h + o.R + 2, desk.z], v: [0, 0, 0] };
+  let low = Infinity;
+  runBall(o, 4, () => { low = Math.min(low, o.ball.p[1]); });
+  check('soccer: a ball dropped on a desk comes to rest on its top', low > desk.h + o.R - 0.05 && Math.abs(o.ball.p[1] - (desk.h + o.R)) < 0.3);
 }
 
 // --------------------------------------------------------------- Sumo

@@ -24,6 +24,7 @@ export const net = {
   padCooldowns: new Map(),
   spawnIndex: 0,
   teams: {},
+  kickoffPending: false, // a soccer drop-in still to be placed on its kickoff spot
 };
 // debug/tooling hook (mirrors window.__rcTelemetry in LocalCar)
 if (typeof window !== 'undefined') window.__rcNet = net;
@@ -137,6 +138,11 @@ function handleMessage(msg) {
         scores: {}, raceProgress: {}, myBeans: 0,
         itId: null, sumoRound: 0, sumoOutLeft: null, sumoDead: false, lcs: null,
       });
+      // a drop-in never got START's team list: the players carry the teams,
+      // and a soccer joiner takes a kickoff spot on its own side (LocalCar)
+      net.teams = Object.fromEntries(msg.players.map((p) => [p.id, p.team || 0]));
+      net.kickoffPending = msg.mode === 'soccer' && (msg.phase === PHASE.COUNTDOWN || msg.phase === PHASE.PLAYING);
+      if (net.kickoffPending) emit('soccer_join');
       break;
     }
     case MSG.LOBBY: {

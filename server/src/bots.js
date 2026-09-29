@@ -6,6 +6,7 @@ import {
   COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
   POWERUP_EFFECT as FX, BATTERY_SPEED_PENALTY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN, BOOST_TOP_MULT,
   DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
+  raceSpawn, soccerKickoff,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
 import { navOf } from './nav.js';
@@ -23,7 +24,8 @@ const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
 // modes whose goals can be anywhere on the floor route on the nav grid
 const GRID_NAV_MODES = new Set(['coffee_run', 'battery', 'soccer', 'tag']);
-const BOT_CONTACT = 1.05; // centre distance that counts as two bots touching (separate()'s personal space)
+const BOT_CONTACT = 1.05;
+const SOCCER_LINED_UP = 0.7; // cos of the angle behind the ball a striker attacks from // centre distance that counts as two bots touching (separate()'s personal space)
 
 // Wall AABBs (padded by a car's half-width) per map, built once.
 const boxCache = new WeakMap();
@@ -101,6 +103,32 @@ export class Bots {
 
   clear() {
     for (const [id, p] of this.room.players) if (p.bot) this.room.players.delete(id);
+  }
+
+  // Match start: a human's client teleports itself to its spot (LocalCar),
+  // a bot has nobody to do that — they started soccer on the race grid, a
+  // pitch away from a human who got the ball alone for 5-8 s, and an Office
+  // Cup round left them wherever the last one ended. Same spots as humans:
+  // the team's kickoff spots by ordinal within the team, else the grid.
+  placeForStart() {
+    const room = this.room;
+    const ord = [0, 0];
+    for (const p of room.players.values()) {
+      const n = room.modeId === 'soccer' ? ord[p.team ? 1 : 0]++ : 0;
+      if (!p.bot) continue;
+      const sp = room.modeId === 'soccer'
+        ? soccerKickoff(room.map, p.team ? 1 : 0, n)
+        : raceSpawn(p.spawnIndex, room.modeId === 'desk_dash' ? room.variant : 'classic', room.map);
+      p.p = [sp.x, 0.24, sp.z];
+      p.v = [0, 0, 0];
+      p.heading = sp.rotY || 0;
+      const half = p.heading / 2;
+      p.q = [0, Math.sin(half), 0, Math.cos(half)];
+      p.speed = 0;
+      p.kick = { x: 0, z: 0 };
+      p.stuckT = 0;
+      p.wp = nearestWp(sp.x, sp.z, this.path());
+    }
   }
 
   // Knockback makes bots feel physical: bumps and rockets shove them off
@@ -250,13 +278,7 @@ export class Bots {
         }
       }
     } else if (modeId === 'soccer' && mode) {
-      const ball = mode.ball;
-      // Aim slightly behind the ball relative to the opposing goal
-      const opp = this.room.map.SOCCER.goals[1 - p.team];
-      const gx = opp.x, gz = opp.z;
-      const dx = ball.p[0] - gx, dz = ball.p[2] - gz;
-      const len = Math.hypot(dx, dz) || 1;
-      goal = { x: ball.p[0] + (dx / len) * 1.2, z: ball.p[2] + (dz / len) * 1.2 };
+      goal = this.soccerTarget(p, mode);
     } else if (modeId === 'koth' && mode) {
       // park inside the zone, spread out on a per-bot orbit angle
       const z = mode.zonePos();
@@ -318,6 +340,53 @@ export class Bots {
       else break;
     }
     return PATH[next];
+  }
+
+  // Line up behind the ball, then drive into it at the goal. Aiming at a
+  // point just behind the ball (inside kick reach) from the wrong side kicked
+  // it into the bot's own goal: 30-40 % of all goals were own goals. So the
+  // striker on the goal side swings round the ball's flank, clear of its
+  // reach, until it is behind it — and only then attacks. The rest of the
+  // team don't all pile in (six cars on the ball is a scrum nobody scores
+  // from): the next one backs up the striker, the others keep goal.
+  soccerTarget(p, mode) {
+    const ball = mode.ball;
+    const goals = this.room.map.SOCCER.goals;
+    const opp = goals.find((g) => g.team !== p.team) || goals[0];
+    const own = goals.find((g) => g.team === p.team) || goals[1];
+    let ux = ball.p[0] - opp.x, uz = ball.p[2] - opp.z; // goal → ball: "behind" the ball
+    const ul = Math.hypot(ux, uz) || 1;
+    ux /= ul; uz /= ul;
+    const reach = mode.R + 0.75;
+    const set = reach + 1.5;
+    // role by distance to the ball within the team (humans count)
+    const d = (q) => Math.hypot(q.p[0] - ball.p[0], q.p[2] - ball.p[2]);
+    const mine = d(p);
+    let rank = 0;
+    for (const q of this.room.players.values()) {
+      if (q !== p && q.team === p.team && !q.eliminated && (d(q) < mine || (d(q) === mine && q.id < p.id))) rank++;
+    }
+    if (rank >= 2) {
+      // keeper: on the line from our goal to the ball, a few metres out
+      const kx = ball.p[0] - own.x, kz = ball.p[2] - own.z;
+      const kl = Math.hypot(kx, kz) || 1;
+      const out = Math.min(kl * 0.5, 8 + (rank - 2) * 5);
+      return { x: own.x + (kx / kl) * out, z: own.z + (kz / kl) * out };
+    }
+    const bx = p.p[0] - ball.p[0], bz = p.p[2] - ball.p[2];
+    const bl = Math.hypot(bx, bz) || 1;
+    const behind = (bx * ux + bz * uz) / bl;
+    // lined up: aim just behind the ball on the goal line, so the car meets
+    // it square from behind and the kick goes goalward. The support car
+    // hangs back behind the play instead, ready for the rebound.
+    if (rank === 0 && behind > SOCCER_LINED_UP) return { x: ball.p[0] + ux * 1.2, z: ball.p[2] + uz * 1.2 };
+    if (behind > 0) {
+      const back = rank === 0 ? set : set + 4;
+      return { x: ball.p[0] + ux * back, z: ball.p[2] + uz * back };
+    }
+    // goal side: round the flank this bot is already on
+    const side = bx * -uz + bz * ux >= 0 ? 1 : -1;
+    return { x: ball.p[0] + (-uz * side + ux * 0.5) * set, z: ball.p[2] + (ux * side + uz * 0.5) * set };
   }
 
   // The world as the item logic needs it, in the bot's own frame.

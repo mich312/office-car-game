@@ -59,15 +59,25 @@ export function clearDropSpot(map, fromX, fromZ, x, z, { pad = 0.3, maxY = 0.5 }
   return !wallBetween(map, fromX, fromZ, x, z);
 }
 
-// Does the segment cross a wall (any wall, railings included)? Sampled —
-// walls are 0.9+ units thick, the step is well under that.
+// Does the segment cross a wall (any wall, railings included)? An exact
+// segment-vs-box test, so a spot and its rounded copy always agree.
 export function wallBetween(map, x1, z1, x2, z2) {
   const { walls } = shapesOf(map);
-  const steps = Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 0.4) + 1;
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const x = x1 + (x2 - x1) * t, z = z1 + (z2 - z1) * t;
-    for (const w of walls) if (x > w.minX && x < w.maxX && z > w.minZ && z < w.maxZ) return true;
+  const dx = x2 - x1, dz = z2 - z1;
+  for (const w of walls) {
+    let t0 = 0, t1 = 1;
+    let hit = true;
+    for (const [p, d, lo, hi] of [[x1, dx, w.minX, w.maxX], [z1, dz, w.minZ, w.maxZ]]) {
+      if (Math.abs(d) < 1e-12) {
+        if (p <= lo || p >= hi) { hit = false; break; }
+        continue;
+      }
+      let a = (lo - p) / d, b = (hi - p) / d;
+      if (a > b) [a, b] = [b, a];
+      t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+      if (t0 >= t1) { hit = false; break; }
+    }
+    if (hit) return true;
   }
   return false;
 }
