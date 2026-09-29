@@ -13,8 +13,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const server = spawn('node', ['server/src/index.js'], {
   cwd: new URL('..', import.meta.url).pathname,
   // bots hold no items here: a bot's Position Swap teleports the scripted
-  // clients, which never report again, and turned the sumo KO check flaky
-  env: { ...process.env, PORT: String(PORT), RC_MATCH_SECONDS: '60', RC_BOT_ITEMS: 'off' },
+  // clients, which never report again, and turned the sumo KO check flaky.
+  // Pinned to the office: the checks below park cars at office coordinates
+  // (the sumo "far corner" is inside a bigger floor's starting ring), and
+  // quick play would otherwise pick any floor for each round.
+  env: { ...process.env, PORT: String(PORT), RC_MATCH_SECONDS: '60', RC_BOT_ITEMS: 'off', RC_MAP: 'office' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 server.stderr.on('data', (d) => process.stderr.write('[server] ' + d));

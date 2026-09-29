@@ -196,7 +196,7 @@ const FURNITURE = [
   f('garage_sprinkler', 11, -9.8, 0.3, 0.3, 0.12, 0, DECOR),
   // box hedges and flowers along the front of the house, either side of the door
   f('garage_shrubs', 10.2, -4.45, 8.4, 0.6, 0.55),
-  f('garage_shrubs', 18.3, -4.45, 3.4, 0.6, 0.55),
+  f('garage_shrubs', 18.2, -4.45, 3.2, 0.6, 0.55),
 ];
 
 const ramp = (x, z, l, w, rise, rotY, skin) => ({ x: u(x), z: u(z), l: u(l), w: u(w), rise: u(rise), rotY, skin });
@@ -350,20 +350,20 @@ const SOCCER = {
 const KOTH_SPOTS = [
   cp(-10.5, -8), // driveway, by the grid
   cp(2, -9.6), // driveway, east
-  cp(13.5, -10.2), // the lawn
+  cp(13.5, -9.9), // the lawn
   cp(13.5, 3), // kitchen, behind the island
   cp(8.5, 0.5), // server room
   cp(-1, 0.5), // dev pit centre spot
   cp(-10.8, 0.5), // garage, by the car
   cp(-2.5, 8.8), // boardroom, west
-  cp(7.5, 10.6), // boardroom, by the TV
+  cp(7.5, 9.9), // boardroom, by the TV
   cp(14, 7.6), // founder's room
   cp(-12, 9.2), // backyard
   cp(-17.2, 9.8), // backyard, by the barbecue
 ];
 
 // the sumo ring closes on the driveway, in front of the roller door
-const SUMO_ZONE = { x: u(-7), z: u(-8), r0: u(24), r1: u(1.5) };
+const SUMO_ZONE = { x: u(-7), z: u(-8), r0: u(24), r1: u(0.6) };
 
 const POWERUP_PADS = [
   cp(-5.5, -6.6), cp(4, -7.6), cp(11.8, -8.2),

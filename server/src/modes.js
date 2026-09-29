@@ -979,6 +979,13 @@ class SumoMode {
       }
     }
   }
+  // Where the ring's centre will be `s` seconds from now: Moving Meeting's
+  // slide is on the clock, so it can be read ahead (the classic ring stays put)
+  centreAhead(s) {
+    if (!this.target || this.restUntil || !this.roundLen) return this.zone;
+    const frac = Math.min(1, (1 - Math.max(0, (this.roundEndsAt - now() - s * 1000) / this.roundLen)) / this.cfg.closeFrac);
+    return sumoCenter(this.room.map.SUMO_ZONE, this.target, frac);
+  }
   onHit() {}
   // only a real fall eliminates — a flipped car pressing R (or the client's
   // auto-recovery respawn) inside the ring is not "out"

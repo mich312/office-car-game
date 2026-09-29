@@ -28,15 +28,34 @@ export function wallBoxesOf(map) {
   return b;
 }
 
+// Does the segment cross the inside of any (padded) wall box? Exact, by
+// slabs: sampling every 1.5 units stepped straight over the factory's 10 cm
+// mesh and glass walls, and bots "saw" the supervisor's office from the
+// canteen through two of them. Touching a box's face is not crossing it (a
+// bot pushed out of a wall sits on its face).
 export function lineBlocked(wallBoxes, x1, z1, x2, z2) {
-  // sampled 2D segment vs wall AABBs — cheap and good enough for nav
-  const steps = Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 1.5) + 1;
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const x = x1 + (x2 - x1) * t, z = z1 + (z2 - z1) * t;
-    for (const b of wallBoxes) {
-      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
+  const dx = x2 - x1, dz = z2 - z1;
+  for (const b of wallBoxes) {
+    let t0 = 0, t1 = 1;
+    if (dx === 0) {
+      if (x1 <= b.minX || x1 >= b.maxX) continue;
+    } else {
+      let a = (b.minX - x1) / dx, c = (b.maxX - x1) / dx;
+      if (a > c) { const s = a; a = c; c = s; }
+      if (a > t0) t0 = a;
+      if (c < t1) t1 = c;
+      if (t1 - t0 <= 1e-9) continue;
     }
+    if (dz === 0) {
+      if (z1 <= b.minZ || z1 >= b.maxZ) continue;
+    } else {
+      let a = (b.minZ - z1) / dz, c = (b.maxZ - z1) / dz;
+      if (a > c) { const s = a; a = c; c = s; }
+      if (a > t0) t0 = a;
+      if (c < t1) t1 = c;
+      if (t1 - t0 <= 1e-9) continue;
+    }
+    return true;
   }
   return false;
 }

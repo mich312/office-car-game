@@ -28,8 +28,9 @@
 import * as cellar from './cellar.jsx';
 import * as tower from './tower.jsx';
 import * as garage from './garage.jsx';
+import * as factory from './factory.jsx';
 
-export const THEMES = { cellar, tower, garage };
+export const THEMES = { cellar, tower, garage, factory };
 
 export const PIECES = Object.assign({}, ...Object.values(THEMES).map((t) => t.PIECES || {}));
 export const PROP_PIECES = Object.assign({}, ...Object.values(THEMES).map((t) => t.PROPS || {}));

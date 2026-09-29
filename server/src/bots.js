@@ -27,6 +27,7 @@ const GRID_NAV_MODES = new Set(['coffee_run', 'battery', 'soccer', 'tag']);
 const BOT_CONTACT = 1.05; // centre distance that counts as two bots touching (separate()'s personal space)
 const SOCCER_LINED_UP = 0.7; // cos of the angle behind the ball a striker attacks from
 const SUMO_HUNT_RANGE = 10; // a sumo bot goes after rivals this close (units)
+const SUMO_LOOKAHEAD_S = 6; // Moving Meeting: bots head for where the ring will be this far ahead
 const LCS_CLOSED_COST = 6; // route cost of a closed room's floor, per unit of open floor
 const LCS_ROBOT_FEAR = 12; // bots bolt from the robot inside this range (units)
 const NAV_MODES = new Set(['koth', 'sumo', 'last_standing']); // goals routed over the door graph (nav.js)
@@ -555,8 +556,19 @@ export class Bots {
   sumoGoal(p, mode) {
     const z = mode.zone;
     const a = this.botAngle(p);
-    const mine = Math.hypot(p.p[0] - z.x, p.p[2] - z.z);
-    if (mine > z.r * 0.75) return { x: z.x + Math.cos(a) * z.r * 0.3, z: z.z + Math.sin(a) * z.r * 0.3 };
+    // Moving Meeting: read where the ring is going. A bot chasing the ring's
+    // centre was left on the wrong side of a wall when it slid into a room
+    // (the garage's driveway ring into the house: half the knockouts were
+    // cars still looking for the door); aiming a few seconds ahead of the
+    // slide — kept well inside today's ring — sets off for the door in time.
+    let c = z;
+    if (mode.target && mode.centreAhead) {
+      const f = mode.centreAhead(SUMO_LOOKAHEAD_S);
+      const dx = f.x - z.x, dz = f.z - z.z, l = Math.hypot(dx, dz), k = Math.min(1, (z.r * 0.5) / (l || 1));
+      c = { x: z.x + dx * k, z: z.z + dz * k };
+    }
+    const mine = Math.hypot(p.p[0] - c.x, p.p[2] - c.z);
+    if (mine > z.r * 0.75) return { x: c.x + Math.cos(a) * z.r * 0.3, z: c.z + Math.sin(a) * z.r * 0.3 };
     let prey = null, bd = Math.max(SUMO_HUNT_RANGE, z.r * 0.6);
     for (const o of this.room.players.values()) {
       if (o === p || o.sumoDead) continue;
@@ -572,7 +584,7 @@ export class Bots {
       return { x: prey.p[0] + (ox / l) * 3, z: prey.p[2] + (oz / l) * 3 };
     }
     const r = Math.min(z.r * 0.5, 6);
-    return { x: z.x + Math.cos(a) * r, z: z.z + Math.sin(a) * r };
+    return { x: c.x + Math.cos(a) * r, z: c.z + Math.sin(a) * r };
   }
 
   // stable per-bot angle so zone-seeking bots spread out instead of stacking
