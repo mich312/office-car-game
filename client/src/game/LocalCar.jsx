@@ -56,6 +56,10 @@ const _n = { x: 0, y: 1, z: 0 }; // righting reference normal
 const _torque = { x: 0, y: 0, z: 0 }; // righting torque impulse
 const _worldUp = { x: 0, y: 1, z: 0 };
 const _camTarget = new THREE.Vector3();
+// what the chase camera may not sit inside: fixed colliders that aren't
+// sensors (QueryFilterFlags ONLY_FIXED | EXCLUDE_SENSORS) — props and other
+// cars move, and pulling the lens in for them would make it twitch
+const CAM_BLOCKERS = 6 | 8;
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _chase = [0, 1];
@@ -99,6 +103,7 @@ export default function LocalCar() {
 
   // the reused suspension ray (created on the first step, once rapier is up)
   const _ray = useRef(null);
+  const _camRay = useRef(null);
 
   const S = useRef({
     boost: BOOST_MAX,
@@ -1004,6 +1009,25 @@ export default function LocalCar() {
       camera.position.lerp(_camTarget, lerpK);
       // keep the camera above the floor
       if (camera.position.y < 0.7) camera.position.y = 0.7;
+      // ...and out of walls and furniture: backed against a wall or parked
+      // under a bench it sat inside them and filled the screen with their
+      // insides. One ray from the car to the lens against fixed colliders;
+      // the lens comes forward to just short of whatever is in the way.
+      {
+        const cam = camera.position, oy = pos.y + 0.8;
+        const dx = cam.x - pos.x, dy = cam.y - oy, dz = cam.z - pos.z;
+        const len = Math.hypot(dx, dy, dz);
+        if (len > 0.6) {
+          const cr = _camRay.current || (_camRay.current = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }));
+          cr.origin.x = pos.x; cr.origin.y = oy; cr.origin.z = pos.z;
+          cr.dir.x = dx / len; cr.dir.y = dy / len; cr.dir.z = dz / len;
+          const hit = world.castRay(cr, len, true, CAM_BLOCKERS, undefined, undefined, body);
+          if (hit) {
+            const t = Math.max(0.6, (hit.timeOfImpact ?? hit.toi) - 0.25);
+            cam.set(pos.x + cr.dir.x * t, oy + cr.dir.y * t, pos.z + cr.dir.z * t);
+          }
+        }
+      }
       // keep the car anchored in the lower third: modest look-ahead, higher aim
       _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85 - dip * 0.4, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
       // trauma-style shake: amplitude ∝ shake², plus a rotational component —
