@@ -2,7 +2,7 @@
 // each mode *starts* and snapshots correctly; this proves a mode taken all the
 // way to its win condition pays out what it says it does.
 import {
-  CHECKPOINTS, MODES, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
+  CHECKPOINTS, MODES, LCS, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS,
   raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
@@ -132,6 +132,58 @@ const N = CHECKPOINTS.length;
   check('sumo: outlasting one car pays one place', b.score === MODES.sumo.placeScore);
   check('sumo: last car rolling banks places + win bonus',
     c.score === MODES.sumo.placeScore * 2 + MODES.sumo.winBonus);
+}
+
+// ------------------------------------------------- the match clock ends it
+{
+  // The last round used to start 1 s before the match clock ran out and
+  // never end: survivors went unpaid, so a knockout out-scored surviving.
+  const a = player('p1', 'Alice'), b = player('p2', 'Bob'), c = player('p3', 'Cass');
+  const room = stubRoom([a, b, c]);
+  room.modeId = 'sumo';
+  room.endsAt = Date.now() + 30000;
+  const mode = createMode('sumo', room);
+  mode.update(); // round 1, cut to fit the match
+  check('sumo: a round never outlasts the match clock', mode.roundEndsAt <= room.endsAt);
+  mode.eliminate(a, 'test');
+  mode.onMatchEnd();
+  check('sumo: survivors of a round the clock cut short get paid', b.score >= MODES.sumo.placeScore && c.score >= MODES.sumo.placeScore);
+  check('sumo: surviving the last round beats being knocked out of it', b.score > a.score && c.score > a.score);
+  const room2 = stubRoom([player('p1', 'A'), player('p2', 'B')]);
+  room2.modeId = 'sumo';
+  room2.endsAt = Date.now() + 5000;
+  const m2 = createMode('sumo', room2);
+  m2.update();
+  check('sumo: no round starts with too little match left to play it', m2.round === 0);
+}
+{
+  // LCS: survivors at the timer used to get nothing but survival points,
+  // so cars eliminated late outranked them.
+  const cars = ['A', 'B', 'C', 'D'].map((n, i) => player(`p${i}`, n));
+  const room = stubRoom(cars);
+  room.modeId = 'last_standing';
+  const mode = createMode('last_standing', room);
+  mode.eliminate(cars[0], 'test');
+  mode.eliminate(cars[1], 'test');
+  mode.onMatchEnd();
+  const [a, b, c, d] = cars;
+  check('lcs: survivors at the timer outrank every eliminated car', Math.min(c.score, d.score) > Math.max(a.score, b.score));
+  check('lcs: survivors at the timer share the crown', c.score === d.score && c.score >= LCS.WINNER_SCORE / 2);
+}
+{
+  // LCS: once crowned, Facilities stops closing rooms.
+  const a = player('p1', 'A'), b = player('p2', 'B');
+  const room = stubRoom([a, b]);
+  room.modeId = 'last_standing';
+  const feed = [];
+  room.feed = (t) => feed.push(t);
+  const mode = createMode('last_standing', room);
+  mode.eliminate(a, 'test');
+  const scored = b.score;
+  mode.nextLockAt = Date.now() - 1;
+  mode.update(1);
+  check('lcs: no closures after the crown', !feed.some((t) => t.includes('Facilities')) && !mode.warn);
+  check('lcs: no survival points in the victory lap', b.score === scored);
 }
 
 // ----------------------------------------------------------- variants

@@ -437,7 +437,15 @@ export class Room {
   }
 
   endMatch() {
+    // the mode settles a round the clock cut short (sumo's last round, Last
+    // Car Standing's survivors) before anyone reads the standings
+    this.mode?.onMatchEnd?.();
     this.phase = PHASE.PODIUM;
+    // the podium is a ceremony, not a round: no robot parked on it, no
+    // event still ticking in the snapshot
+    this.event = null;
+    this.pendingEvent = null;
+    this.robot = null;
     // Cup intermissions are brisk; the grand ceremony gets the full podium
     const cupFinal = this.cup ? this.cup.round >= MODES.office_cup.rounds - 1 : false;
     this.phaseUntil = now() + (this.cup && !cupFinal ? 7 : PODIUM_SECONDS) * 1000;

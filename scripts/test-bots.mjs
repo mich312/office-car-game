@@ -166,6 +166,21 @@ for (const mode of ['coffee_run', 'battery', 'soccer', 'koth', 'tag', 'sumo', 'l
   if (['soccer', 'koth', 'sumo'].includes(mode)) check(`${mode}: no doughnuts around the target (${(driftT2 / t2 * 100).toFixed(1)}% drifting)`, driftT2 / t2 < 0.1);
 }
 
+// ----------------------------------------------------- into the podium
+{
+  // an event (and its robot) running at the final whistle used to ride on
+  // into the podium snapshot
+  const sim = await createSim({ seed: 3, mode: 'koth' });
+  sim.room.endsAt = sim.now() + 8000;
+  sim.room.nextEventAt = sim.now() + 3500;
+  sim.run(3.4);
+  sim.room.pendingEvent = { id: 'cleaning_robot', duration: 20, name: 'x', icon: '', desc: '' };
+  sim.run(2);
+  const hadRobot = !!sim.room.robot;
+  sim.run(5);
+  check(`podium: the robot and the event end with the match (robot seen ${hadRobot})`, hadRobot && sim.room.phase === 'podium' && !sim.room.robot && !sim.room.event);
+}
+
 // ------------------------------------------------------ every other map
 // Every map has to be raceable by bots (both directions) and survive every
 // mode. Lap lengths differ per floor, so the pace band here is wide; the

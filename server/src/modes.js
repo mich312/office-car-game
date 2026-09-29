@@ -72,6 +72,9 @@ class LastStandingMode {
   }
   alive() { return [...this.room.players.values()].filter((p) => !p.eliminated); }
   update(dt) {
+    // crowned: the wind-down is a victory lap — no more closures, no more
+    // survival points for anyone
+    if (this.over) return;
     const t = now();
     const alive = this.alive();
     for (const p of alive) p.score += LCS.SURVIVAL_SCORE_PER_S * dt;
@@ -132,6 +135,18 @@ class LastStandingMode {
   // a disconnect can leave one car standing just like an elimination can —
   // without this the survivor idles out the whole remaining match timer
   onLeave() { this.checkLastStanding(); }
+  // Time ran out with more than one car rolling: they all outlasted every
+  // eliminated car, so they place above them, and they share the crown.
+  onMatchEnd() {
+    if (this.over) return;
+    const left = this.alive();
+    this.over = true;
+    if (!left.length || this.room.players.size < 2) return;
+    for (const p of left) p.score += LCS.PLACEMENT_SCORE * (this.outCount + 1) + LCS.WINNER_SCORE / left.length;
+    this.room.feed(left.length === 1
+      ? `👑 ${left[0].name} is the LAST CAR STANDING!`
+      : `👑 Time! ${left.map((p) => p.name).join(', ')} share the crown`);
+  }
   onHit() {}
   rocketTarget(player) {
     return this.room.nearest(player, this.alive().filter((p) => p.id !== player.id));
@@ -537,6 +552,7 @@ class TagMode {
 }
 
 // ------------------------------------------------------ Meeting Room Sumo
+const MIN_ROUND_S = 15; // less match left than this: no new round
 // Rounds: the safe zone starts covering most of the office and shrinks to a
 // circle in the open office. Leave it too long (or fall) and you're out for
 // the round. Score by elimination order; last car rolling banks the bonus.
@@ -553,8 +569,14 @@ class SumoMode {
   }
   startRound() {
     const t = now();
+    // The match clock outranks the round clock: a round that would run past
+    // it is cut to fit (the ring still closes fully), and one too short to
+    // be a round isn't started at all.
+    const left = this.room.endsAt - t - 100;
+    if (left < MIN_ROUND_S * 1000) { this.restUntil = this.room.endsAt; return; }
     this.round++;
-    this.roundEndsAt = t + this.cfg.roundSeconds * 1000;
+    this.roundLen = Math.min(this.cfg.roundSeconds * 1000, left);
+    this.roundEndsAt = t + this.roundLen;
     this.order = [];
     this.zone.r = this.room.map.SUMO_ZONE.r0;
     // Moving Meeting: this round's ring slides toward a room as it shrinks
@@ -596,7 +618,7 @@ class SumoMode {
     // round timeout: everyone still alive shares the win
     if (t >= this.roundEndsAt) { this.endRound(this.alive()); return; }
     // linear shrink over the round
-    const frac = 1 - Math.max(0, (this.roundEndsAt - t) / (this.cfg.roundSeconds * 1000));
+    const frac = 1 - Math.max(0, (this.roundEndsAt - t) / this.roundLen);
     this.zone.r = this.room.map.SUMO_ZONE.r0 + (this.room.map.SUMO_ZONE.r1 - this.room.map.SUMO_ZONE.r0) * frac;
     const c = sumoCenter(this.room.map.SUMO_ZONE, this.target, frac);
     this.zone.x = c.x; this.zone.z = c.z;
@@ -616,6 +638,11 @@ class SumoMode {
   // auto-recovery respawn) inside the ring is not "out"
   onFall(p) { if (p.p[1] < -6) this.eliminate(p, 'gravity'); }
   onJoin(p) { p.sumoDead = true; } // drop-ins wait for the next round
+  // the match ending mid-round is a timeout like any other: the survivors
+  // get paid, or getting knocked out would out-score surviving
+  onMatchEnd() {
+    if (this.round && !this.restUntil) this.endRound(this.alive());
+  }
   onLeave() {
     const alive = this.alive();
     if (this.round && !this.restUntil && alive.length <= 1) this.endRound(alive);

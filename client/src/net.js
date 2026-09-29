@@ -294,6 +294,9 @@ function handleMessage(msg) {
     case MSG.MATCH_END: {
       S.setState({
         phase: PHASE.PODIUM, podium: msg.podium,
+        // lights out / wind / wet floors end with the match, not whenever
+        // their duration timer happens to fire
+        event: null, eventWarn: null,
         rivalry: msg.rivalries?.[net.myId] || null, nemesis: msg.nemesis || null,
         cup: msg.cup || null,
       });
