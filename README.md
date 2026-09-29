@@ -170,6 +170,15 @@ backlog live in `docs/car-design-brainstorm.md`.
 - 🏆 **Office Cup** — three random modes back-to-back with cumulative
   score, rolling straight from round to round, grand ceremony at the end.
 
+About half of all rounds of three modes roll a **variant** (a new layout
+for the same mode), announced on the countdown card:
+**Reverse** Desk Dash runs the lap the other way round (the grid faces the
+other way, the finish stays on the start straight); **Moving Meeting** Sumo
+closes the ring in on a different room each round instead of the office
+centre; **Rush Hour** Standup Standoff moves the meeting every ten seconds.
+Pin one for playtesting with `RC_VARIANT=reverse` (or `drift`, `rush`) on the
+server.
+
 Contact is honest about physics: light rubs are cosmetic, real hits (above a
 relative-speed threshold) knock cars back scaled by mass and trigger mode
 effects. Respawning asks the server for a safe slot (scored by distance to

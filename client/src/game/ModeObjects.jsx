@@ -7,8 +7,9 @@ import { RigidBody, BallCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import TextSprite from './TextSprite.jsx';
 import {
-  CHECKPOINTS, POWERUP_PADS, COFFEE_MACHINE, SOCCER, POWERUP_EFFECT, M,
+  POWERUP_PADS, COFFEE_MACHINE, SOCCER, POWERUP_EFFECT, M,
   ROOMS, WALL_HEIGHT,
+  raceCheckpoints,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, sampleRemote } from '../net.js';
@@ -157,8 +158,9 @@ function LockedRooms() {
 function RaceCheckpoints() {
   const myId = useStore((s) => s.myId);
   const prog = useStore((s) => s.raceProgress[myId]);
-  const next = (prog?.[1] ?? 0) % CHECKPOINTS.length;
-  const cp = CHECKPOINTS[next];
+  const cps = raceCheckpoints(useStore((s) => s.variant));
+  const next = (prog?.[1] ?? 0) % cps.length;
+  const cp = cps[next];
   const ring = useRef();
   const beam = useRef();
   useFrame(({ clock }) => {

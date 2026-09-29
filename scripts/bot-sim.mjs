@@ -29,7 +29,7 @@ function seeded(seed) {
   };
 }
 
-export async function createSim({ seed = 1, mode = 'desk_dash', bots = 6 } = {}) {
+export async function createSim({ seed = 1, mode = 'desk_dash', bots = 6, variant = 'classic' } = {}) {
   Math.random = seeded(seed);
   const room = new Room();
   const events = [];
@@ -38,7 +38,7 @@ export async function createSim({ seed = 1, mode = 'desk_dash', bots = 6 } = {})
   room.sendLobby = () => {};
   room.broadcastSnapshot = () => {};
   room.bots.fillTo(bots);
-  room.startCountdown(mode);
+  room.startCountdown(mode, variant);
   room.mutator = null; // mutators are their own experiment
   const dt = 1 / TICK_RATE;
   const step = () => { clock += dt * 1000; room.tick(dt); };

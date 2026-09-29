@@ -683,3 +683,6 @@
   cursor: pointer;
 }
 .hint-link:focus-visible { outline: 2px solid var(--info); border-radius: 3px; }
+
+/* the round's layout twist (a reverse race…), wherever the mode is named */
+.variant-tag { color: var(--amber); font-weight: 700; letter-spacing: 0.04em; }

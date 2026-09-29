@@ -73,6 +73,7 @@ export const useStore = create((set, get) => ({
   rivalry: null, // { name, n } — your most-bumped partner last match
   nemesis: null, // { a, b, n } — the match's top feud
   mutator: null, // active mutator id for this round
+  variant: 'classic', // the round's layout (shared/src/variants.js), e.g. a reverse Desk Dash
   cup: null, // { round, total, standings?, final? } — Office Cup progress
   abilityReadyAt: 0, // my special-ability cooldown (server-stamped)
   printerFlashUntil: 0, // blinded by the printer until this timestamp

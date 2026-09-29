@@ -2,7 +2,7 @@
 // kill feed, minimap, scoreboard, event toasts, podium. Everything anchors
 // to the HUD safe-area frame and composes the shared chip/toast primitives.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE, MSG, M, roomAt, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S } from '@rc/shared';
+import { MODES, MODE_IDS, POWERUPS, ROOMS, WALLS, MAP_BOUNDS, CHECKPOINTS, PHASE, MSG, M, roomAt, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
 import { telemetry } from '../game/LocalCar.jsx';
@@ -185,6 +185,7 @@ function Countdown() {
   const modeId = useStore((s) => s.modeId);
   const mutator = useStore((s) => s.mutator);
   const cup = useStore((s) => s.cup);
+  const variant = variantOf(modeId, useStore((s) => s.variant));
   const [n, setN] = useState(3);
   useEffect(() => {
     // beep once per second-change, not once per 120 ms poll — without the
@@ -212,8 +213,11 @@ function Countdown() {
         <span className="toast-icon"><Icon name={MODE_ICON[modeId] || 'flag'} /></span>
         <div>
           <span className="label">next meeting</span>
-          <b>{MODES[modeId]?.name}</b>
-          <small>{MODES[modeId]?.desc}</small>
+          <b>
+            {MODES[modeId]?.name}
+            {variant && variant.id !== 'classic' && <span className="variant-tag"> · {variant.name}</span>}
+          </b>
+          <small>{variant && variant.id !== 'classic' ? variant.desc : MODES[modeId]?.desc}</small>
           {mutator && (
             <div className="invite-mutator">
               <Icon name="warning" size={13} /> MUTATOR · {MUTATORS[mutator]?.name} — {MUTATORS[mutator]?.desc}
@@ -229,6 +233,7 @@ function Countdown() {
 // -------------------------------------------------------------- match hud
 function MatchHUD() {
   const modeId = useStore((s) => s.modeId);
+  const variantId = useStore((s) => s.variant);
   const powerup = useStore((s) => s.powerup);
   const myBeans = useStore((s) => s.myBeans);
   const teamScores = useStore((s) => s.teamScores);
@@ -273,7 +278,7 @@ function MatchHUD() {
         <div className="hud-top-row">
           {modeId === 'desk_dash' && prog && (
             <div className="chip"><Icon name="flag" size={15} />
-              LAP {Math.min(prog[0] + 1, MODES.desk_dash.laps)}/{MODES.desk_dash.laps} · CP {prog[1]}/{CHECKPOINTS.length}
+              LAP {Math.min(prog[0] + 1, MODES.desk_dash.laps)}/{MODES.desk_dash.laps} · CP {prog[1]}/{CHECKPOINTS.length}{variantId === 'reverse' && <span className="variant-tag"> · REVERSE</span>}
             </div>
           )}
           {modeId === 'coffee_run' && (
@@ -475,7 +480,8 @@ function Minimap() {
       }
       if (st.modeId === 'desk_dash') {
         const prog = st.raceProgress[st.myId];
-        const cp = CHECKPOINTS[(prog?.[1] ?? 0) % CHECKPOINTS.length];
+        const cps = raceCheckpoints(st.variant);
+        const cp = cps[(prog?.[1] ?? 0) % cps.length];
         g.strokeStyle = `rgba(92, 200, 255, ${0.5 + 0.5 * pulse})`;
         g.lineWidth = 2;
         g.beginPath(); g.arc(px(cp.x), pz(cp.z), 4.5 + pulse * 1.5, 0, 7); g.stroke();

@@ -87,6 +87,26 @@ check(`race: bots boost on straights (${(boostT / ticks * 100).toFixed(1)}% of t
   check('race: the balcony checkpoint is reached', [...Array(CHECKPOINTS.length).keys()].every((i) => seen.has(i)));
 }
 
+// ------------------------------------------------ variants, with bots
+{
+  let lapped = 0, total = 0;
+  const firsts = [];
+  for (const seed of [1, 2, 3]) {
+    const sim = await createSim({ seed, mode: 'desk_dash', variant: 'reverse' });
+    const t0 = sim.now();
+    const lapAt = new Map();
+    sim.run(150, (s) => { for (const b of s.bots) if (b.lap >= 1 && !lapAt.has(b.id)) lapAt.set(b.id, (s.now() - t0) / 1000); });
+    total += sim.bots.length; lapped += lapAt.size; firsts.push(...lapAt.values());
+  }
+  const mean = firsts.reduce((a, b) => a + b, 0) / Math.max(1, firsts.length);
+  check(`reverse: bots race it backwards (${lapped}/${total} lapped, mean ${mean.toFixed(1)} s)`, lapped >= total * 0.9 && mean > 34 && mean < 48);
+}
+for (const [mode, variant] of [['sumo', 'drift'], ['koth', 'rush']]) {
+  let err = null;
+  try { (await createSim({ seed: 4, mode, variant })).run(90); } catch (e) { err = e; }
+  check(`${mode} ${variant}: 90 s of bots without an error${err ? ` (${err.message})` : ''}`, !err);
+}
+
 // ---------------------------------------------------- swap in a race
 {
   const sim = await createSim({ seed: 3, mode: 'desk_dash' });

@@ -1,10 +1,11 @@
 // Game-mode controllers. Each owns its slice of authoritative state and
 // contributes to the per-tick snapshot.
 import {
-  MSG, MODES, CHECKPOINTS, CHECKPOINT_RADIUS, PICKUP_RADIUS,
+  MSG, MODES, CHECKPOINT_RADIUS, PICKUP_RADIUS,
   BEAN_SPAWNS, COFFEE_MACHINE, BATTERY_SPAWN, SOCCER, WALLS, FURNITURE,
   KOTH_SPOTS, KOTH_RADIUS, SUMO_ZONE,
   GRAVITY, M, LCS, ROOMS, roomAt, COUNTDOWN_SECONDS, DECOR_TYPES,
+  raceCheckpoints, sumoTarget, sumoCenter, kothHopSeconds,
 } from '@rc/shared';
 
 const now = () => Date.now();
@@ -147,16 +148,17 @@ const PLACE_SCORE = [500, 350, 250, 180, 130, 100];
 class RaceMode {
   constructor(room) {
     this.room = room;
+    this.cps = raceCheckpoints(room.variant); // reverse runs them backwards
     this.laps = MODES.desk_dash.laps;
     this.finished = [];
   }
   update() {
     for (const p of this.room.players.values()) {
       if (p.finished) continue;
-      const cp = CHECKPOINTS[p.nextCp % CHECKPOINTS.length];
+      const cp = this.cps[p.nextCp % this.cps.length];
       if (Math.hypot(p.p[0] - cp.x, p.p[2] - cp.z) < CHECKPOINT_RADIUS) {
         p.nextCp++;
-        if (p.nextCp % CHECKPOINTS.length === 0) {
+        if (p.nextCp % this.cps.length === 0) {
           p.lap++;
           if (p.lap >= this.laps) {
             p.finished = true;
@@ -174,7 +176,7 @@ class RaceMode {
         // recomputed from lap+checkpoint every time rather than accumulated,
         // so the finish bonus has to sit outside it — fold it back in and the
         // whole progress score gets counted a second time on the final lap.
-        p.score = p.lap * 200 + (p.nextCp % CHECKPOINTS.length) * 8 + (p.finishBonus || 0);
+        p.score = p.lap * 200 + (p.nextCp % this.cps.length) * 8 + (p.finishBonus || 0);
       }
     }
   }
@@ -187,7 +189,7 @@ class RaceMode {
   onHit() {}
   snapshot() {
     const prog = {};
-    for (const p of this.room.players.values()) prog[p.id] = [p.lap, p.nextCp % CHECKPOINTS.length];
+    for (const p of this.room.players.values()) prog[p.id] = [p.lap, p.nextCp % this.cps.length];
     return { race: prog };
   }
 }
@@ -450,12 +452,13 @@ class KothMode {
   zonePos() { return KOTH_SPOTS[this.spot]; }
   update(dt) {
     const t = now();
-    if (!this.hopAt) this.hopAt = t + this.cfg.hopSeconds * 1000;
+    const hop = kothHopSeconds(this.cfg.hopSeconds, this.room.variant); // Rush Hour halves it
+    if (!this.hopAt) this.hopAt = t + hop * 1000;
     if (t >= this.hopAt) {
       let next;
       do { next = Math.floor(Math.random() * KOTH_SPOTS.length); } while (next === this.spot);
       this.spot = next;
-      this.hopAt = t + this.cfg.hopSeconds * 1000;
+      this.hopAt = t + hop * 1000;
       this.room.broadcast({ t: MSG.EFFECT, type: 'zone_hop' });
       this.room.feed('📍 The standup moved!');
     }
@@ -555,6 +558,9 @@ class SumoMode {
     this.roundEndsAt = t + this.cfg.roundSeconds * 1000;
     this.order = [];
     this.zone.r = SUMO_ZONE.r0;
+    // Moving Meeting: this round's ring slides toward a room as it shrinks
+    this.target = sumoTarget(this.round, this.room.variant);
+    this.zone.x = SUMO_ZONE.x; this.zone.z = SUMO_ZONE.z;
     for (const p of this.room.players.values()) { p.sumoDead = false; p.sumoOutAt = 0; }
     this.room.broadcast({ t: MSG.EFFECT, type: 'sumo_round', round: this.round });
     this.room.feed(`🥋 Round ${this.round} — stay inside the circle!`);
@@ -593,6 +599,8 @@ class SumoMode {
     // linear shrink over the round
     const frac = 1 - Math.max(0, (this.roundEndsAt - t) / (this.cfg.roundSeconds * 1000));
     this.zone.r = SUMO_ZONE.r0 + (SUMO_ZONE.r1 - SUMO_ZONE.r0) * frac;
+    const c = sumoCenter(SUMO_ZONE, this.target, frac);
+    this.zone.x = c.x; this.zone.z = c.z;
     for (const p of this.room.players.values()) {
       if (p.sumoDead) continue;
       if (Math.hypot(p.p[0] - this.zone.x, p.p[2] - this.zone.z) <= this.zone.r) {
