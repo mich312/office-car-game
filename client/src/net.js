@@ -148,6 +148,8 @@ function handleMessage(msg) {
       net.joinSpawn = msg.spawn || null;
       net.racePlace = 0;
       if (msg.spawn) emit('respawn_at', { ...msg.spawn, freeze: 0, protect: 0 });
+      // a drop-in never got START's team list: the players carry the teams
+      net.teams = Object.fromEntries(msg.players.map((p) => [p.id, p.team || 0]));
       break;
     }
     case MSG.LOBBY: {

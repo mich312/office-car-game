@@ -5,10 +5,33 @@ import {
   KOTH_RADIUS,
   GRAVITY, M, LCS, COUNTDOWN_SECONDS, isDecor,
   raceCheckpoints, raceLaps, sumoTarget, sumoCenter, kothHopSeconds,
+  groundAt, clearDropSpot, wallBetween, MUTATORS, soccerGoalHeight,
 } from '@rc/shared';
 
 const now = () => Date.now();
 const r2 = (n) => Math.round(n * 100) / 100;
+
+// What a car is standing on: its reported height less the ride height. A
+// dropped battery or spill lands on that surface (the loading dock, a
+// pallet stack), not inside it.
+const RIDE_Y = 0.24;
+const standY = (p) => Math.max(0, p.p[1] - RIDE_Y) + 0.5;
+
+// Somewhere to drop a thing `dist` from (x, z) in direction a (radians),
+// shortened until it's clear of walls and furniture and on this side of
+// any wall; `min` is as close as it may come. Against a wall it swings
+// round (nearest direction first) rather than land in the car's lap.
+// Null if nowhere fits.
+function dropSpot(map, x, z, a, dist, min, maxY) {
+  for (let k = 0; k < 12; k++) {
+    const ak = a + Math.ceil(k / 2) * (k % 2 ? 1 : -1) * (Math.PI / 6);
+    for (let d = dist; d >= min - 1e-9; d -= 0.4) {
+      const nx = x + Math.cos(ak) * d, nz = z + Math.sin(ak) * d;
+      if (clearDropSpot(map, x, z, nx, nz, { maxY })) return [nx, nz];
+    }
+  }
+  return null;
+}
 
 export function createMode(id, room) {
   switch (id) {
@@ -205,11 +228,14 @@ class RaceMode {
 }
 
 // -------------------------------------------------------------- Coffee Run
+const SPILL_R0 = 2.2, SPILL_R1 = 3.2; // spill ring, beyond PICKUP_RADIUS + a tick of driving
+const SPILL_NO_PICKUP_MS = 1000;
+
 class CoffeeMode {
   constructor(room) {
     this.room = room;
     this.max = MODES.coffee_run.maxCarry;
-    this.beans = this.room.map.BEAN_SPAWNS.map((b, i) => ({ id: i, x: b.x, z: b.z, alive: true, respawnAt: 0 }));
+    this.beans = this.room.map.BEAN_SPAWNS.map((b, i) => ({ id: i, x: b.x, z: b.z, y: 0, alive: true, respawnAt: 0 }));
     this.dropId = 1000;
   }
   update() {
@@ -225,6 +251,8 @@ class CoffeeMode {
       if (p.beans < this.max) {
         for (const b of this.beans) {
           if (!b.alive) continue;
+          // your own spill isn't yours to scoop straight back up
+          if (b.noPickup && b.noPickup.id === p.id && t < b.noPickup.until) continue;
           if (Math.hypot(p.p[0] - b.x, p.p[2] - b.z) < PICKUP_RADIUS) {
             b.alive = false;
             b.respawnAt = b.id < 1000 ? t + 9000 : 0; // dropped beans don't respawn
@@ -235,8 +263,11 @@ class CoffeeMode {
           }
         }
       }
-      // deliver
-      if (p.beans > 0 && Math.hypot(p.p[0] - this.room.map.COFFEE_MACHINE.deliverX, p.p[2] - this.room.map.COFFEE_MACHINE.deliverZ) < this.room.map.COFFEE_MACHINE.radius * 2) {
+      // deliver — in sight of the machine: the zone is a circle, and on the
+      // cellar it reached through the boiler-room wall into the corridor
+      const cm = this.room.map.COFFEE_MACHINE;
+      if (p.beans > 0 && Math.hypot(p.p[0] - cm.deliverX, p.p[2] - cm.deliverZ) < cm.radius * 2
+          && !wallBetween(this.room.map, cm.deliverX, cm.deliverZ, p.p[0], p.p[2])) {
         p.score += p.beans * MODES.coffee_run.beanScore;
         this.room.feed(`☕ ${p.name} delivered ${p.beans} bean${p.beans > 1 ? 's' : ''}`);
         this.room.broadcast({ t: MSG.EFFECT, type: 'deliver', id: p.id, count: p.beans });
@@ -248,17 +279,33 @@ class CoffeeMode {
   }
   // Bumps spill about half your beans (min 3) — proportional loss keeps the
   // leader a target without zeroing them out; falls still spill everything.
+  // The ring lands outside the victim's pickup radius (it used to catch a
+  // third of every spill straight back) and the victim can't scoop its own
+  // spill for a second; beans that would land in a wall, in furniture or
+  // through a wall come in closer, or stay in the victim's tyre tracks.
   spill(p, cause, all = false) {
     if (p.beans <= 0) return;
     const n = all ? p.beans : Math.min(p.beans, Math.max(3, Math.ceil(p.beans / 2)));
     p.beans -= n;
+    const t = now();
+    const map = this.room.map;
+    let cx = p.p[0], cz = p.p[2], maxY = standY(p);
+    if (all && p.p[1] < -6) {
+      // a fall: ring the beans round the last floor it drove on, not in
+      // mid-air past the balcony railing — and with no such floor, they're gone
+      const last = p.poseRing?.[p.poseRing.length - 1];
+      if (!last) { this.room.feed(`💥 ${p.name} spilled ${n} bean${n > 1 ? 's' : ''} (${cause})`); return; }
+      [cx, cz] = last; maxY = 0.5;
+    }
+    const a0 = Math.random() * Math.PI * 2;
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
+      const a = a0 + (i / n) * Math.PI * 2;
+      const [x, z] = dropSpot(map, cx, cz, a, SPILL_R0 + Math.random() * (SPILL_R1 - SPILL_R0), PICKUP_RADIUS + 0.2, maxY) || [cx, cz];
       this.beans.push({
         id: this.dropId++, alive: true, respawnAt: 0,
-        expiresAt: now() + MODES.coffee_run.spillTtlS * 1000,
-        x: r2(p.p[0] + Math.cos(a) * (1.2 + Math.random())),
-        z: r2(p.p[2] + Math.sin(a) * (1.2 + Math.random())),
+        expiresAt: t + MODES.coffee_run.spillTtlS * 1000,
+        x: r2(x), z: r2(z), y: r2(groundAt(map, x, z, maxY)),
+        noPickup: { id: p.id, until: t + SPILL_NO_PICKUP_MS },
       });
     }
     this.room.feed(`💥 ${p.name} spilled ${n} bean${n > 1 ? 's' : ''}${cause ? ` (${cause})` : ''}`);
@@ -275,15 +322,19 @@ class CoffeeMode {
     return order[0] || null;
   }
   snapshot() {
-    return { beans: this.beans.filter((b) => b.alive).map((b) => [b.id, r2(b.x), r2(b.z)]) };
+    return { beans: this.beans.filter((b) => b.alive).map((b) => [b.id, r2(b.x), r2(b.z), b.y]) };
   }
 }
 
 // ---------------------------------------------------- Capture the Battery
+const BATTERY_KNOCK = 2.5; // how far a hit knocks the battery from its carrier
+const BATTERY_NO_PICKUP_MS = 1500;
+const BATTERY_GRAB_GRACE_MS = 2000; // a hit this soon after a grab doesn't knock it loose
+
 class BatteryMode {
   constructor(room) {
     this.room = room;
-    this.battery = { x: this.room.map.BATTERY_SPAWN.x, z: this.room.map.BATTERY_SPAWN.z, carrier: null };
+    this.battery = { x: this.room.map.BATTERY_SPAWN.x, z: this.room.map.BATTERY_SPAWN.z, y: 0, carrier: null, noPickup: null };
     this.scoreAcc = 0;
   }
   update(dt) {
@@ -297,30 +348,52 @@ class BatteryMode {
       this.scoreAcc += dt;
       if (this.scoreAcc > 2) { this.scoreAcc = 0; this.room.scoreChanged(); }
     } else {
-      for (const p of this.room.players.values()) {
-        if (p.stunUntil > t) continue;
-        if (Math.hypot(p.p[0] - b.x, p.p[2] - b.z) < PICKUP_RADIUS) {
-          b.carrier = p.id;
-          p.hasBattery = true;
-          this.room.feed(`🔋 ${p.name} grabbed the battery!`);
-          this.room.broadcast({ t: MSG.EFFECT, type: 'battery_grab', id: p.id });
-          break;
-        }
+      // the nearest car in reach takes it (not the first one to have joined
+      // the room), and the car that just lost it has to wait a moment
+      let p = null, pd = PICKUP_RADIUS;
+      for (const q of this.room.players.values()) {
+        if (q.stunUntil > t || q.eliminated) continue;
+        if (b.noPickup && b.noPickup.id === q.id && t < b.noPickup.until) continue;
+        const d = Math.hypot(q.p[0] - b.x, q.p[2] - b.z);
+        if (d < pd) { pd = d; p = q; }
+      }
+      if (p) {
+        b.carrier = p.id;
+        b.noPickup = null;
+        b.grabbedAt = t;
+        p.hasBattery = true;
+        this.room.feed(`🔋 ${p.name} grabbed the battery!`);
+        this.room.broadcast({ t: MSG.EFFECT, type: 'battery_grab', id: p.id });
       }
     }
   }
-  drop(p) {
-    if (this.battery.carrier !== p.id) return;
-    this.battery.carrier = null;
+  // A hit knocks the battery a couple of units along the hit, clear of any
+  // wall, and the victim can't grab it back for a moment — it used to stay
+  // under the victim, who picked it straight up again on the next tick.
+  drop(p, from = null) {
+    const b = this.battery;
+    if (b.carrier !== p.id) return;
+    b.carrier = null;
     p.hasBattery = false;
-    this.battery.x = p.p[0]; this.battery.z = p.p[2];
-    // If it fell out of the world, respawn it home
-    if (p.p[1] < -8) { this.battery.x = this.room.map.BATTERY_SPAWN.x; this.battery.z = this.room.map.BATTERY_SPAWN.z; }
+    const map = this.room.map;
+    if (p.p[1] < -8) {
+      // it fell out of the world: respawn it home
+      b.x = map.BATTERY_SPAWN.x; b.z = map.BATTERY_SPAWN.z; b.y = 0; b.noPickup = null;
+    } else {
+      let a = from ? Math.atan2(p.p[2] - from.p[2], p.p[0] - from.p[0]) : Math.random() * Math.PI * 2;
+      if (from && from.p[0] === p.p[0] && from.p[2] === p.p[2]) a = Math.random() * Math.PI * 2;
+      const maxY = standY(p);
+      const [x, z] = dropSpot(map, p.p[0], p.p[2], a, BATTERY_KNOCK, 0.4, maxY) || [p.p[0], p.p[2]];
+      b.x = x; b.z = z; b.y = r2(groundAt(map, x, z, maxY));
+      b.noPickup = { id: p.id, until: now() + BATTERY_NO_PICKUP_MS };
+    }
     this.room.broadcast({ t: MSG.EFFECT, type: 'battery_drop', id: p.id });
   }
   onHit(attacker, victim) {
-    if (this.battery.carrier === victim.id) {
-      this.drop(victim);
+    // a fresh grab holds for a moment: with every car in the scrum able to
+    // knock it loose, the battery otherwise changed hands every second
+    if (this.battery.carrier === victim.id && now() - (this.battery.grabbedAt || 0) >= BATTERY_GRAB_GRACE_MS) {
+      this.drop(victim, attacker);
       this.room.feed(`🔋 ${attacker ? attacker.name : 'The office'} made ${victim.name} drop the battery`);
     }
   }
@@ -335,21 +408,25 @@ class BatteryMode {
     return null;
   }
   snapshot() {
-    return { battery: { x: r2(this.battery.x), z: r2(this.battery.z), carrier: this.battery.carrier } };
+    return { battery: { x: r2(this.battery.x), z: r2(this.battery.z), y: this.battery.carrier ? 0 : this.battery.y, carrier: this.battery.carrier } };
   }
 }
 
 // ---------------------------------------------------------------- RC Soccer
 // The server integrates the ball against the map's walls + furniture so all
 // clients agree. Cars hit the ball via proximity/velocity from their reports.
+const OUT_OF_PLAY_S = 1.5; // a ball this long outside the pitch is dropped back in
+const DROP_FREEZE_MS = 1200;
+
 class SoccerMode {
   constructor(room) {
     this.room = room;
     // Giant Ball mutator inflates the ball server-side; clients scale to match
-    this.R = this.room.map.SOCCER.ballRadius * (room.mutator?.id === 'giant_ball' ? 1.8 : 1);
+    this.R = this.room.map.SOCCER.ballRadius * (room.mutator?.id === 'giant_ball' ? MUTATORS.giant_ball.scale : 1);
     this.resetBall();
     this.teamScores = [0, 0];
     this.freezeUntil = 0;
+    this.outT = 0;
     // Assign teams, alternating by join order
     let i = 0;
     for (const p of room.players.values()) p.team = i++ % 2;
@@ -364,6 +441,7 @@ class SoccerMode {
   resetBall() {
     const s = this.room.map.SOCCER.ballSpawn;
     this.ball = { p: [s.x, s.y + 2, s.z], v: [0, 0, 0] };
+    this.outT = 0;
   }
   onJoin(p) { p.team = [...this.room.players.values()].filter((q) => q.team === 0).length <= this.room.players.size / 2 ? 0 : 1; }
   update(dt) {
@@ -371,16 +449,26 @@ class SoccerMode {
     if (t < this.freezeUntil) return;
     const b = this.ball;
     const R = this.R;
+    const map = this.room.map;
+    const prev = [...b.p];
+    // Moon Gravity floats the ball too, not just the cars
+    const g = GRAVITY * 0.6 * (this.room.mutator?.gravity ?? 1); // a ping pong ball floats a little
     // integrate (2 substeps for stability)
     for (let step = 0; step < 2; step++) {
       const h = dt / 2;
-      b.v[1] += GRAVITY * 0.6 * h; // a ping pong ball floats a little
+      b.v[1] += g * h;
       b.p[0] += b.v[0] * h; b.p[1] += b.v[1] * h; b.p[2] += b.v[2] * h;
-      // floor
-      if (b.p[1] < R) { b.p[1] = R; b.v[1] = Math.abs(b.v[1]) * 0.6; b.v[0] *= 0.995; b.v[2] *= 0.995; }
+      // floor — or whatever it's over: a desk top, a ramp deck (it used to
+      // roll straight through ramps at floor height)
+      const floor = groundAt(map, b.p[0], b.p[2], b.p[1] - R + 0.6);
+      if (b.p[1] < floor + R) { b.p[1] = floor + R; b.v[1] = Math.abs(b.v[1]) * 0.6; b.v[0] *= 0.995; b.v[2] *= 0.995; }
+      // centre inside a box (a lofted ball coming down on furniture): out
+      // the nearest way that isn't into the next box — this used to be
+      // skipped, leaving the ball inside a desk for good
+      this.escapeBoxes(b);
       // walls & furniture (2D AABB vs circle, only below box height)
       for (const box of this.boxes) {
-        if (b.p[1] - R > box.h) continue;
+        if (b.p[1] - R > box.h - 0.05) continue;
         const cx = Math.max(box.minX, Math.min(b.p[0], box.maxX));
         const cz = Math.max(box.minZ, Math.min(b.p[2], box.maxZ));
         const dx = b.p[0] - cx, dz = b.p[2] - cz;
@@ -408,39 +496,82 @@ class SoccerMode {
         b.lastTouch = p.id;
       }
     }
-    // speed cap + gentle pull back to arena if it escapes through a far door
     const sp = Math.hypot(b.v[0], b.v[2]);
     if (sp > 70) { b.v[0] *= 70 / sp; b.v[2] *= 70 / sp; }
-    const A = this.room.map.SOCCER.arena;
-    if (b.p[0] < A.minX - 12 || b.p[0] > A.maxX + 12 || b.p[2] < A.minZ - 3 || b.p[2] > A.maxZ + 12) this.resetBall();
-    // goals — ball fully crossing a doorway goal line
-    for (const g of this.room.map.SOCCER.goals) {
-      if (Math.abs(b.p[2] - g.z) < g.width / 2 && (g.dir === 1 ? b.p[0] < g.x - R : b.p[0] > g.x + R) && b.p[1] < 3) {
-        const scoringTeam = 1 - g.team;
-        this.teamScores[scoringTeam] += 1;
-        const scorer = this.room.players.get(b.lastTouch);
-        for (const p of this.room.players.values()) if (p.team === scoringTeam) p.score += MODES.soccer.goalScore;
-        // the personal scorer bonus only pays if the last touch was actually
-        // on the scoring team — an own goal must not reward the defender who
-        // conceded it (in Office Cup that was a farmable point exploit)
-        const ownGoal = scorer && scorer.team !== scoringTeam;
-        if (scorer && !ownGoal) scorer.score += MODES.soccer.goalScore;
-        const teamName = scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue';
-        this.room.feed(ownGoal
-          ? `⚽ OWN GOAL! ${scorer.name} puts it in for ${teamName}!`
-          : `⚽ GOOOAL! ${scorer ? scorer.name : 'Someone'} scores for ${teamName}!`);
-        this.room.broadcast({ t: MSG.EFFECT, type: 'goal', team: scoringTeam, scorer: scorer?.id, teamScores: this.teamScores });
-        this.room.scoreChanged();
-        // Score cap: reaching it ends the match after a short victory lap
-        if (this.teamScores[scoringTeam] >= MODES.soccer.goalCap) {
-          this.room.feed(`🏁 ${scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue'} takes the match!`);
-          this.room.endsAt = Math.min(this.room.endsAt, t + 4000);
-        }
-        this.resetBall();
-        this.freezeUntil = t + 2500;
-        break;
-      }
+    // goals — the ball CROSSING a doorway goal line this tick, from the
+    // pitch side, inside the mouth and under the crossbar. A snapshot of
+    // "is it past the line now" missed lofted shots that drifted out of the
+    // band after crossing, scored balls that reached the band another way,
+    // and a fixed height gate made the Giant Ball unscoreable.
+    for (const gl of map.SOCCER.goals) {
+      const line = gl.x - gl.dir * R; // centre this far past the goal line = fully over
+      const before = (prev[0] - line) * gl.dir, after = (b.p[0] - line) * gl.dir;
+      if (!(before > 0 && after <= 0)) continue;
+      const k = before / (before - after);
+      const zc = prev[2] + (b.p[2] - prev[2]) * k, yc = prev[1] + (b.p[1] - prev[1]) * k;
+      if (Math.abs(zc - gl.z) >= gl.width / 2 || yc - R >= soccerGoalHeight(R)) continue;
+      this.goal(gl, t);
+      return;
     }
+    // out of play: off the pitch (not in a goal mouth) for a moment, or off
+    // the map outright, and it's dropped back on the spot. The old fixed
+    // margins were the office's, and left the ball trapped in the office
+    // bathroom for a minute or loose behind the cellar goal lines.
+    const A = map.SOCCER.arena, B = map.MAP_BOUNDS;
+    const inMouth = map.SOCCER.goals.some((gl) => Math.abs(b.p[2] - gl.z) < gl.width / 2 && Math.abs(b.p[0] - gl.x) < R * 2);
+    const off = b.p[0] < A.minX - R || b.p[0] > A.maxX + R || b.p[2] < A.minZ - R || b.p[2] > A.maxZ + R;
+    this.outT = off && !inMouth ? this.outT + dt : 0;
+    const gone = b.p[0] < B.minX || b.p[0] > B.maxX || b.p[2] < B.minZ || b.p[2] > B.maxZ || b.p[1] < -5;
+    if (this.outT > OUT_OF_PLAY_S || gone) {
+      this.resetBall();
+      this.freezeUntil = t + DROP_FREEZE_MS;
+      this.room.feed('⚽ Out of play — drop ball!');
+      this.room.broadcast({ t: MSG.EFFECT, type: 'ball_reset' });
+    }
+  }
+  escapeBoxes(b) {
+    const R = this.R;
+    const within = (x, z) => this.boxes.find((bx) => b.p[1] - R <= bx.h - 0.05
+      && x >= bx.minX && x <= bx.maxX && z >= bx.minZ && z <= bx.maxZ);
+    const box = within(b.p[0], b.p[2]);
+    if (!box) return;
+    let best = null;
+    for (const [x, z, nx, nz] of [
+      [box.minX - R, b.p[2], -1, 0], [box.maxX + R, b.p[2], 1, 0],
+      [b.p[0], box.minZ - R, 0, -1], [b.p[0], box.maxZ + R, 0, 1],
+    ]) {
+      const d = Math.hypot(x - b.p[0], z - b.p[2]);
+      if (!within(x, z) && (!best || d < best.d)) best = { x, z, nx, nz, d };
+    }
+    if (!best) return;
+    b.p[0] = best.x; b.p[2] = best.z;
+    const vn = b.v[0] * best.nx + b.v[2] * best.nz;
+    if (vn < 0) { b.v[0] -= 1.7 * vn * best.nx; b.v[2] -= 1.7 * vn * best.nz; }
+  }
+  goal(g, t) {
+    const b = this.ball;
+    const scoringTeam = 1 - g.team;
+    this.teamScores[scoringTeam] += 1;
+    const scorer = this.room.players.get(b.lastTouch);
+    for (const p of this.room.players.values()) if (p.team === scoringTeam) p.score += MODES.soccer.goalScore;
+    // the personal scorer bonus only pays if the last touch was actually
+    // on the scoring team — an own goal must not reward the defender who
+    // conceded it (in Office Cup that was a farmable point exploit)
+    const ownGoal = scorer && scorer.team !== scoringTeam;
+    if (scorer && !ownGoal) scorer.score += MODES.soccer.goalScore;
+    const teamName = scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue';
+    this.room.feed(ownGoal
+      ? `⚽ OWN GOAL! ${scorer.name} puts it in for ${teamName}!`
+      : `⚽ GOOOAL! ${scorer ? scorer.name : 'Someone'} scores for ${teamName}!`);
+    this.room.broadcast({ t: MSG.EFFECT, type: 'goal', team: scoringTeam, scorer: scorer?.id, teamScores: this.teamScores });
+    this.room.scoreChanged();
+    // Score cap: reaching it ends the match after a short victory lap
+    if (this.teamScores[scoringTeam] >= MODES.soccer.goalCap) {
+      this.room.feed(`🏁 ${scoringTeam === 0 ? '🟠 Orange' : '🔵 Blue'} takes the match!`);
+      this.room.endsAt = Math.min(this.room.endsAt, t + 4000);
+    }
+    this.resetBall();
+    this.freezeUntil = t + 2500;
   }
   onHit() {}
   rocketTarget(player) {
@@ -530,11 +661,22 @@ class TagMode {
   }
   transfer(a, b) {
     if (now() - this.lastTagAt < this.cfg.tagCooldownMs) return;
-    if (a.id === this.it) this.setIt(b);
-    else if (b.id === this.it) this.setIt(a);
+    const it = a.id === this.it ? a : b.id === this.it ? b : null;
+    if (!it) return;
+    // A shield keeps the crown on and pops. Hits already stop at the shield
+    // in room.onBump, but a gentle rub used to steal It straight through it.
+    if (it.shieldUntil > now()) {
+      it.shieldUntil = 0;
+      this.room.broadcast({ t: MSG.EFFECT, type: 'shield_pop', id: it.id });
+      return;
+    }
+    this.setIt(it === a ? b : a);
   }
   onHit(a, b) { if (a && b) this.transfer(a, b); }
   onRub(a, b) { this.transfer(a, b); }
+  // Any contact tags, but an item only tags when it lands ON the It car:
+  // the It car's own EMP or rocket used to hand It to its victim.
+  onItemHit(owner, target) { if (target.id === this.it) this.transfer(owner, target); }
   onLeave(p) { if (p.id === this.it) this.it = null; }
   update(dt) {
     let it = this.room.players.get(this.it);

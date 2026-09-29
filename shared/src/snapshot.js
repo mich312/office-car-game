@@ -21,6 +21,10 @@ const S_ZONE = 256;
 const S_IT = 512;
 const S_SUMO = 1024;
 const S_LCS = 2048; // Last Car Standing: locked rooms, closure warning, alive count
+// Heights of dropped things (the battery, beans) that landed on furniture.
+// Written after every other section so a decoder that doesn't know it just
+// ignores the tail; absent (all on the floor) it costs nothing.
+const S_DROP_Y = 1 << 14;
 
 const POS = 100; // 1 cm
 const QUAT = 1000;
@@ -96,6 +100,8 @@ export function encodeSnapshot(snap) {
   if (snap.it != null) sections |= S_IT;
   if (snap.sumo) sections |= S_SUMO;
   if (snap.lcs) sections |= S_LCS;
+  const beansOut = snap.beans && snap.beans.length > 255 ? snap.beans.slice(0, 255) : snap.beans;
+  if ((snap.battery && snap.battery.y) || (beansOut && beansOut.some((b) => b[3]))) sections |= S_DROP_Y;
 
   w.f64(t);
   w.u16(sections);
@@ -139,9 +145,8 @@ export function encodeSnapshot(snap) {
   if (sections & S_BEANS) {
     // the count byte is u8: write exactly the entries the count promises, or
     // a 256+ bean pile shifts every later section into garbage on decode
-    const beans = snap.beans.length > 255 ? snap.beans.slice(0, 255) : snap.beans;
-    w.u8(beans.length);
-    for (const [id, x, z] of beans) { w.id16(id); w.i16(x * POS); w.i16(z * POS); }
+    w.u8(beansOut.length);
+    for (const [id, x, z] of beansOut) { w.id16(id); w.i16(x * POS); w.i16(z * POS); }
   }
   if (sections & S_BATTERY) {
     w.i16(snap.battery.x * POS); w.i16(snap.battery.z * POS);
@@ -177,6 +182,10 @@ export function encodeSnapshot(snap) {
       w.u8(0);
     }
     w.u8(snap.lcs.alive || 0);
+  }
+  if (sections & S_DROP_Y) {
+    if (sections & S_BATTERY) w.i16((snap.battery.y || 0) * POS);
+    if (sections & S_BEANS) for (const b of beansOut) w.i16((b[3] || 0) * POS);
   }
   return w.bytes();
 }
@@ -259,6 +268,10 @@ export function decodeSnapshot(data) {
     let warn = null;
     if (r.u8()) warn = { room: ALL_ROOM_IDS[r.u8()], until: time + r.u32() };
     snap.lcs = { locked, warn, alive: r.u8() };
+  }
+  if (sections & S_DROP_Y) {
+    if (snap.battery) snap.battery.y = r.i16() / POS;
+    if (snap.beans) for (const b of snap.beans) b.push(r.i16() / POS);
   }
   return snap;
 }

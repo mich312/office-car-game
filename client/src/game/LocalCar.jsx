@@ -17,7 +17,7 @@ import {
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
-  landingStrength, impactStrength, chaseHeading, raceSpawn,
+  landingStrength, impactStrength, chaseHeading, raceSpawn, soccerKickoff,
   SURFACES, surfaceAt, floorHeight, seamCell,
 } from '@rc/shared';
 import { useStore } from '../store.js';
@@ -193,24 +193,26 @@ export default function LocalCar() {
     }
   };
 
+  // spawnIndex is GLOBAL join order and teams alternate by it, so a team's
+  // members hold every other index — indexing the 6 team spots by it
+  // repeats once a team has 4+ members, teleporting teammates into the same
+  // spot (two overlapping bodies explode at GO). Use the player's ordinal
+  // within their own team: unique per team, and identical on every client
+  // (and the server, which places bots the same way) since the teams arrive
+  // in the same order everywhere.
+  const myKickoff = () => {
+    const team = net.teams[net.myId] || 0;
+    const ord = Object.keys(net.teams).filter((id) => (net.teams[id] || 0) === team).indexOf(net.myId);
+    return soccerKickoff(currentMap(), team, ord >= 0 ? ord : net.spawnIndex);
+  };
+
   // ------------------------------------------------ server events → physics
   useEffect(() => {
     const offs = [
       on('match_start', () => {
         const st = useStore.getState();
         if (st.modeId === 'soccer') {
-          const team = net.teams[net.myId] || 0;
-          const kick = currentMap().SOCCER.kickoff;
-          const spots = kick.filter((_, i) => (i < 4 ? 0 : i < 8 ? 1 : i < 10 ? 0 : 1) === team);
-          // spawnIndex is GLOBAL join order and teams alternate by it, so a
-          // team's members hold every other index — indexing the 6 team spots
-          // by it repeats once a team has 4+ members, teleporting teammates
-          // into the same spot (two overlapping bodies explode at GO).
-          // Use the player's ordinal within their own team: unique per team,
-          // and identical on every client since msg.teams arrives in the
-          // same order everywhere.
-          const ord = Object.keys(net.teams).filter((id) => (net.teams[id] || 0) === team).indexOf(net.myId);
-          const sp = spots[(ord >= 0 ? ord : net.spawnIndex) % spots.length] || kick[0];
+          const sp = myKickoff();
           teleport(sp.x, SPAWN_Y, sp.z, sp.rotY);
         } else {
           // the grid faces the lap's first checkpoint: north for a reverse race

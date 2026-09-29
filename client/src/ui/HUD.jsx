@@ -274,6 +274,7 @@ function MatchHUD() {
   const powerup = useStore((s) => s.powerup);
   const myBeans = useStore((s) => s.myBeans);
   const teamScores = useStore((s) => s.teamScores);
+  const myTeam = useStore((s) => s.players[s.myId]?.team) ? 1 : 0;
   const raceProgress = useStore((s) => s.raceProgress);
   const myId = useStore((s) => s.myId);
   const endsAt = useStore((s) => s.endsAt);
@@ -331,6 +332,14 @@ function MatchHUD() {
               <span className="dot" style={{ background: '#ff8a3d' }} />
               <span className="team-score">{teamScores[0]} — {teamScores[1]}</span>
               <span className="dot" style={{ background: '#4da3ff' }} />
+            </div>
+          )}
+          {modeId === 'soccer' && !spectating && players[myId] && (
+            // which side you're on was never said anywhere: the chip, the
+            // floor ring under your car and the minimap all say it now
+            <div className="chip">
+              YOU: <span className="dot" style={{ background: myTeam ? '#4da3ff' : '#ff8a3d' }} /> {myTeam ? 'BLUE' : 'ORANGE'}
+              {' '}→ attack the <span className="dot" style={{ background: myTeam ? '#ff8a3d' : '#4da3ff' }} /> goal
             </div>
           )}
           {modeId === 'battery' && (
@@ -516,10 +525,24 @@ function Minimap() {
       if (st.modeId === 'coffee_run') {
         g.fillStyle = 'rgba(201, 139, 74, 0.55)';
         for (const b of net.beans || []) { g.beginPath(); g.arc(px(b[1]), pz(b[2]), 1.6, 0, 7); g.fill(); }
+        // the machine: an objective like any other (on the cellar it's out
+        // of sight behind a wall); brighter while you have beans to deliver
+        const cm = map.COFFEE_MACHINE;
+        const loaded = st.myBeans > 0;
+        g.strokeStyle = `rgba(63, 255, 170, ${loaded ? 0.55 + 0.45 * pulse : 0.35})`;
+        g.lineWidth = loaded ? 2 : 1.5;
+        g.beginPath(); g.arc(px(cm.deliverX), pz(cm.deliverZ), Math.max(3, cm.radius * 2 * sx), 0, 7); g.stroke();
       }
       if (st.modeId === 'battery' && net.battery) {
         g.fillStyle = `rgba(74, 222, 128, ${0.5 + 0.5 * pulse})`;
         g.fillRect(px(net.battery.x) - 3, pz(net.battery.z) - 3, 6, 6);
+      }
+      if (st.modeId === 'soccer') {
+        // the goals, in the colour of the team defending them
+        for (const gl of map.SOCCER.goals) {
+          g.fillStyle = gl.team ? '#4da3ff' : '#ff8a3d';
+          g.fillRect(px(gl.x) - 1.5, pz(gl.z + gl.width / 2), 3, Math.max(3, gl.width * sz));
+        }
       }
       if (st.modeId === 'soccer' && net.ball) {
         g.fillStyle = '#fff';
@@ -562,7 +585,7 @@ function Minimap() {
         if (!s) continue;
         const p = st.players[id];
         g.globalAlpha = p?.bot ? 0.55 : 1;
-        g.fillStyle = p?.paint || '#9aa7c0';
+        g.fillStyle = st.modeId === 'soccer' ? (p?.team ? '#4da3ff' : '#ff8a3d') : p?.paint || '#9aa7c0';
         g.beginPath(); g.arc(px(s.p[0]), pz(s.p[2]), 2.6, 0, 7); g.fill();
         g.globalAlpha = 1;
       }

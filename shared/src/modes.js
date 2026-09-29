@@ -125,7 +125,7 @@ export const ABILITY_FX = { RAM_S: 2, OVERDRIFT_S: 3, DRS_S: 3, DRS_TOP_MULT: 1.
 // Mutators: a 30% post-lobby twist on the next round, announced at START.
 export const MUTATORS = {
   moon_gravity: { id: 'moon_gravity', name: 'Moon Gravity', icon: '🌙', desc: 'Facilities broke gravity. Everything floats.', gravity: 0.45 },
-  giant_ball: { id: 'giant_ball', name: 'Giant Ball', icon: '🎈', desc: 'Someone inflated the ball overnight.', scale: 1.8, soccerOnly: true },
+  giant_ball: { id: 'giant_ball', name: 'Giant Ball', icon: '🎈', desc: 'Someone inflated the ball overnight.', scale: 1.5, soccerOnly: true },
   mug_rain: { id: 'mug_rain', name: 'Mug Rain', icon: '☕', desc: 'The ceiling is raining mugs. Naturally.', intervalS: 3.5 },
   tiny_cars: { id: 'tiny_cars', name: 'Tiny Cars', icon: '🐜', desc: 'Everyone got shrunk in the wash.' },
 };

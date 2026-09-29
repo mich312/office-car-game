@@ -8,6 +8,7 @@ import {
   DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
+import { navOf } from './nav.js';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -20,6 +21,10 @@ const BOT_TURBO_S = 1.5; // how long a turbo item surges a bot
 const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
+// modes whose goals can be anywhere on the floor route on the nav grid
+const GRID_NAV_MODES = new Set(['coffee_run', 'battery', 'soccer', 'tag']);
+const BOT_CONTACT = 1.05; // centre distance that counts as two bots touching (separate()'s personal space)
+const SOCCER_LINED_UP = 0.7; // cos of the angle behind the ball a striker attacks from
 
 // Wall AABBs (padded by a car's half-width) per map, built once.
 const boxCache = new WeakMap();
@@ -168,7 +173,24 @@ export class Bots {
         }
       }
     }
+    this.contacts();
     this.separate();
+  }
+
+  // Bots have no client to report their contacts, so the server raises the
+  // bot-vs-bot ones (before separate() pushes them apart). Bot-vs-human is
+  // left to the human's client, whose real colliders saw the contact — this
+  // circle would echo knockback for touches that never happened. onBump
+  // decides who hit whom and owns the per-pair cooldowns.
+  contacts() {
+    const bots = [...this.room.players.values()].filter((p) => p.bot && !p.eliminated);
+    for (let i = 0; i < bots.length; i++) {
+      for (let j = i + 1; j < bots.length; j++) {
+        const a = bots[i], b = bots[j];
+        if (Math.abs(a.p[1] - b.p[1]) > 1) continue; // one is hopping over the other
+        if (Math.hypot(a.p[0] - b.p[0], a.p[2] - b.p[2]) < BOT_CONTACT) this.room.onBump(a, b);
+      }
+    }
   }
 
   // Bots have no collision shapes, so without this they drive through each
@@ -183,7 +205,7 @@ export class Bots {
         if (o === b) continue;
         const dx = b.p[0] - o.p[0], dz = b.p[2] - o.p[2];
         const d = Math.hypot(dx, dz);
-        const minD = 1.05;
+        const minD = BOT_CONTACT;
         if (d >= minD) continue;
         if (d < 1e-4) { b.p[0] += 0.1; continue; }
         const push = (minD - d) * (o.bot ? 0.5 : 1);
@@ -239,8 +261,9 @@ export class Bots {
       }
     } else if (modeId === 'battery' && mode) {
       const b = mode.battery;
+      const c = b.carrier && this.room.players.get(b.carrier);
       if (b.carrier === p.id) goal = null; // run the lap while holding it
-      else goal = { x: b.x, z: b.z };
+      else goal = c ? this.intercept(p, c) : { x: b.x, z: b.z };
     } else if (modeId === 'last_standing' && mode) {
       const bad = (id) => mode.locked.includes(id) || mode.warn?.room === id;
       const myRoom = this.room.map.roomAt(p.p[0], p.p[2]);
@@ -263,13 +286,7 @@ export class Bots {
         }
       }
     } else if (modeId === 'soccer' && mode) {
-      const ball = mode.ball;
-      // Aim slightly behind the ball relative to the opposing goal
-      const opp = this.room.map.SOCCER.goals[1 - p.team];
-      const gx = opp.x, gz = opp.z;
-      const dx = ball.p[0] - gx, dz = ball.p[2] - gz;
-      const len = Math.hypot(dx, dz) || 1;
-      goal = { x: ball.p[0] + (dx / len) * 1.2, z: ball.p[2] + (dz / len) * 1.2 };
+      goal = this.soccerTarget(p, mode);
     } else if (modeId === 'koth' && mode) {
       // park inside the zone, spread out on a per-bot orbit angle
       const z = mode.zonePos();
@@ -310,6 +327,13 @@ export class Bots {
     if (!goal) return this.followRaceLine(p);
     // Navigate: direct if clear, else route along the path loop
     if (!lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], goal.x, goal.z)) return goal;
+    // Chasing a thing (beans, the machine, the battery, the ball, It): the
+    // grid finds rooms the racing line never enters
+    if (GRID_NAV_MODES.has(modeId)) {
+      const boxes = wallBoxesOf(this.room.map);
+      const wp = navOf(this.room.map).toward(p.p[0], p.p[2], goal.x, goal.z, (x1, z1, x2, z2) => lineBlocked(boxes, x1, z1, x2, z2));
+      if (wp) return wp;
+    }
     const wpB = nearestWp(goal.x, goal.z, PATH);
     let wpA = nearestWp(p.p[0], p.p[2], PATH);
     const N = PATH.length;
@@ -324,6 +348,65 @@ export class Bots {
       else break;
     }
     return PATH[next];
+  }
+
+  // Line up behind the ball, then drive into it at the goal. Aiming at a
+  // point just behind the ball (inside kick reach) from the wrong side kicked
+  // it into the bot's own goal: 30-40 % of all goals were own goals. So the
+  // striker on the goal side swings round the ball's flank, clear of its
+  // reach, until it is behind it — and only then attacks. The rest of the
+  // team don't all pile in (six cars on the ball is a scrum nobody scores
+  // from): the next one backs up the striker, the others keep goal.
+  soccerTarget(p, mode) {
+    const ball = mode.ball;
+    const goals = this.room.map.SOCCER.goals;
+    const opp = goals.find((g) => g.team !== p.team) || goals[0];
+    const own = goals.find((g) => g.team === p.team) || goals[1];
+    let ux = ball.p[0] - opp.x, uz = ball.p[2] - opp.z; // goal → ball: "behind" the ball
+    const ul = Math.hypot(ux, uz) || 1;
+    ux /= ul; uz /= ul;
+    const reach = mode.R + 0.75;
+    const set = reach + 1.5;
+    // role by distance to the ball within the team (humans count)
+    const d = (q) => Math.hypot(q.p[0] - ball.p[0], q.p[2] - ball.p[2]);
+    const mine = d(p);
+    let rank = 0;
+    for (const q of this.room.players.values()) {
+      if (q !== p && q.team === p.team && !q.eliminated && (d(q) < mine || (d(q) === mine && q.id < p.id))) rank++;
+    }
+    if (rank >= 2) {
+      // keeper: on the line from our goal to the ball, a few metres out
+      const kx = ball.p[0] - own.x, kz = ball.p[2] - own.z;
+      const kl = Math.hypot(kx, kz) || 1;
+      const out = Math.min(kl * 0.5, 8 + (rank - 2) * 5);
+      return { x: own.x + (kx / kl) * out, z: own.z + (kz / kl) * out };
+    }
+    const bx = p.p[0] - ball.p[0], bz = p.p[2] - ball.p[2];
+    const bl = Math.hypot(bx, bz) || 1;
+    const behind = (bx * ux + bz * uz) / bl;
+    // lined up: aim just behind the ball on the goal line, so the car meets
+    // it square from behind and the kick goes goalward. The support car
+    // hangs back behind the play instead, ready for the rebound.
+    if (rank === 0 && behind > SOCCER_LINED_UP) return { x: ball.p[0] + ux * 1.2, z: ball.p[2] + uz * 1.2 };
+    if (behind > 0) {
+      const back = rank === 0 ? set : set + 4;
+      return { x: ball.p[0] + ux * back, z: ball.p[2] + uz * back };
+    }
+    // goal side: round the flank this bot is already on
+    const side = bx * -uz + bz * ux >= 0 ? 1 : -1;
+    return { x: ball.p[0] + (-uz * side + ux * 0.5) * set, z: ball.p[2] + (ux * side + uz * 0.5) * set };
+  }
+
+  // Where to aim for a battery carrier: where it's going to be. Tailing it
+  // closes only at the speed the battery costs it — a rub, never a hit — so
+  // a chaser aiming at its current spot could follow it for minutes (one bot
+  // kept the battery 164 s of 180). You're It keeps the plain chase: there
+  // any rub tags, and fleeing is meant to be the skill.
+  intercept(p, target) {
+    const d = Math.hypot(target.p[0] - p.p[0], target.p[2] - p.p[2]);
+    const lead = Math.min(1.2, d / Math.max(8, p.speed || 0));
+    const v = target.v || [0, 0, 0];
+    return { x: target.p[0] + v[0] * lead, z: target.p[2] + v[2] * lead };
   }
 
   // The world as the item logic needs it, in the bot's own frame.
