@@ -3,7 +3,7 @@
 // way to its win condition pays out what it says it does.
 import {
   CHECKPOINTS, MODES, KOTH_SPOTS, SUMO_ZONE, SPAWNS, MODE_VARIANTS, BEAN_SPAWNS, PICKUP_RADIUS, MAP_IDS,
-  clearDropSpot, groundAt, M,
+  clearDropSpot, groundAt, wallBetween, M,
   raceCheckpoints, raceBotPath, raceSpawn, rollVariant, variantOf, sumoCenter, kothHopSeconds, BOT_PATH, MAPS,
 } from '../shared/src/index.js';
 import { createMode } from '../server/src/modes.js';
@@ -176,6 +176,33 @@ for (const mapId of MAP_IDS) {
   const fallen = mode.beans.filter((b) => b.id >= 1000);
   check('coffee: a fall spill lands on the floor, inside the building', fallen.length === 5
     && fallen.every((b) => b.y === 0 && room.map.roomAt(b.x, b.z) && b.x > room.map.MAP_BOUNDS.minX));
+}
+
+// Beans are delivered in sight of the machine: on the cellar the zone's
+// circle reached through the boiler-room wall into the corridor.
+for (const mapId of MAP_IDS) {
+  const map = MAPS[mapId];
+  const cm = map.COFFEE_MACHINE;
+  const a = player('p1', 'Alice');
+  const room = stubRoom([a]);
+  room.map = map;
+  const mode = createMode('coffee_run', room);
+  mode.beans = [];
+  let through = 0, inSight = 0;
+  for (let i = 0; i < 400; i++) {
+    const ang = i * 2.399, rr = cm.radius * 2 * Math.sqrt((i % 20 + 0.5) / 20);
+    const x = cm.deliverX + Math.cos(ang) * rr, z = cm.deliverZ + Math.sin(ang) * rr;
+    a.p = [x, 0.24, z]; a.beans = 2; a.score = 0;
+    mode.update();
+    if (wallBetween(map, cm.deliverX, cm.deliverZ, x, z)) { if (a.beans === 0) through++; } else if (a.beans === 0) inSight++;
+  }
+  check(`${mapId} coffee: no delivery through a wall (${through}), deliveries in sight of the machine (${inSight})`, through === 0 && inSight > 0);
+}
+{
+  // the cellar's ring is inside the boiler room, clear of the race grid
+  const map = MAPS.cellar, cm = map.COFFEE_MACHINE;
+  const boiler = map.ROOMS.find((r) => r.id === 'boiler');
+  check('cellar coffee: the delivery ring stays in the boiler room', cm.deliverZ - cm.radius * 2 > boiler.z - boiler.d / 2);
 }
 
 // Capture the Battery: a hit knocks it clear and the victim can't grab it back.

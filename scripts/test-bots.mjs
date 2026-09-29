@@ -10,7 +10,7 @@ import {
   shouldUseItem, padWorthDetour, ITEM_REACT_S, ITEM_FALLBACK_S, SHIELD_ROCKET_RANGE,
 } from '../server/src/botbrain.js';
 import { CHECKPOINTS, POWERUP_EFFECT as FX, BOOST_TOP_MULT, MSG } from '../shared/src/index.js';
-import { MAPS, MAP_IDS } from '../shared/src/index.js';
+import { MAPS, MAP_IDS, clearDropSpot } from '../shared/src/index.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -205,6 +205,16 @@ for (const [mode, variant] of [['sumo', 'drift'], ['koth', 'rush']]) {
       check(`${map} contact: a report from 3 units away is not believed`, a.beans === 5 && sim.room.lastBump.size === 0);
     }
     {
+      // the final whistle takes the loads off (the roof battery and its
+      // speed penalty used to ride on through the podium into the lobby)
+      const sim = await createSim({ seed: 1, mode: 'battery', map, bots: 1 });
+      const h = human(sim, 'h1');
+      sim.room.mode.battery.carrier = h.id; h.hasBattery = true; h.beans = 3;
+      sim.room.endsAt = sim.now();
+      sim.run(0.1);
+      check(`${map} battery: nobody carries it into the podium`, sim.room.phase === 'podium' && !h.hasBattery && h.beans === 0);
+    }
+    {
       // bots only, no items: every transfer of It is a contact the server saw
       const sim = await createSim({ seed: 2, mode: 'tag', map });
       sim.room.bots.items = false;
@@ -230,6 +240,49 @@ for (const [mode, variant] of [['sumo', 'drift'], ['koth', 'rush']]) {
       check(`${map} tag: a rub does not steal It through a shield (it pops it)`, sim.room.mode.it === b.id && !(b.shieldUntil > sim.now()));
     }
   }
+}
+
+// ------------------------------------------------------- finding things
+// A lone bot (no items, no office events) has to find its way anywhere on
+// the floor: the racing line skips whole rooms, and on the cellar loaded
+// bots circled the corridor for minutes, unable to find the boiler room.
+for (const map of MAP_IDS) {
+  const M = MAPS[map];
+  const alone = async (seed, mode) => {
+    const sim = await createSim({ seed, mode, map, bots: 1 });
+    for (const o of sim.bots.slice(1)) sim.room.players.delete(o.id);
+    sim.room.bots.items = false;
+    sim.room.nextEventAt = Infinity;
+    const b = sim.bots[0];
+    b.powerup = null;
+    return { sim, b };
+  };
+  let worst = 0, failed = 0;
+  for (let i = 0; i < M.BEAN_SPAWNS.length; i += 2) {
+    const { sim, b } = await alone(i + 1, 'coffee_run');
+    const s = M.BEAN_SPAWNS[i];
+    b.p = [s.x, 0.24, s.z]; b.beans = 5;
+    sim.room.mode.beans = []; // nothing to pick up on the way
+    const t0 = sim.now();
+    let at = null;
+    sim.run(20, (x) => { if (at === null && b.beans === 0) at = (x.now() - t0) / 1000; });
+    if (at === null) failed++; else worst = Math.max(worst, at);
+  }
+  check(`${map} coffee: a loaded bot delivers from anywhere within 20 s (${failed} failed, slowest ${worst.toFixed(1)} s)`, failed === 0);
+  const missed = [];
+  let tried = 0;
+  for (const r of M.ROOMS) {
+    for (let k = 0; k < 6; k++) {
+      const x = r.x + ((k % 3) / 2 - 0.5) * r.w * 0.7, z = r.z + (Math.floor(k / 3) - 0.5) * r.d * 0.6;
+      if (!clearDropSpot(M, x, z, x, z, { pad: 0.8 })) continue;
+      const { sim, b } = await alone(++tried, 'battery');
+      b.p = [M.SPAWNS[0].x, 0.24, M.SPAWNS[0].z];
+      Object.assign(sim.room.mode.battery, { x, z, carrier: null });
+      sim.run(40, () => {});
+      if (!sim.room.mode.battery.carrier) missed.push(r.id);
+    }
+  }
+  check(`${map} battery: a bot reaches a loose battery in every room within 40 s (missed ${missed.length}/${tried}${missed.length ? `: ${missed.join(', ')}` : ''})`, missed.length === 0);
 }
 
 // --------------------------------------------------- every mode still runs

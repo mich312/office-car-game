@@ -8,6 +8,7 @@ import {
   DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
+import { navOf } from './nav.js';
 
 const BOT_NAMES = [
   'Stapler', 'Karen from HR', 'The Intern', 'Deskzilla', 'Mr. Mondays',
@@ -20,6 +21,8 @@ const BOT_TURBO_S = 1.5; // how long a turbo item surges a bot
 const HOP_S = 0.9, HOP_H = 2.4; // spring item: air time and apex (units)
 const OIL_SLIDE_S = 0.6; // a bot keeps sliding this long after leaving oil
 const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
+// modes whose goals can be anywhere on the floor route on the nav grid
+const GRID_NAV_MODES = new Set(['coffee_run', 'battery', 'soccer', 'tag']);
 const BOT_CONTACT = 1.05; // centre distance that counts as two bots touching (separate()'s personal space)
 
 // Wall AABBs (padded by a car's half-width) per map, built once.
@@ -294,6 +297,13 @@ export class Bots {
     if (!goal) return this.followRaceLine(p);
     // Navigate: direct if clear, else route along the path loop
     if (!lineBlocked(wallBoxesOf(this.room.map), p.p[0], p.p[2], goal.x, goal.z)) return goal;
+    // Chasing a thing (beans, the machine, the battery, the ball, It): the
+    // grid finds rooms the racing line never enters
+    if (GRID_NAV_MODES.has(modeId)) {
+      const boxes = wallBoxesOf(this.room.map);
+      const wp = navOf(this.room.map).toward(p.p[0], p.p[2], goal.x, goal.z, (x1, z1, x2, z2) => lineBlocked(boxes, x1, z1, x2, z2));
+      if (wp) return wp;
+    }
     const wpB = nearestWp(goal.x, goal.z, PATH);
     let wpA = nearestWp(p.p[0], p.p[2], PATH);
     const N = PATH.length;

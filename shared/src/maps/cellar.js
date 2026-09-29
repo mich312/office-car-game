@@ -230,8 +230,9 @@ const BEAN_SPAWNS = [
   cp(4.5, -4), cp(7.5, -7.5), cp(1.5, -8),
   cp(12.1, -2.5), cp(14.3, -8), cp(16.6, -5.2),
 ];
-// the coffee maker lives on the boiler-room counter by the door
-const COFFEE_MACHINE = { x: u(-16.5), z: u(3.55), deliverX: u(-16.5), deliverZ: u(4.8), radius: u(1.3) };
+// the coffee maker lives on the boiler-room counter by the door; the
+// delivery ring sits back from it so it stays inside the boiler room
+const COFFEE_MACHINE = { x: u(-16.5), z: u(3.55), deliverX: u(-16.5), deliverZ: u(5.8), radius: u(1.3) };
 
 const BATTERY_SPAWN = cp(1.5, 1); // the crossroads
 
