@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
-const MAX_QUADS = 800; // shared ring buffer across both rear wheels
+const MAX_QUADS = 1600; // shared ring buffer across every drifting car's rear wheels
 const VERTS = MAX_QUADS * 6;
 const FADE_S = 9;
 const WIDTH = 0.09;
@@ -15,10 +15,10 @@ const positions = new Float32Array(VERTS * 3);
 const births = new Float32Array(VERTS).fill(-1e9);
 let cursor = 0; // quad index
 let clockNow = 0;
-const prev = [null, null]; // last contact point per rear wheel
+const prev = {}; // last contact point per wheel key
 
 // Called from LocalCar's physics step: wheel = 0 (rear-left) | 1 (rear-right),
-// world-space contact x/z. Pass null to break the ribbon (airborne, no slip).
+// and from RemoteCars with a per-car string key; world-space contact x/z. Pass null to break the ribbon (airborne, no slip).
 export function skid(wheel, x, z) {
   if (x === null) { prev[wheel] = null; return; }
   const p = prev[wheel];

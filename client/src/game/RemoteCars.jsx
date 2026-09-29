@@ -9,6 +9,8 @@ import { CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, POWERUP_EFFECT } from '@rc/sha
 import { useStore } from '../store.js';
 import { net, sampleRemote } from '../net.js';
 import CarModel, { CarProxy } from './CarModel.jsx';
+import { puff } from './particles.jsx';
+import { skid } from './SkidMarks.jsx';
 
 export default function RemoteCars() {
   const players = useStore((s) => s.players);
@@ -26,6 +28,9 @@ export default function RemoteCars() {
 const _rq = new THREE.Quaternion();
 const _rfwd = new THREE.Vector3();
 const _rright = new THREE.Vector3();
+const _rcorner = new THREE.Vector3();
+const REAR = [[-0.28, -0.15, -0.34], [0.28, -0.15, -0.34]];
+const FX_RANGE = 40; // drift smoke & skid marks only near the camera
 
 const RemoteCar = memo(function RemoteCar({ player }) {
   const rb = useRef();
@@ -38,7 +43,9 @@ const RemoteCar = memo(function RemoteCar({ player }) {
   const last = useRef(null);
   const lastVel = useRef(null);
 
-  useFrame((_, dt) => {
+  const skidKeys = [`${player.id}:0`, `${player.id}:1`];
+
+  useFrame((state, dt) => {
     const s = sampleRemote(player.id);
     if (!s || !rb.current) return;
     rb.current.setNextKinematicTranslation({ x: s.p[0], y: s.p[1], z: s.p[2] });
@@ -66,6 +73,26 @@ const RemoteCar = memo(function RemoteCar({ player }) {
       lastVel.current = [vx, vz];
     }
     last.current = [...s.p];
+
+    // Rivals' drifts and boosts, from the snapshot flags (bit 1 drifting,
+    // 2 grounded, 256 boosting). The drifting bit was always sent and never
+    // drawn, so nobody ever saw anyone else drift.
+    const f = s.f || 0;
+    boostingRef.current = !!(f & 256);
+    const cam = state.camera.position;
+    const near = Math.hypot(s.p[0] - cam.x, s.p[2] - cam.z) < FX_RANGE;
+    if (near && (f & 1) && (f & 2) && speedRef.current > 4) {
+      _rq.set(s.q[0], s.q[1], s.q[2], s.q[3]);
+      for (let i = 0; i < 2; i++) {
+        _rcorner.set(REAR[i][0], REAR[i][1], REAR[i][2]).applyQuaternion(_rq);
+        const x = s.p[0] + _rcorner.x, y = s.p[1] + _rcorner.y, z = s.p[2] + _rcorner.z;
+        skid(skidKeys[i], x, z);
+        if (Math.random() < 0.3) puff([x, y, z], [0, 0.5, 0], 0.3, '#e8e8e8');
+      }
+    } else {
+      skid(skidKeys[0], null);
+      skid(skidKeys[1], null);
+    }
     if (group.current) {
       // KO flag (bit 128): Last Car Standing ghosts vanish; sumo KOs keep
       // driving as mobile chicanes, so they stay visible there

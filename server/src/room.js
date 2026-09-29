@@ -178,6 +178,7 @@ export class Room {
         const v = finiteVec(msg.v, 3);
         if (v) player.v = clampSpeed(v, NUDGE_MAX_SPEED);
         player.drifting = !!msg.d;
+        player.boostingNow = !!msg.b;
         player.grounded = !!msg.g;
         // Our own record of where this car has been, so a respawn proposal can
         // be checked against somewhere it actually drove (see respawnPlayer).
@@ -502,12 +503,12 @@ export class Room {
     for (const pad of this.pads) {
       if (t < pad.readyAt) continue;
       for (const p of this.players.values()) {
-        if (p.eliminated || p.powerup || p.bot && Math.random() < 0.5) continue;
+        if (p.eliminated || p.powerup || p.bot && (!this.bots.items || Math.random() < 0.5)) continue;
         if (Math.hypot(p.p[0] - pad.x, p.p[2] - pad.z) < PICKUP_RADIUS) {
           pad.readyAt = t + FX.PAD_COOLDOWN_S * 1000;
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup, pad: pad.i });
-          else p.botUseAt = t + 1500 + Math.random() * 4000;
+          else p.itemAt = t; // bots decide when (botbrain.js)
           this.broadcast({ t: MSG.EFFECT, type: 'pad_taken', pad: pad.i, until: pad.readyAt });
           break;
         }
@@ -596,10 +597,21 @@ export class Room {
         break;
       }
       case 'swap': {
-        const other = others[Math.floor(Math.random() * others.length)];
-        if (!other) break;
+        // a car that has already finished its race is out of the running
+        const pool = this.modeId === 'desk_dash' ? others.filter((p) => !p.finished) : others;
+        const other = pool[Math.floor(Math.random() * pool.length)];
+        if (!other || (this.modeId === 'desk_dash' && player.finished)) break;
         const pa = [...player.p], pb = [...other.p];
         player.p = pb; other.p = pa;
+        if (this.modeId === 'desk_dash') {
+          // Trading places has to trade RACE places too. Swapping bodies but
+          // not progress left a car that was swapped forward with its next
+          // checkpoint behind it — a U-turn for a human, a whole lost lap for
+          // a bot — so "trade places" never traded places.
+          for (const k of ['lap', 'nextCp', 'score']) [player[k], other[k]] = [other[k], player[k]];
+          player.poseRing = []; other.poseRing = []; // old ground is no longer "ours" to respawn on
+          this.scoreChanged();
+        }
         player.allowTeleportUntil = other.allowTeleportUntil = t + 1500;
         this.broadcast({ t: MSG.EFFECT, type: 'swap', a: player.id, b: other.id, pa: pb, pb: pa });
         this.feed(`🔀 ${player.name} swapped with ${other.name}`);
@@ -609,6 +621,7 @@ export class Room {
         this.broadcast({ t: MSG.EFFECT, type: 'fake', id: player.id });
         break;
     }
+    if (player.bot) this.bots.onItemUsed(player, pw, t);
   }
 
   updateRockets(dt, t) {
@@ -782,10 +795,10 @@ export class Room {
         if (Math.hypot(p.p[0] - VENDING.x, p.p[2] - VENDING.z) > VENDING.radius) continue;
         this.vendReadyAt = t + VENDING.cooldownS * 1000;
         const golden = Math.random() < VENDING.goldenChance;
-        if (golden && !p.powerup) {
+        if (golden && !p.powerup && (!p.bot || this.bots.items)) {
           p.powerup = this.rollPowerup(p);
           if (!p.bot) this.sendTo(p, { t: MSG.PICKUP, powerup: p.powerup });
-          else p.botUseAt = t + 1500 + Math.random() * 4000;
+          else p.itemAt = t; // bots decide when (botbrain.js)
         }
         this.broadcast({ t: MSG.EFFECT, type: 'vending', id: p.id, golden });
         this.feed(golden ? `🥇 ${p.name} rammed the vending machine — golden can!` : `🥤 ${p.name} rammed the vending machine`);
@@ -889,7 +902,7 @@ export class Room {
         f: (p.drifting ? 1 : 0) | (p.grounded ? 2 : 0) | (p.stunUntil > t ? 4 : 0) |
            (p.shieldUntil > t ? 8 : 0) | (p.shrinkUntil > t ? 16 : 0) |
            (p.hasBattery ? 32 : 0) | (p.spawnProtectUntil > t ? 64 : 0) |
-           (p.sumoDead || p.eliminated ? 128 : 0),
+           (p.sumoDead || p.eliminated ? 128 : 0) | (p.boostingNow ? 256 : 0),
         c: p.beans,
       };
     }

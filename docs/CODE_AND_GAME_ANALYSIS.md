@@ -57,10 +57,16 @@ progression that makes you faster — XP buys hats.
   round pays 3/s (≈540 max); Desk Dash pays 500 for a win *plus* an inflated progress score
   (see §4.6). Whichever modes the cup rolls decides how much the cup is worth, so round 1 can
   dominate rounds 2–3.
-- **Bots are competent but legible.** They follow a 39-point racing line with a
-  `skill ∈ [0.62, 0.88]` speed multiplier and no awareness of powerups aimed at them, no
-  drifting, no boost. They read as traffic more than as opponents — which is arguably right
-  for a party game, but it caps solo play.
+- **Bots read as traffic — for reasons that turned out to be bugs.** Simulating whole
+  matches headlessly (`scripts/bot-sim.mjs`) showed that in Desk Dash **no bot finished a
+  lap**: the race line swaps waypoints 5 units out, so every bot cut inside the balcony
+  checkpoint (#15) by half a unit on every lap. And **no bot ever held an item** in a race:
+  every pad sits 2-29 units off the race line with a 1.6-unit pickup radius. Fixed, along
+  with the rest of what made them feel like traffic — they now detour for pads, fire each
+  item in the situation it's for (`server/src/botbrain.js`), feel turbos, springs and
+  puddles, boost on straights and drift corners into mini-turbos with the player's own
+  drift state machine. `scripts/test-bots.mjs` holds their pace to a band (mean first lap
+  34-48 s; flat out is 29 s) so they stay beatable.
 
 ---
 

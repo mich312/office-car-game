@@ -107,7 +107,7 @@ export function encodeSnapshot(snap) {
     w.str(id);
     w.i16(p.p[0] * POS); w.i16(p.p[1] * POS); w.i16(p.p[2] * POS);
     w.i16(p.q[0] * QUAT); w.i16(p.q[1] * QUAT); w.i16(p.q[2] * QUAT); w.i16(p.q[3] * QUAT);
-    w.u8(p.f || 0);
+    w.u16(p.f || 0); // flags; bit 256 = boosting, so it outgrew a byte
     w.u8(p.c || 0);
   }
 
@@ -193,7 +193,7 @@ export function decodeSnapshot(data) {
     snap.players[id] = {
       p: [r.i16() / POS, r.i16() / POS, r.i16() / POS],
       q: [r.i16() / QUAT, r.i16() / QUAT, r.i16() / QUAT, r.i16() / QUAT],
-      f: r.u8(),
+      f: r.u16(),
       c: r.u8(),
     };
   }

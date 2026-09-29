@@ -9,7 +9,7 @@ const snap = {
   t: 'ss', time: t,
   players: {
     p1: { p: [-13.42, 0.31, -5.99], q: [0.001, 0.7071, -0.002, 0.7071], f: 1 | 2 | 64, c: 3 },
-    bot2: { p: [66.6, 3.3, -40.0], q: [0, 0, 0, 1], f: 128 | 32, c: 0 },
+    bot2: { p: [66.6, 3.3, -40.0], q: [0, 0, 0, 1], f: 256 | 128 | 32, c: 0 }, // 256 = boosting
   },
   puddles: [{ id: 7, kind: 'oil', x: 1.23, z: -4.56, until: t + 8000 }, { id: 8, kind: 'coffee', x: 0, z: 0, until: t + 100 }],
   rockets: [{ id: 3, owner: 'p1', target: 'bot2', p: [10.1, 2.2, -3.3] }],

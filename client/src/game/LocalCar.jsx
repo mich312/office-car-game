@@ -970,7 +970,7 @@ export default function LocalCar() {
         [pos.x, pos.y, pos.z].map((n) => Math.round(n * 100) / 100),
         [rot.x, rot.y, rot.z, rot.w].map((n) => Math.round(n * 1000) / 1000),
         [vel.x, vel.y, vel.z].map((n) => Math.round(n * 10) / 10),
-        drifting, grounded,
+        drifting, grounded, boostingRef.current,
       );
     }
 

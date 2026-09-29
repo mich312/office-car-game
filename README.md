@@ -25,7 +25,9 @@ npm start
 ```
 
 Playing solo works out of the box — the server fills the lobby with bots
-(Karen from HR sends her regards). Open a second browser tab for split-brain
+(Karen from HR sends her regards). They race properly: they grab items and
+fire them when it counts, boost down the straights and drift the corners.
+Open a second browser tab for split-brain
 multiplayer testing. Add `?lowfx` to the URL to disable shadows and
 post-processing on weak GPUs.
 
