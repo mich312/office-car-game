@@ -1,0 +1,72 @@
+/* ==========================================================================
+   BREAK ROOM (BreakRoom.jsx, SPEC-TOYBOX §4.17): the pause menu. A left
+   toy-box panel (sound, display, driving, back to work / leave) and the
+   controls clipboard on the right. The match keeps running underneath.
+   ========================================================================== */
+.tb-pause-layer { position: absolute; inset: 0; z-index: var(--z-pause); pointer-events: auto; }
+.tb-bk-scrim { position: absolute; inset: 0; background: rgba(10, 6, 28, .6); }
+.tb-bk { position: absolute; left: 1.5rem; top: 1.5rem; bottom: 1.5rem; width: 30rem; padding: 1.125rem 1.375rem 1.25rem;
+  display: flex; flex-direction: column; gap: .3125rem; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.tb-bk-h { display: flex; flex-direction: column; gap: .375rem; margin-bottom: .125rem; }
+.tb-bk-h .tb-micro { color: var(--paper-dim); }
+.tb-bk-h .tb-disp { font-size: 3rem; color: var(--paper); --sw: .5625rem; --ex: .3125rem; }
+.tb-bk-sect { display: flex; align-items: center; flex: none; margin-top: .5rem; padding-bottom: .375rem; border-bottom: 2px dashed rgba(255, 248, 234, .16); color: var(--paper-dim); }
+.tb-bk-sect .tb-lbl { display: inline-flex; align-items: center; gap: .5rem; }
+.tb-bk-sect svg { width: 1.125rem; height: 1.125rem; }
+.tb-bk-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 2.625rem; flex: none; }
+.tb-bk-row > .tb-lbl { display: flex; flex-direction: column; gap: .25rem; color: var(--paper); }
+.tb-bk-row > .tb-lbl small { font: 600 var(--t-micro)/1.2 var(--f-ui); letter-spacing: .02em; text-transform: none; color: var(--paper-dim); }
+.tb-bk-row > .tb-lbl .tb-k { display: inline-grid; height: 1.125rem; min-width: 1.125rem; padding: 0 .25rem; margin: 0 .125rem; box-shadow: none; vertical-align: middle; font-size: max(10px, .625rem); }
+.tb-bk-row .tb-seg { min-width: 12.5rem; flex: none; }
+
+/* toy fader: skewed track, paper fill, a real <input type=range> on top for a11y + pointer */
+.tb-fader { display: grid; grid-template-columns: 5.25rem 1fr 2.5rem; align-items: center; gap: .875rem; min-height: 2.5rem; flex: none; color: var(--paper); }
+.tb-fader-t { position: relative; height: 1.625rem; }
+.tb-fader-t > i { position: absolute; inset: 0; border-radius: .5rem; transform: skewX(var(--lean)); overflow: hidden; background: var(--ink);
+  box-shadow: inset 0 0 0 max(2px, .15625rem) var(--ink), 0 0 0 2px rgba(255, 248, 234, .2); }
+.tb-fader-t > i::after { content: ""; position: absolute; inset: 0; transform-origin: 0 50%; scale: var(--v) 1;
+  background: linear-gradient(180deg, #fff, var(--paper) 55%, var(--paper-2)); box-shadow: inset 0 -.1875rem 0 rgba(20, 14, 44, .12); }
+.tb-fader-t > b { position: absolute; top: 50%; left: calc(var(--v) * 100%); width: 1.5rem; height: 2.25rem; margin: -1.125rem 0 0 -.75rem; border-radius: .4375rem; transform: skewX(var(--lean));
+  background: var(--ink-4); box-shadow: inset 0 0 0 max(2px, .15625rem) var(--ink), 0 .1875rem 0 var(--ink); pointer-events: none; }
+.tb-fader-t > input { position: absolute; inset: -.5rem 0; width: 100%; height: calc(100% + 1rem); margin: 0; opacity: 0; cursor: pointer; }
+.tb-fader-t:has(input:focus-visible) > i { outline: var(--focus); outline-offset: var(--focus-offset); }
+.tb-fader-n { text-align: right; font: 800 1rem/1 var(--f-ui); }
+
+.tb-bk-f { margin-top: auto; padding-top: .875rem; display: flex; flex-direction: column; gap: 1rem; flex: none; }
+.tb-bk-f .tb-cta { height: 4rem; flex: none; }
+.tb-bk-f .tb-cta .tb-disp { font-size: 2.25rem; }
+.tb-bk-leave { justify-content: flex-start; min-height: 3rem; flex: none; }
+.tb-bk-leave small { margin-left: auto; font: 800 var(--t-micro)/1 var(--f-ui); letter-spacing: .06em; color: var(--ink-dim); }
+
+/* the controls clipboard (Keys / Pad, starts on the device you're using) */
+.tb-clip { position: absolute; right: 3rem; top: 50%; translate: 0 -50%; width: 26rem; padding: 2.5rem 1.5rem 1.375rem; border-radius: 1rem; transform: rotate(1.5deg);
+  background: var(--paper); color: var(--ink);
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), 0 0 0 .5rem #8a6a45, 0 0 0 .6875rem var(--ink), 0 1rem 0 .6875rem var(--ink), var(--ambient); }
+/* the entrance slides on `translate`: keep the vertical centring inside it */
+.tb-clip.a-slide-r { animation-name: tb-clip-in; }
+@keyframes tb-clip-in { 0% { translate: 120% -50%; } 75% { translate: -6% -50%; } 100% { translate: 0 -50%; } }
+.tb-clip-clip { position: absolute; left: 50%; top: -1.25rem; width: 8rem; height: 2.25rem; margin-left: -4rem; border-radius: .5rem;
+  background: linear-gradient(180deg, #e8ecf2, #aab2c0); box-shadow: inset 0 0 0 var(--bw) var(--ink), 0 .25rem 0 var(--ink); }
+.tb-clip-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+.tb-clip-h > .tb-disp { font-size: 2.125rem; }
+.tb-clip-h .tb-seg { background: var(--ink-2); }
+.tb-clip-h .tb-seg svg { width: 1rem; height: 1rem; }
+.tb-clip-l { display: flex; flex-direction: column; }
+.tb-clip-l li { display: grid; grid-template-columns: 9.5rem 1fr; align-items: center; min-height: 2.5rem; border-bottom: 2px solid rgba(20, 14, 44, .1); font: 800 1rem/1.1 var(--f-ui); }
+.tb-clip-l .keys { display: flex; align-items: center; gap: .25rem; font-size: max(10px, .75rem); }
+.tb-clip-note { margin-top: .875rem; font: 600 max(10px, .875rem)/1.3 var(--f-ui); color: var(--ink-dim); }
+
+/* landscape phone: one scrolling panel, thumb-sized rows, no clipboard */
+.tb-pause-layer.is-compact .tb-bk { left: calc(10px + env(safe-area-inset-left, 0px)); top: 10px; bottom: 10px; width: min(460px, calc(100vw - 20px));
+  padding: 12px 16px 14px; border-width: 3px; box-shadow: 0 0 0 2.5px var(--ink), inset 0 0 0 2px var(--ink), 0 5px 0 2.5px var(--ink); }
+.tb-pause-layer.is-compact .tb-bk-h .tb-disp { font-size: 34px; --sw: 6px; --ex: 3px; }
+.tb-pause-layer.is-compact .tb-bk-row, .tb-pause-layer.is-compact .tb-fader { min-height: 44px; }
+.tb-pause-layer.is-compact .tb-seg > button { min-height: 40px; }
+/* the way out stays in reach: the footer sticks to the bottom of the scroll */
+.tb-pause-layer.is-compact .tb-bk-f { position: sticky; bottom: -14px; z-index: 1; flex-direction: row; align-items: stretch; gap: 12px;
+  margin: 0 -16px -14px; padding: 12px 16px 14px; background: var(--ink-2); border-top: 2px dashed rgba(255, 248, 234, .16); border-radius: 0 0 16px 16px; }
+.tb-pause-layer.is-compact .tb-bk-f .tb-cta { flex: 1; height: 56px; }
+.tb-pause-layer.is-compact .tb-bk-f .tb-cta .tb-disp { font-size: 24px; }
+.tb-pause-layer.is-compact .tb-bk-leave { flex-direction: column; justify-content: center; gap: 4px; min-height: 56px; padding: 0 12px; font-size: 12px; }
+.tb-pause-layer.is-compact .tb-bk-leave small { margin: 0; }
+.tb-pause-layer.is-compact .tb-bk-leave svg { display: none; }
