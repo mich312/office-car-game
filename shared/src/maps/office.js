@@ -339,8 +339,8 @@ export const PROPS = [
   // Each area takes the prop types it already shows (a type new to a view
   // costs its instanced kinds' draw calls, twice with shadows).
   // balcony: potted plants and cartons by the straight and the turn in
-  p('plant', -15.9, 7.6), p('box', -15.3, 8.05, 0, 0.4), p('plant', -19, 1.7), p('box', -16.9, 1.8, 0, 0.7),
-  p('bottle', -16.95, 0.2, 0, 1.1), p('box', -16.2, 9.6, 0, -0.3), p('plant', -16.85, 3), p('bottle', -18.95, 2.6, 0, 2.6),
+  p('plant', -15.9, 7.6), p('box', -15.3, 8.05, 0, 0.4), p('plant', -19.05, 2.25), p('box', -16.9, 1.6, 0, 0.7),
+  p('bottle', -16.95, 0.2, 0, 1.1), p('box', -16.2, 9.6, 0, -0.3), p('plant', -16.85, 3), p('bottle', -18.9, 3.3, 0, 2.6),
   // reception: along the approach to the storage door
   p('plant', -16, -5.9), p('box', -15.95, -7.25, 0, 0.2), p('box', -15.2, -8.95, 0, -0.4),
   // lounge: both sides of the long run under the windows
@@ -498,10 +498,10 @@ const DECALS = [
   ['joint', -17.5, 3, 7, 0.3, 0, 0.8], ['joint', -17.5, 8, 7, 0.3, 0, 0.8],
   ['leaves', -20.3, 11.3, 1.2, 1, 0.3, 0.9], ['leaves', -14.6, 11.4, 1.1, 0.9, 1.4, 0.85], ['leaves', -20.4, 0.2, 1, 1, 2, 0.85],
   ['leaves', -14.7, 4.3, 0.9, 1.4, 0.2, 0.8], ['grime', -17.6, 11.05, 3.2, 0.8, 0, 0.6], ['butts', -19.2, -0.35, 0.6, 0.5, 0.4, 0.9],
-  ['tyre2', -17.6, 6.4, 1.2, 3, 0.35, 0.55], ['footprints', -17.4, 0.4, 0.5, 1, 0.1, 0.5],
+  ['tyre2', -17.6, 6.4, 1.2, 3, 0.35, 0.55], ['footprints', -17.4, 0.4, 0.5, 1, 0.1, 0.3],
   // reception: burnouts on the grid, the swing into the storage door
   ['tyre', -18.6, -7.5, 1.6, 4, 0.1, 0.45], ['tyre2', -16.8, -7.2, 1.4, 3, -0.6, 0.5], ['scuff', -15, -8, 1.2, 1, 0.3, 0.55],
-  ['footprints', -17.2, -2.6, 0.5, 1, 0.15, 0.4],
+  ['footprints', -17.2, -2.6, 0.5, 1, 0.15, 0.3],
   // lounge
   ['tyre2', 10.5, 9.7, 1.4, 3.6, 1.35, 0.5], ['tyre', 3.4, 8.1, 1.2, 2.6, 1.3, 0.45], ['tyre2', -9.2, 9.3, 1.4, 3, 1.75, 0.45],
   ['crumbs', 3.3, 10.6, 0.6, 0.5, 0.3, 0.8], ['crumbs', -4.3, 10.7, 0.5, 0.5, 1.2, 0.7], ['scuff', 12, 9.6, 1.4, 1.1, 0.4, 0.5],
