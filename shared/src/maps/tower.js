@@ -532,7 +532,7 @@ export const TOWER = {
     golden: {
       label: 'Golden hour',
       clock: '19:10',
-      sun: { pos: [-200, 26, 30], color: '#ff9440', intensity: 6.4 },
+      sun: { pos: [-200, 26, 30], color: '#ff9440', intensity: 5.4 },
       amb: { intensity: 0.08, color: '#b0a6c6' },
       hemi: { intensity: 0.24, sky: '#a4a2cc', ground: '#5a3a24' },
       ceiling: 0.3,
@@ -546,7 +546,7 @@ export const TOWER = {
       shaft: { opacity: 0.34, color: '#ffa850', tilt: 0.42, side: 'west', length: 44 },
       pool: 0.08,
       panel: 1.0,
-      bloom: { intensity: 0.85, threshold: 1.0 },
+      bloom: { intensity: 0.8, threshold: 1.1 },
       shadow: { bias: -0.00035, normalBias: 0.07, opacity: 0.9 },
       practical: 0.4,
       wet: false,

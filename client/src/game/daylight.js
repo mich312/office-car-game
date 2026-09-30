@@ -133,8 +133,8 @@ export const DAYLIGHT = {
     // fill is now a fifth of what it was, so the split carries: the sun's
     // bars are the brightest thing on the floor and the shade between them
     // is blue-violet, not beige.
-    amb: { intensity: 0.07, color: '#aca2c2' },
-    hemi: { intensity: 0.26, sky: '#a4a2cc', ground: '#4a3020' },
+    amb: { intensity: 0.08, color: '#aca2c2' },
+    hemi: { intensity: 0.3, sky: '#a8a4c8', ground: '#4a3020' },
     // most troffers are off after hours (Office.jsx): the ones still on
     // cluster round the ceiling points, so these are pools, not a wash
     ceiling: 0.42,
