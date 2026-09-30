@@ -646,7 +646,7 @@ export const FACTORY = {
       practical: 1, wet: false,
       exposure: 1.42,
       fog: { color: '#0a1020', density: 0.0056 },
-      grade: { contrast: 1.16, sat: 0.96, shadow: '#223462', high: '#ffb870', split: 0.14, lift: 0.028, vignette: 0.46, grain: 0.035 },
+      grade: { contrast: 1.16, sat: 0.9, shadow: '#2c3854', high: '#ffb870', split: 0.12, lift: 0.024, vignette: 0.46, grain: 0.035 },
     },
     // a power cut: the high-bays die, the skylights still let a little sky
     // in, the emergency lights and the machines on UPS do the rest
@@ -673,6 +673,10 @@ export const FACTORY = {
     points: { color: '#f2f6ff', distance: 13 },
     glow: { at: [13.5, 0], color: '#ffae3d' }, // the Andon board
   },
+  // The hour the hall opens at (daylight.js defaultHour): the night shift —
+  // islands of 5000 K light over the work, the andon and the beacons glowing
+  // through a blue haze. Day shifts are a flat, even north light by design.
+  DEFAULT_HOUR: 'night',
   // the skylight glazing, per hour (the theme lights it)
   SKY: { morning: '#cddcf4', afternoon: '#e6eef8', golden: '#f4d2ae', night: '#0e1a3a' },
   MARKINGS, SIGNS, HANGING, FIRE_POINTS,
