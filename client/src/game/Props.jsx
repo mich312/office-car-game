@@ -345,8 +345,10 @@ function Chair({ p }) {
   const r = useSeed(p);
   const { cafe, color } = useMemo(() => {
     const map = currentMap();
-    const room = map.roomAt(p.x, p.z)?.id;
-    const isCafe = room === 'cafeteria' || room === 'meeting';
+    const r0 = map.roomAt(p.x, p.z);
+    const room = r0?.id;
+    // (a terrace gets the café's moulded shells, not a task chair in the rain)
+    const isCafe = room === 'cafeteria' || room === 'meeting' || !!r0?.outdoor;
     return { cafe: isCafe, color: col(pick(isCafe ? SHELLS : FABRICS[map.theme === 'cellar' ? 'cellar' : 'office'], r)) };
   }, [p, r]);
   return (

@@ -487,14 +487,17 @@ defineModel('marble', () => bake([
 
 // --------------------------------------------------------------- box
 // A shipping carton: printed sides (arrows, label, FRAGILE), the flap seam on
-// top, and packing tape over the seam and 7 cm down both ends.
+// top, and packing tape over the seam and 7 cm down both ends. The tape is
+// the carton's own material (a tan tint): as a separate plastic it made
+// every box two instanced kinds — two more draws, and two more shadow
+// draws, in every view with a carton in it — for a sheen nobody sees.
 defineModel('box', () => bake([
   part(rbox(0.34, 0.34, 0.34, 0.006), 'paper', {
     tint: 1, faces: { 0: 'boxLabel', 1: 'boxFragile', 2: 'boxTop', 3: 'boxTop', 4: 'boxSide', 5: 'boxSide' },
   }),
-  part(box(0.056, 0.0012, 0.342), 'plastic', { at: [0, 0.1702, 0], color: '#cfa66a' }),
-  part(box(0.056, 0.07, 0.0012), 'plastic', { at: [0, 0.136, 0.1702], color: '#cfa66a' }),
-  part(box(0.056, 0.07, 0.0012), 'plastic', { at: [0, 0.136, -0.1702], color: '#cfa66a' }),
+  part(box(0.056, 0.0012, 0.342), 'paper', { at: [0, 0.1702, 0], color: '#cfa66a' }),
+  part(box(0.056, 0.07, 0.0012), 'paper', { at: [0, 0.136, 0.1702], color: '#cfa66a' }),
+  part(box(0.056, 0.07, 0.0012), 'paper', { at: [0, 0.136, -0.1702], color: '#cfa66a' }),
 ]));
 
 // --------------------------------------------------------------- lamp
