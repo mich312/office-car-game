@@ -28,7 +28,7 @@
 //                   floor ~0.14 of its number
 //   ceiling         the floor's irradiance straight under a ceiling fixture,
 //                   whatever the ceiling height or world scale (Lighting.jsx
-//                   converts it into a point-light intensity). 0.5 is a lit
+//                   converts it into a point-light intensity). ~1 is the
 //                   office at night; the pools fall off from there (decay 2)
 //   exposure        multiplies the scene before ACES (1 = neutral)
 //   fog             FogExp2 in world units: the haze reaches
@@ -130,7 +130,7 @@ export const DAYLIGHT = {
     // leaves mostly green — measured 153° against its true 204°, under every
     // tone mapper, so it was never ACES). Real golden hour has a blue sky
     // filling the shadows; that warm/cool split is the Firewatch read. The
-    // fill is now a fifth of what it was, so the split carries: the sun's
+    // fill is now about a third of what it was, so the split carries: the sun's
     // bars are the brightest thing on the floor and the shade between them
     // is blue-violet, not beige.
     amb: { intensity: 0.08, color: '#aca2c2' },
