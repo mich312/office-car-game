@@ -8,19 +8,43 @@
 // cubemap is re-rendered on a phase change (it is 64px and procedural, so this
 // is cheap) because reflections have to agree with the key light or metal paint
 // looks pasted on.
+//
+// The air and the lens belong to the hour too: the fog (FogExp2 colour and
+// density) and the exposure (renderer.toneMappingExposure, which both the
+// post chain's ACES and the ?lowfx renderer's own ACES read, so the two paths
+// agree) are lerped here with the lights.
 import { useRef, useMemo, useEffect, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { Environment, Lightformer } from '@react-three/drei';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useStore } from '../store.js';
-import { lightingFor } from './daylight.js';
+import { lightingFor, isRoofed } from './daylight.js';
 import { useMap } from './activeMap.js';
+import { SUN_SHADOW_EDGE } from './shadowEdge.js';
+import { useGfx } from './quality.js';
 
 // Ceiling downlights — few big points; the environment does the rest. Light
 // count is the #1 fragment cost, so this list stays short. A map can bring
-// its own (CEILING_LIGHTS, meters).
-const CEILING = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, -2], [-11, 0]];
+// its own (CEILING_LIGHTS, meters). Exported: the office's after-hours
+// troffers stay lit round these (Office.jsx), so the pools have a source.
+export const CEILING = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, -2], [-11, 0]];
+
+// Physical falloff (decay 2) and a short reach, so each fixture pools and
+// the floor between fixtures goes dark — the first version used decay 1.5
+// out to 26 m, and six lights washed the whole building one flat level.
+// The tables give `ceiling` as the floor's irradiance straight under a
+// fixture; this is the point-light intensity that delivers it at this
+// floor's ceiling height (and at this world scale — M moved once already).
+const CEILING_REACH = 11; // m; a tall hall reaches further (see below)
+function ceilingRig(map, points) {
+  const hM = map.WALL_HEIGHT / M - 0.3; // fixture to floor, metres
+  const reachM = Math.max(Math.min(points.distance || CEILING_REACH, CEILING_REACH), hM * 1.9);
+  const h = hM * M, reach = reachM * M;
+  // three's range window, (1 − (d/reach)⁴)², at the fixture's own foot
+  const win = (1 - (h / reach) ** 4) ** 2;
+  return { gain: (h * h) / win, reach };
+}
 
 // ---------------------------------------------------------------- shadows
 //
@@ -64,7 +88,8 @@ const TIERS = [
 ];
 
 // Anything can be forced with ?shadows=high|medium|low — handy for support
-// ("does it look right on medium?") and for deterministic screenshots.
+// ("does it look right on medium?") and for deterministic screenshots. The
+// graphics setting 'low' (quality.js; ?lowfx) pins the low tier too.
 const FORCED = typeof window !== 'undefined'
   ? new URLSearchParams(window.location.search).get('shadows')
   : null;
@@ -87,24 +112,37 @@ export default function Lighting() {
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
+  const gfx = useGfx();
   const map = useMap();
+  const gl = useThree((s) => s.gl);
   const ceilingSpots = map.CEILING_LIGHTS || CEILING;
   const points = map.LIGHTING?.points || {};
+  const rig = useMemo(() => ceilingRig(map, map.LIGHTING?.points || {}), [map]);
   const glow = map.LIGHTING ? map.LIGHTING.glow : { at: [9.5, 4.5], color: '#3d7bff' };
   const sun = useRef();
   const amb = useRef();
   const hemi = useRef();
   const ceiling = useRef();
+  const first = useRef(true);
 
   const target = useMemo(() => lightingFor(hour, lightsOut, map), [hour, lightsOut, map]);
 
   // Scratch colours and vectors, allocated once — this runs every frame.
   const tmp = useMemo(() => ({
     sun: new THREE.Color(), amb: new THREE.Color(),
-    sky: new THREE.Color(), ground: new THREE.Color(),
+    sky: new THREE.Color(), ground: new THREE.Color(), fog: new THREE.Color(),
     pos: new THREE.Vector3(), dir: new THREE.Vector3(),
     focus: new THREE.Vector3(), snap: new THREE.Vector3(),
   }), []);
+
+  // A new floor starts at its own light, not cross-fading from the last
+  // floor's (the fog especially: a cellar fading in from the tower's haze).
+  useEffect(() => { first.current = true; }, [map]);
+  // The indoor shadow-box fade (shadowEdge.js) is a property of the floor.
+  useEffect(() => {
+    SUN_SHADOW_EDGE.x = isRoofed(map) ? 1 : 0;
+    return () => { SUN_SHADOW_EDGE.x = 0; };
+  }, [map]);
 
   // Shadow quality: start high and step down only if this machine actually
   // can't hold frame rate. There is no reliable way to ask a browser how fast
@@ -119,18 +157,34 @@ export default function Lighting() {
   const [env, setEnv] = useState(target.env);
   useEffect(() => { setEnv(target.env); }, [target]);
 
-  // Force the tier from the URL, once the light exists.
+  // Force the tier from the URL (or the low graphics setting), once the
+  // light exists.
   useEffect(() => {
-    const want = TIERS.find((t) => t.name === FORCED);
-    if (want && sun.current) {
+    if (!sun.current) return;
+    const want = TIERS.find((t) => t.name === (gfx === 'low' ? 'low' : FORCED));
+    if (want) {
       tier.current = want;
       perf.current.steps = TIERS.length; // pinned: never auto-adjust
       applyTier(sun.current, want);
+    } else if (perf.current.steps >= TIERS.length) {
+      // the setting that pinned it is gone: measure again from the top
+      tier.current = TIERS[0];
+      perf.current = { acc: 0, frames: 0, warmup: 0, steps: 0 };
+      applyTier(sun.current, TIERS[0]);
     }
-  }, []);
+  }, [gfx]);
 
   useFrame((state, dt) => {
-    const k = Math.min(1, dt * 1.8);
+    const k = first.current ? 1 : Math.min(1, dt * 1.8);
+    first.current = false;
+    // exposure: read by ACES in the post chain and by the renderer's own
+    // tone mapping on ?lowfx alike
+    gl.toneMappingExposure += (target.exposure - gl.toneMappingExposure) * k;
+    const fog = state.scene.fog;
+    if (fog?.isFogExp2) {
+      fog.color.lerp(tmp.fog.set(target.fog.color), k);
+      fog.density += (target.fog.density - fog.density) * k;
+    }
     if (sun.current) {
       const L = sun.current;
 
@@ -223,11 +277,15 @@ export default function Lighting() {
       hemi.current.groundColor.lerp(tmp.ground.set(target.hemi.ground), k);
     }
     if (ceiling.current) {
+      const want = target.ceiling * rig.gain;
       for (const l of ceiling.current.children) {
-        l.intensity += (target.ceiling - l.intensity) * k;
+        l.intensity += (want - l.intensity) * k;
       }
     }
   });
+  // the renderer outlives the game scene (the menu has its own canvas, but a
+  // remount must not inherit a blackout's exposure)
+  useEffect(() => () => { gl.toneMappingExposure = 1; }, [gl]);
 
   return (
     <>
@@ -271,9 +329,9 @@ export default function Lighting() {
           <pointLight
             key={`${map.id}${i}`}
             position={[x * M, map.WALL_HEIGHT - 0.3 * M, z * M]}
-            intensity={13}
-            distance={(points.distance || 26) * M}
-            decay={1.5}
+            intensity={0}
+            distance={rig.reach}
+            decay={2}
             color={points.color || '#fff2dc'}
           />
         ))}

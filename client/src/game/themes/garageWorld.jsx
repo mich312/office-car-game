@@ -7,7 +7,7 @@
 // suburbs are a painted band, and the sky is one shader on a dome that rides
 // with the camera. It only has to hold up past a picket fence at 18 cm.
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { M } from '@rc/shared';
 import { useStore } from '../../store.js';
@@ -98,7 +98,6 @@ const skyFrag = `
 function Sky({ map }) {
   const hour = useStore((s) => s.timeOfDay);
   const mesh = useRef();
-  const { scene } = useThree();
   const mat = useOwned(() => new THREE.ShaderMaterial({
     vertexShader: skyVert, fragmentShader: skyFrag, side: THREE.BackSide, depthWrite: false, fog: false,
     uniforms: {
@@ -107,15 +106,10 @@ function Sky({ map }) {
     },
   }), []);
   const tmp = useMemo(() => ({ c: new THREE.Color(), v: new THREE.Vector3() }), []);
-  // The scene's fog is the office's night-blue haze; out here the haze is
-  // the sky's horizon colour and much further off. Put it back on the way out.
-  useEffect(() => {
-    const f = scene.fog;
-    if (!f) return undefined;
-    const saved = { color: f.color.clone(), near: f.near, far: f.far };
-    f.near = 60 * M; f.far = 190 * M;
-    return () => { f.color.copy(saved.color); f.near = saved.near; f.far = saved.far; };
-  }, [scene]);
+  // The haze is not the sky's to set: Lighting.jsx owns the scene fog for
+  // every floor, from the garage's own table (shared/src/maps/garage.js
+  // `fog`), whose colours are this sky's horizon — so a far roofline sinks
+  // into the sky behind it rather than into a different blue.
   const first = useRef(true);
   useFrame(({ camera }, dt) => {
     const S = SKY[hour] || SKY.golden;
@@ -129,7 +123,6 @@ function Sky({ map }) {
     U.uCloud.value.lerp(tmp.c.set(S.cloud), k);
     U.uSun.value.lerp(tmp.v.set(...sun).normalize(), k);
     U.uStars.value += (S.stars - U.uStars.value) * k;
-    if (scene.fog) scene.fog.color.copy(U.uHor.value).multiplyScalar(0.92);
     if (mesh.current) mesh.current.position.copy(camera.position);
   });
   return (

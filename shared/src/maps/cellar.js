@@ -365,41 +365,49 @@ export const CELLAR = {
   // institutional paint: pale green block walls over a dark skirting
   LOOK: {
     wall: '#b4bfb0', skirt: '#4f5953',
-    floors: { tile: '#8c978f', concrete: '#77786f', carpet: '#8d97a3', carpet2: '#9a8f9f' },
+    // the lino darker than it was: the floor must not be the brightest
+    // thing in a basement lit from pools overhead
+    floors: { tile: '#6c766f', concrete: '#6c6d65', carpet: '#8d97a3', carpet2: '#9a8f9f' },
   },
   // point lights (meters): the tube banks that actually light the floor
   CEILING_LIGHTS: [[-9, 1], [8, 1], [-13, 7], [12, 7], [-13.5, -6], [4.5, -6]],
   // The light (client/src/game/daylight.js reads it). No windows, so no time
   // of day: one state, lit by banks of fluorescent tubes. Cold, a little
-  // green, and flat — the light that makes a basement a basement. The key
-  // light stands almost straight overhead (where the tubes are) so shadows
-  // pool under things instead of raking across.
+  // green — the light that makes a basement a basement. The key light stands
+  // almost straight overhead (where the tubes are) so shadows pool under
+  // things instead of raking across. It used to be a uniform fill as bright
+  // as the tubes; now the tubes' pools carry the floor (the point lights and
+  // cellar-tubes.jsx's pools) and between them it is murky green-black.
   LIGHTING: {
     fixed: {
       label: 'Basement B-1',
       clock: '--:--',
-      sun: { pos: [22, 210, 30], color: '#e6fff4', intensity: 1.05 },
-      amb: { intensity: 0.2, color: '#b8d0c6' },
-      hemi: { intensity: 0.36, sky: '#dff5ec', ground: '#2c2a24' },
-      ceiling: 16,
+      sun: { pos: [22, 210, 30], color: '#e6fff4', intensity: 0.4 },
+      amb: { intensity: 0.06, color: '#b8d0c6' },
+      hemi: { intensity: 0.16, sky: '#dff5ec', ground: '#2c2a24' },
+      ceiling: 0.9,
       env: {
-        intensity: 0.42,
+        intensity: 0.22,
         bg: '#0d1214',
         window: { color: '#1a2226', intensity: 0.2 },
-        ceil: { color: '#e4fff3', intensity: 2.6 },
+        ceil: { color: '#e4fff3', intensity: 1.6 },
         warm: { color: '#ffb46a', intensity: 0.35 },
-        key: { color: '#cfeee2', intensity: 1.1 },
+        key: { color: '#cfeee2', intensity: 0.9 },
       },
       shaft: { opacity: 0, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
       pool: 0.12,
       panel: 1.6,
-      bloom: { intensity: 0.85, threshold: 0.72 },
-      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.7 },
+      bloom: { intensity: 0.9, threshold: 0.95 },
+      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.75 },
       practical: 0.8,
       wet: false,
+      // green-teal murk; the eye opens up for it
+      exposure: 1.4,
+      fog: { color: '#16211d', density: 0.0068 },
+      grade: { contrast: 1.16, sat: 0.9, shadow: '#1d4a40', high: '#f2ffe0', split: 0.14, lift: 0.03, vignette: 0.5, grain: 0.045 },
     },
     // the ceiling point lights: colour, reach (m), and the server glow
-    points: { color: '#e8fff4', distance: 17 },
+    points: { color: '#e8fff4', distance: 9 },
     glow: { at: [-4, 8], color: '#3d7bff' },
   },
   // what you hear: no rain on glass down here, only the ballast hum

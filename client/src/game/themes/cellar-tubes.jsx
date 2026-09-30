@@ -138,6 +138,10 @@ function washSpots(map, tubes) {
 
 const _c = new THREE.Color();
 const _o = new THREE.Object3D();
+// The one real flicker light over the worst tube: physical falloff (decay 2,
+// 9 m) like the ceiling points (Lighting.jsx), so it pools under its tube;
+// the intensity is its old decay-1.5 value carried over at this height.
+const FLICK_I = 21;
 const COOL = new THREE.Color('#e8fff4');
 const WARM = new THREE.Color('#ffe0b0');
 
@@ -208,11 +212,13 @@ export default function Tubes({ map }) {
       louvre: new THREE.MeshBasicMaterial({ alphaMap: louvreTex(), alphaTest: 0.4, side: THREE.DoubleSide, toneMapped: false }),
       plate: new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }),
       pool: new THREE.MeshBasicMaterial({
-        map: glow, transparent: true, opacity: 0.11, blending: THREE.AdditiveBlending, depthWrite: false,
+        // the pools are the light here now (the overhead fill is gone —
+        // shared/src/maps/cellar.js), so they are twice what they were
+        map: glow, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false,
         polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
       }),
       wash: new THREE.MeshBasicMaterial({
-        map: glow, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false,
+        map: glow, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false,
         polygonOffset: true, polygonOffsetFactor: -2,
       }),
     };
@@ -342,7 +348,7 @@ export default function Tubes({ map }) {
         audio.tubeBuzz([tb.x * M, H, tb.z * M], tb.kind === 'dead' ? 0.6 : 1);
       }
       lastLevel.current.set(i, l);
-      if (tb === worst && flickLight.current) flickLight.current.intensity = 9 * l;
+      if (tb === worst && flickLight.current) flickLight.current.intensity = FLICK_I * l;
     });
     for (const m of [tm, p, lv, pl, en, wa]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;
   });
@@ -359,7 +365,7 @@ export default function Tubes({ map }) {
       <instancedMesh ref={washes} args={[G.wash, mats.wash, Math.max(1, wash.length)]} />
       {worst && (
         <pointLight ref={flickLight} position={[worst.x * M, H - 0.35 * M, worst.z * M]}
-          intensity={9} distance={11 * M} decay={1.6} color="#e4fff2" />
+          intensity={FLICK_I} distance={9 * M} decay={2} color="#e4fff2" />
       )}
     </group>
   );

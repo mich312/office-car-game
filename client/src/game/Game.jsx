@@ -1,7 +1,7 @@
 import { useEffect, Suspense } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
-import { GRAVITY, MUTATORS } from '@rc/shared';
+import { GRAVITY, MUTATORS, mapById } from '@rc/shared';
 import { useStore } from '../store.js';
 import { connect, disconnect } from '../net.js';
 import { audio } from '../audio.js';
@@ -18,8 +18,12 @@ import SpectatorCam, { PhotoOrbitCam } from './SpectatorCam.jsx';
 import ControllerHUD from './ControllerHUD.jsx';
 import OfficeBoard from './OfficeBoard.jsx';
 import Effects from './Effects.jsx';
+import { defaultHour } from './daylight.js';
+import { useGfx } from './quality.js';
 
 // Low-effects mode for weak GPUs (and CI): ?lowfx disables shadows + post.
+// (The graphics setting 'low' drops the post chain and resolution live;
+// shadows are fixed when the canvas is made, so only the URL turns them off.)
 const LOWFX = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('lowfx');
 // The diegetic RC-transmitter cluster replaces the flat speed/boost HUD on
 // fine-pointer devices; phones keep the DOM cluster (screen space is scarce
@@ -30,17 +34,27 @@ const FINE_POINTER = typeof window !== 'undefined' && window.matchMedia('(pointe
 // frame (autoReset off), publish at end of frame, reset manually.
 // NB: a positive-priority useFrame disables R3F auto-render, which is only
 // safe when the EffectComposer drives rendering — so lowfx reads live counters.
-function Stats() {
+function Stats({ lowfx }) {
   const gl = useThree((s) => s.gl);
   useEffect(() => {
-    if (LOWFX) window.__glInfo = () => ({ calls: gl.info.render.calls, triangles: gl.info.render.triangles });
-    else gl.info.autoReset = false;
-  }, [gl]);
-  useFrame(LOWFX ? () => {} : () => {
+    if (lowfx) {
+      gl.info.autoReset = true;
+      window.__glInfo = () => ({ calls: gl.info.render.calls, triangles: gl.info.render.triangles });
+    } else gl.info.autoReset = false;
+  }, [gl, lowfx]);
+  useFrame(lowfx ? () => {} : () => {
     // programs: a count that jumps mid-match means a recompile hitch
     window.__glStats = { calls: gl.info.render.calls, triangles: gl.info.render.triangles, programs: gl.info.programs?.length };
     gl.info.reset();
-  }, LOWFX ? 0 : 100);
+  }, lowfx ? 0 : 100);
+  return null;
+}
+
+// Each floor opens at the hour it looks best at (map.DEFAULT_HOUR). Keyed on
+// the map, not the clock: N still cycles freely, and only a new floor resets
+// it — the match after next on the same floor keeps whatever hour you left.
+function MapHour({ mapId }) {
+  useEffect(() => { useStore.getState().setTimeOfDay(defaultHour(mapById(mapId))); }, [mapId]);
   return null;
 }
 
@@ -60,6 +74,7 @@ export default function Game() {
   const muted = useStore((s) => s.muted);
   const mutator = useStore((s) => s.mutator);
   const mapId = useStore((s) => s.mapId);
+  const lowfx = useGfx() === 'low'; // ?lowfx included
   // Moon Gravity mutator: the whole physics world floats
   const gravity = mutator === 'moon_gravity' ? GRAVITY * MUTATORS.moon_gravity.gravity : GRAVITY;
 
@@ -74,14 +89,17 @@ export default function Game() {
   return (
     <Canvas
       shadows={!LOWFX}
-      dpr={LOWFX ? [0.75, 1] : [1, 1.5]}
+      dpr={lowfx ? [0.75, 1] : [1, 1.5]}
       camera={{ position: [-70, 14, -25], fov: 60, near: 0.1, far: 900 }}
       gl={{ antialias: false, stencil: false, powerPreference: 'high-performance' }}
       style={{ position: 'fixed', inset: 0 }}
     >
-      <Stats />
+      <Stats lowfx={lowfx} />
+      <MapHour mapId={mapId} />
       <color attach="background" args={['#0b0f1c']} />
-      <fog attach="fog" args={['#141a2a', 170, 420]} />
+      {/* exponential haze; colour and density belong to the hour and the
+          floor (daylight.js `fog`, lerped by Lighting.jsx) */}
+      <fogExp2 attach="fog" args={['#141a2a', 0.004]} />
       <Suspense fallback={null}>
         <Lighting />
         <EventLightRig />
@@ -99,7 +117,7 @@ export default function Game() {
         <RivalAudio />
         <PhotoOrbitCam />
         {FINE_POINTER && <ControllerHUD />}
-        {!LOWFX && <Effects />}
+        {!lowfx && <Effects />}
       </Suspense>
     </Canvas>
   );
