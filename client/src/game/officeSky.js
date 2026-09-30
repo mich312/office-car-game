@@ -27,9 +27,9 @@ export const OFFICE_SKY = {
   morning: { top: '#6488c8', hor: '#f0d2b0', glow: '#ffd7a0', disc: '#fff0d0', near: '#63718a', far: '#a0b0c6', lit: 0.08, gain: 1.05, disc0: 1 },
   afternoon: { top: '#3f73c0', hor: '#b4cce8', glow: '#fff2dc', disc: '#fffaf0', near: '#76849a', far: '#a9b9ce', lit: 0.0, gain: 1.05, disc0: 0.6 },
   golden: { top: '#34427e', hor: '#ff9650', glow: '#ff8a3c', disc: '#ffdca0', near: '#2a2233', far: '#7a4c58', lit: 0.3, gain: 1.9, disc0: 1.6 },
-  night: { top: '#03060f', hor: '#16203e', glow: '#34466e', disc: '#c8d4ff', near: '#05070e', far: '#0e1428', lit: 0.55, gain: 1, disc0: 0.5 },
+  night: { top: '#03060f', hor: '#16203e', glow: '#34466e', disc: '#c8d4ff', near: '#05070e', far: '#0e1428', lit: 0.72, gain: 1, disc0: 0.5 },
 };
-OFFICE_SKY.lightsOut = { ...OFFICE_SKY.night, lit: 0.5 };
+OFFICE_SKY.lightsOut = { ...OFFICE_SKY.night, lit: 0.65 };
 
 // The city: R near silhouettes, G far silhouettes, B each near window's
 // switch-on threshold (0 = no window), A window glass (for day reflections).
@@ -53,13 +53,13 @@ export function officeCityTex() {
     const bw = 52 + r() * 140, bh = 80 + r() * 260;
     const x0 = x | 0, x1 = (x + bw) | 0;
     for (let i = x0; i < x1; i++) for (let y = 0; y < bh; y++) put(i, y, 0, 255);
-    // windows: 2×3 px on a 6×7 grid (a storey is ~15 cm of backdrop at
+    // windows: 3×3 px on a 6×7 grid (a storey is ~15 cm of backdrop at
     // 27 m: the city is far smaller than the plane is far), each with its
     // own switch-on threshold
     for (let wy = 7; wy < bh - 9; wy += 7) {
       for (let wx = x0 + 4; wx < x1 - 6; wx += 6) {
         const t = r() < 0.2 ? 0 : 1 + ((r() * 254) | 0); // a few never light
-        for (let i = 0; i < 2; i++) for (let j = 0; j < 3; j++) { put(wx + i, wy + j, 2, t); put(wx + i, wy + j, 3, 255); }
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { put(wx + i, wy + j, 2, t); put(wx + i, wy + j, 3, 255); }
       }
     }
     // a rooftop beacon on some
@@ -121,7 +121,7 @@ const frag = /* glsl */`
     float th = c.b;
     float on = step(0.001, th) * smoothstep(1.0 - uLit, 1.0 - uLit + 0.08, th);
     vec3 lamp = mix(vec3(1.0, 0.7, 0.36), vec3(0.7, 0.82, 1.0), step(0.82, fract(th * 7.31)));
-    col += c.r * on * lamp * (0.45 + 0.5 * fract(th * 13.7));
+    col += c.r * on * lamp * (0.8 + 0.7 * fract(th * 13.7));
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>

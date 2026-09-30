@@ -177,7 +177,8 @@ export const DAYLIGHT = {
       warm: { color: '#ffd9a8', intensity: 0.6 },
       key: { color: '#ffffff', intensity: 0.6 },
     },
-    shaft: { opacity: 0.1, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
+    // moonbeams: barely there — brighter, they streak the glass
+    shaft: { opacity: 0.04, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
     pool: 0.34,
     panel: 2.4,
     bloom: { intensity: 0.9, threshold: 0.95 },
@@ -207,7 +208,7 @@ export const LIGHTS_OUT = {
     warm: { color: '#4a3a28', intensity: 0.2 },
     key: { color: '#5a6480', intensity: 0.3 },
   },
-  shaft: { opacity: 0.12, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
+  shaft: { opacity: 0.03, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
   pool: 0,
   panel: 0.02,
   bloom: { intensity: 1.0, threshold: 0.9 },
