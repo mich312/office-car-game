@@ -19,6 +19,11 @@ import { net, on, sampleRemote } from '../net.js';
 import { burst } from './particles.jsx';
 import { useEventLight } from './eventLight.jsx';
 
+// World labels speak the HUD's colours: hazard labels cherry, objectives lime
+// (TextSprite draws them in Kanit with an ink outline).
+const HAZARD_LABEL = '#ff7a84';
+const GO_LABEL = '#b0f27c';
+
 export default function ModeObjects() {
   const modeId = useStore((s) => s.modeId);
   const phase = useStore((s) => s.phase);
@@ -33,10 +38,10 @@ export default function ModeObjects() {
       {active && modeId === 'coffee_run' && <><Beans /><CoffeeMachine /></>}
       {active && modeId === 'battery' && <Battery />}
       {active && modeId === 'soccer' && <><SoccerBall /><Goals /><TeamMarker /></>}
-      {active && modeId === 'koth' && <><Zone color="#ffd166" label="📍 STANDUP" standup /><NextZone color="#ffd166" /></>}
-      {active && modeId === 'sumo' && <Zone color="#ff5c5c" label="🥋 RING" wall />}
+      {active && modeId === 'koth' && <><Zone color="#ffd166" label="STANDUP" labelColor={GO_LABEL} standup /><NextZone color="#ffd166" /></>}
+      {active && modeId === 'sumo' && <Zone color="#ff5c5c" label="RING" labelColor={HAZARD_LABEL} wall />}
       {active && modeId === 'tag' && <ItCrown />}
-      {active && modeId === 'last_standing' && <><LockedRooms /><Zone color="#ff5f6b" label="⚡ LAST MEETING" wall /></>}
+      {active && modeId === 'last_standing' && <><LockedRooms /><Zone color="#ff5f6b" label="LAST MEETING" labelColor={HAZARD_LABEL} wall /></>}
     </group>
   );
 }
@@ -63,7 +68,7 @@ function canvasTex(key, w, h, draw) {
 // top of any furniture standing in it (the meeting table), since a floor
 // ring under a tabletop is invisible from a car's seat.
 const CONTESTED = new THREE.Color('#ff6b4a');
-function Zone({ color, label, wall = false, standup = false }) {
+function Zone({ color, label, labelColor = color, wall = false, standup = false }) {
   const map = useMap();
   const group = useRef();
   const ring = useRef();
@@ -115,7 +120,7 @@ function Zone({ color, label, wall = false, standup = false }) {
           </mesh>
         )}
         <group ref={labelRef} position={[0, labelY, 0]}>
-          <TextSprite text={label} size={0.9} color={color} />
+          <TextSprite text={label} size={0.9} color={labelColor} />
         </group>
       </group>
       {tops.map((f, i) => (
@@ -187,7 +192,7 @@ function NextZone({ color }) {
         <ringGeometry args={[0.9, 1, 48, 1, 0, Math.PI * 1.6]} />
         <meshBasicMaterial color={color} transparent opacity={0.3} depthWrite={false} side={THREE.DoubleSide} toneMapped={false} />
       </mesh>
-      <TextSprite text="📍 NEXT" size={0.7} y={3} color={color} />
+      <TextSprite text="NEXT STANDUP" size={0.7} y={3} color={GO_LABEL} />
     </group>
   );
 }
@@ -261,7 +266,7 @@ function LockedRooms() {
               <boxGeometry args={[r.w, WALL_HEIGHT, r.d]} />
               <meshBasicMaterial color="#ff2f3d" transparent opacity={0.14} depthWrite={false} side={THREE.DoubleSide} />
             </mesh>
-            <ClosedLabel text="⛔ CLOSED" y={WALL_HEIGHT * LABEL_AT} color="#ff5f6b" />
+            <ClosedLabel text="CLOSED" y={WALL_HEIGHT * LABEL_AT} color={HAZARD_LABEL} />
           </group>
         );
       })}
@@ -271,7 +276,7 @@ function LockedRooms() {
             <boxGeometry args={[warnRoom.w, WALL_HEIGHT, warnRoom.d]} />
             <meshBasicMaterial color="#ffb020" transparent opacity={0.12} depthWrite={false} side={THREE.DoubleSide} />
           </mesh>
-          <ClosedLabel text="🚧 CLOSING" y={WALL_HEIGHT * LABEL_AT} color="#ffcf6b" />
+          <ClosedLabel text="CLOSING" y={WALL_HEIGHT * LABEL_AT} color={HAZARD_LABEL} />
         </group>
       )}
     </group>
@@ -469,7 +474,7 @@ function CoffeeMachine() {
         <meshBasicMaterial color="#3fffaa" transparent opacity={0.3} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
       <group position={[cm.deliverX, 0, cm.deliverZ]}>
-        <TextSprite text="☕ DELIVER" size={0.9} y={3.4} color="#3fffaa" />
+        <TextSprite text="DELIVER BEANS" size={0.9} y={3.4} color={GO_LABEL} />
       </group>
     </group>
   );
@@ -668,7 +673,7 @@ function Goals() {
               <planeGeometry args={[0.3, W]} />
               <meshBasicMaterial color={TEAM_COLOR[g.team]} toneMapped={false} />
             </mesh>
-            <TextSprite text={g.team === 0 ? '🟠 GOAL' : '🔵 GOAL'} size={0.8} y={H + 0.9} color={TEAM_SOFT[g.team]} />
+            <TextSprite text={g.team === 0 ? 'ORANGE GOAL' : 'BLUE GOAL'} size={0.8} y={H + 0.9} color={TEAM_SOFT[g.team]} />
           </group>
         );
       })}
