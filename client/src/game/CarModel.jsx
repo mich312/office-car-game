@@ -17,7 +17,7 @@ import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
 import {
   CARS, WHEEL_STYLES, DEFAULT_STYLE, sanitizeStyle, FINISHES,
   tunedStats, sanitizeTune, STOCK_TUNE,
-  antennaStep, newAntenna, SUSPENSION_SETTLE,
+  antennaStep, newAntenna, SUSPENSION_SETTLE, LEAN,
 } from '@rc/shared';
 import { vinylTopTex, vinylSideTex, glowTex, plateTex } from './textures.js';
 import { useStore } from '../store.js';
@@ -85,8 +85,20 @@ const _unitY = new THREE.Vector3(0, 1, 0);
 const _unitX = new THREE.Vector3(1, 0, 0);
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _n = new THREE.Vector3(), _top = new THREE.Vector3();
 const _pos = new THREE.Vector3(), _scl = new THREE.Vector3(1, 1, 1), _mat = new THREE.Matrix4();
-const _qs = new THREE.Quaternion(), _qf = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qt = new THREE.Quaternion();
+const _qf = new THREE.Quaternion(), _qw = new THREE.Quaternion(), _qt = new THREE.Quaternion();
 const _flip = new THREE.Quaternion().setFromAxisAngle(_unitY, Math.PI);
+const _piv = new THREE.Vector3();
+
+// Wheels. Front lock is 0.5 rad with Ackermann (the inside wheel turns
+// tighter, as on the real thing), and in a slide the fronts point where the
+// car is actually going — counter-steer you can see. Visual spin is capped
+// per frame: past ~45 rad/s a 5-spoke rim advances more than a spoke gap a
+// frame and reads frozen or backwards (it did at 10 u/s), so the spin slows
+// to a readable roll and a blur disc takes over the rim face.
+const STEER_LOCK = 0.5;
+const ACKERMANN = [1.12, 0.92]; // inside, outside wheel
+const MAX_SPIN_STEP = 0.5; // rad per frame
+const BLUR_FROM = 32, BLUR_FULL = 70; // rad/s
 
 export default function CarModel({ carId, paint, style, tune, name, cosmetics, isLocal = false, speedRef, steerRef, boostingRef, flagsRef, wheelYRef, leanRef, team }) {
   const car = CARS[carId] || CARS.balanced;
@@ -107,7 +119,10 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const propellerRef = useRef();
   const driverRef = useRef();
   const trailAnchor = useRef();
-  const spin = useRef(0);
+  const spin = useRef([0, 0]); // front, rear (the rears can spin up)
+  const steerAng = useRef(0);
+  const blurRef = useRef();
+  const warm = useRef(2); // frames the hidden overlays are drawn anyway (see CarStatus)
   // spotlight targets must live in the scene graph to follow the car — a
   // loose `target-position` stays fixed in world space (the old headlight bug)
   const beamTarget = useMemo(() => new THREE.Object3D(), []);
@@ -155,31 +170,52 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
   const sp = SUSPENSION[id];
   // antenna: one bent mesh + its tip, per car
   const whip = useWhip(cosmetics?.antenna);
+  // the rim face's motion blur: its own material, so its opacity is per car
+  const blurMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: wheelStyle.rim, map: blurTex(), transparent: true, opacity: 0, depthWrite: false, metalness: 0.6, roughness: 0.4,
+  }), [wheelStyle.rim]);
+  useEffect(() => () => blurMat.dispose(), [blurMat]);
+  const blurGeo = useMemo(() => wheelBlurGeo(wheelR, wheelW), [wheelR, wheelW]);
 
   useFrame((state, dt) => {
     const speed = speedRef?.current ?? 0;
     const steer = steerRef?.current ?? 0;
     const t = state.clock.elapsedTime;
-    spin.current += (speed / wheelR / 1.08) * dt;
+    const lean = leanRef?.current;
+    // road speed at the tyre, plus the rears' spin over it (launch, drift)
+    const wF = speed / wheelR / 1.08;
+    const wR = (speed + (lean?.spin || 0)) / wheelR / 1.08;
+    spin.current[0] += Math.max(-MAX_SPIN_STEP, Math.min(MAX_SPIN_STEP, wF * dt));
+    spin.current[1] += Math.max(-MAX_SPIN_STEP, Math.min(MAX_SPIN_STEP, wR * dt));
+    const blur = Math.min(1, Math.max(0, (Math.max(Math.abs(wF), Math.abs(wR)) - BLUR_FROM) / (BLUR_FULL - BLUR_FROM)));
+    // front steering: the input at full lock, or — sliding — along the travel
+    const slip = lean?.slip || 0;
+    const slide = Math.min(1, Math.max(0, (Math.abs(slip) - 0.08) / 0.17));
+    const counter = Math.max(-0.6, Math.min(0.6, slip * 1.1));
+    const steerT = steer * STEER_LOCK * (1 - slide) + counter * slide;
+    steerAng.current += (steerT - steerAng.current) * Math.min(1, dt * 14);
     // wheels follow the suspension rays (local car) — touch the ground,
     // compress, droop — then four instances get their transforms
     const wy = wheelY.current;
     const k = Math.min(1, dt * 22);
-    _qs.setFromAxisAngle(_unitX, spin.current);
+    const sa = steerAng.current;
     for (let i = 0; i < 4; i++) {
       if (wheelYRef?.current) wy[i] += (wheelYRef.current[i] - wy[i]) * k;
       else wy[i] = restY;
       const [wx, wz] = WHEEL_POS[i];
       const left = wx < 0;
+      const a = spin.current[i < 2 ? 0 : 1];
       _pos.set(wx + trackOut * Math.sign(wx), wy[i], wz);
-      _qt.setFromAxisAngle(_unitY, i < 2 ? steer * 0.42 : 0);
+      // Ackermann: +angle turns toward +x, so the +x wheel is the inside one
+      _qt.setFromAxisAngle(_unitY, i < 2 ? sa * ((wx > 0) === (sa > 0) ? ACKERMANN[0] : ACKERMANN[1]) : 0);
       if (left) _qt.multiply(_flip);
       _qf.copy(_qt);
-      if (left) _qw.setFromAxisAngle(_unitX, -spin.current); else _qw.copy(_qs);
+      _qw.setFromAxisAngle(_unitX, left ? -a : a);
       _qt.multiply(_qw);
       if (tyreRef.current) {
         tyreRef.current.setMatrixAt(i, _mat.compose(_pos, _qt, _scl));
         rimRef.current.setMatrixAt(i, _mat);
+        if (blurRef.current) blurRef.current.setMatrixAt(i, _mat);
         brakeRef.current.setMatrixAt(i, _mat.compose(_pos, _qf, _scl));
       }
     }
@@ -188,21 +224,33 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
       rimRef.current.instanceMatrix.needsUpdate = true;
       brakeRef.current.instanceMatrix.needsUpdate = true;
     }
+    if (blurRef.current) {
+      blurRef.current.visible = blur > 0.02 || warm.current > 0;
+      if (warm.current > 0) warm.current--;
+      blurMat.opacity = blur * 0.9;
+      if (blurRef.current.visible) blurRef.current.instanceMatrix.needsUpdate = true;
+    }
     if (bodyRef.current) {
       // Weight transfer on the visual shell. With a leanRef (in-game cars,
       // local & remote) roll/pitch come from measured acceleration: outward
       // roll in curves, squat under throttle, dive under braking, easing back
-      // to neutral. Without one (garage preview) fall back to steer-based roll.
-      const lean = leanRef?.current;
+      // to neutral (shared/src/feel.js LEAN). Without one (garage preview)
+      // fall back to steer-based roll.
+      const body = bodyRef.current;
       const tRoll = lean ? lean.roll : steer * Math.min(1, Math.abs(speed) / 25) * 0.09;
       const tPitch = lean ? lean.pitch : 0;
-      bodyRef.current.rotation.z += (tRoll - bodyRef.current.rotation.z) * Math.min(1, dt * 8);
-      bodyRef.current.rotation.x += (tPitch - bodyRef.current.rotation.x) * Math.min(1, dt * 8);
+      body.rotation.z += (tRoll - body.rotation.z) * Math.min(1, dt * 10);
+      body.rotation.x += (tPitch - body.rotation.x) * Math.min(1, dt * 10);
+      // ...about a low roll centre, not the middle of the shell: the roof
+      // swings out over the tyres while the sills stay down by them, the way
+      // a car on soft springs rolls. p − R·p puts the pivot back in place.
+      _piv.set(0, LEAN.pivot, 0).applyEuler(body.rotation);
       // landing squash (local car): the shell sinks onto the wheels and
-      // bulges a touch, then springs back — the wheels stay planted
+      // bulges a touch, then springs back — the wheels stay planted; heave is
+      // the body bobbing on its springs over bumps
       const sq = lean?.squash || 0;
-      bodyRef.current.scale.set(1 + sq * 0.06, 1 - sq * 0.13, 1 + sq * 0.06);
-      bodyRef.current.position.y = -sq * 0.045;
+      body.scale.set(1 + sq * 0.06, 1 - sq * 0.13, 1 + sq * 0.06);
+      body.position.set(-_piv.x, LEAN.pivot - _piv.y - sq * 0.045 + (lean?.heave || 0), -_piv.z);
     }
     // coil-overs: from the (leaning, squashing) body down to the A-arm,
     // A-arms from the chassis out to wherever the wheel is right now
@@ -236,7 +284,6 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
     // length: in-game cars feed it their real acceleration, so braking flicks
     // it forward, corners throw it outward, bumps and landings set it ringing.
     // The garage turntable has no acceleration to give, so it idles on steer.
-    const lean = leanRef?.current;
     if (lean && lean.aLong !== undefined) {
       antennaStep(antenna.current, lean.aLong, lean.aLat, lean.aUp || 0, speed, Math.min(dt, 0.05));
     } else {
@@ -298,6 +345,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
       {/* wheels: four instances each of tyre, rim and brake */}
       <instancedMesh ref={tyreRef} args={[wheelGeos.tyre, mats.tyre, 4]} castShadow frustumCulled={false} />
       <instancedMesh ref={rimRef} args={[wheelGeos.rim, mats.rim, 4]} frustumCulled={false} />
+      <instancedMesh ref={blurRef} args={[blurGeo, blurMat, 4]} frustumCulled={false} visible={false} />
       <instancedMesh ref={brakeRef} args={[wheelGeos.brake, METAL_MAT, 4]} frustumCulled={false} />
       {/* exposed suspension */}
       {sp && (
@@ -314,7 +362,7 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
           {isLocal && dark && <pointLight position={[0, -0.1, 0]} color={st.glow} intensity={5} distance={2.2} />}
         </group>
       )}
-      <CarStatus flame={flame} flagsRef={flagsRef} boostingRef={boostingRef} />
+      <CarStatus flame={flame} floorY={restY - wheelR} flagsRef={flagsRef} boostingRef={boostingRef} />
       {/* trail anchor + ribbon (world-space, portaled to the scene root) */}
       <group ref={trailAnchor} position={[0, 0.06, -0.55]} />
       {cosmetics?.trail && <Trail kind={cosmetics.trail} anchorRef={trailAnchor} speedRef={speedRef} />}
@@ -359,8 +407,71 @@ function glowMat(color, dark) {
   }
   return glowMats.get(k);
 }
-const FLAME_GEO = new THREE.ConeGeometry(0.07, 0.3, 10).translate(0, 0.0, 0);
-const FLAME_MAT = new THREE.MeshBasicMaterial({ color: '#7ab8ff', toneMapped: false, transparent: true, opacity: 0.9 });
+// Boost flame: an additive blue cone with a white-hot core, base at the
+// exhaust and pointing back (+y of the geometry becomes −z), a glow sprite
+// that reads from straight behind — where the chase camera is, and where the
+// old cone hid behind the tail — and a pool of blue on the floor under the
+// diffuser. All bounded colours: additive HDR that can't blow up bloom.
+// The cones fade out along their length (vertex colours, additive: black is
+// clear), so the flame burns hot at the pipe and wisps out at its tip
+// instead of reading as a solid spike.
+function flameCone(r, seg) {
+  const g = new THREE.ConeGeometry(r, 1, seg, 4, true).translate(0, 0.5, 0);
+  const p = g.attributes.position, c = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const k = Math.pow(1 - Math.min(1, Math.max(0, p.getY(i))), 1.6);
+    c[i * 3] = c[i * 3 + 1] = c[i * 3 + 2] = k;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return g;
+}
+const FLAME_GEO = flameCone(0.1, 12);
+const CORE_GEO = flameCone(0.042, 10);
+const additive = (color, opacity) => new THREE.MeshBasicMaterial({
+  color, vertexColors: true, toneMapped: false, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+});
+const FLAME_MAT = additive(new THREE.Color('#4f93ff').multiplyScalar(1.6), 0.8);
+const CORE_MAT = additive(new THREE.Color('#b4d6ff').multiplyScalar(1.6), 0.85);
+const FLAME_GLOW = new THREE.SpriteMaterial({
+  map: glowTex(), color: new THREE.Color('#6aaaff').multiplyScalar(1.5), blending: THREE.AdditiveBlending,
+  depthWrite: false, toneMapped: false, transparent: true,
+});
+const FLOOR_GLOW_GEO = new THREE.PlaneGeometry(0.8, 1.1).rotateX(-Math.PI / 2);
+const FLOOR_GLOW_MAT = new THREE.MeshBasicMaterial({
+  map: glowTex(), color: '#5d9dff', blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, transparent: true, opacity: 0.55,
+});
+
+// Wheel blur: a disc over the rim face (in the rim's own instance space, so
+// it rides the same matrices), a radial smear — dark hub, the spokes spun
+// into a lighter band, the lip — that takes over as the spokes go past
+// readable.
+const blurGeoCache = new Map();
+function wheelBlurGeo(r, w) {
+  const key = `${r.toFixed(3)}|${w.toFixed(3)}`;
+  if (!blurGeoCache.has(key)) {
+    blurGeoCache.set(key, new THREE.CircleGeometry(r * 0.66, 24).rotateY(Math.PI / 2).translate((w / 2) * 0.8, 0, 0));
+  }
+  return blurGeoCache.get(key);
+}
+let blurTexture = null;
+function blurTex() {
+  if (blurTexture) return blurTexture;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(90,90,96,1)');
+  grad.addColorStop(0.22, 'rgba(70,70,76,1)');
+  grad.addColorStop(0.3, 'rgba(210,210,215,0.85)');
+  grad.addColorStop(0.8, 'rgba(235,235,240,0.7)');
+  grad.addColorStop(0.9, 'rgba(255,255,255,0.95)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  blurTexture = new THREE.CanvasTexture(c);
+  blurTexture.colorSpace = THREE.SRGBColorSpace;
+  return blurTexture;
+}
 const SHIELD_GEO = new THREE.SphereGeometry(0.85, 18, 14);
 const BATTERY = {
   body: new THREE.BoxGeometry(0.3, 0.18, 0.5),
@@ -599,8 +710,16 @@ function Hat({ kind, propellerRef }) {
 // What the car is doing, drawn on every model that is near enough to read
 // it (full and mid LOD): the boost flame, the shield or spawn-protection
 // bubble, the battery on its back, stun stars. Flags are the snapshot bits.
-function CarStatus({ flame, flagsRef, boostingRef }) {
+function CarStatus({ flame, floorY = -0.27, flagsRef, boostingRef }) {
   const flameRef = useRef();
+  const coreRef = useRef();
+  const glowRef = useRef();
+  const floorRef = useRef();
+  const boostOn = useRef(0); // 0…1: the flame lights and dies in a beat, not a frame
+  // The flame is drawn (invisibly small) for the first frames the car
+  // exists, so its materials compile with the scene: shown for the first time
+  // on the first boost, they'd compile then — a hitch on the button press.
+  const warm = useRef(2);
   const shieldRef = useRef();
   const batteryRef = useRef();
   const stunRef = useRef();
@@ -609,8 +728,22 @@ function CarStatus({ flame, flagsRef, boostingRef }) {
   useEffect(() => () => shieldMat.dispose(), [shieldMat]);
   useFrame((_, dt) => {
     const on = boostingRef?.current;
-    flameRef.current.visible = !!on;
-    if (on) flameRef.current.scale.setScalar(0.8 + Math.random() * 0.5);
+    const b = (boostOn.current += ((on ? 1 : 0) - boostOn.current) * Math.min(1, dt * (on ? 18 : 9)));
+    const lit = b > 0.02 || warm.current > 0;
+    flameRef.current.visible = coreRef.current.visible = glowRef.current.visible = floorRef.current.visible = lit;
+    if (warm.current > 0) warm.current--;
+    if (lit && b <= 0.02) {
+      // warming up: drawn, but a speck
+      flameRef.current.scale.setScalar(1e-3); coreRef.current.scale.setScalar(1e-3);
+      glowRef.current.scale.setScalar(1e-3); floorRef.current.scale.setScalar(1e-3);
+    } else if (lit) {
+      // flicker: length and girth jitter every frame, the core harder
+      const f = 0.8 + Math.random() * 0.45;
+      flameRef.current.scale.set(b * (1 + Math.random() * 0.3), 0.36 * b * f, b * (1 + Math.random() * 0.3));
+      coreRef.current.scale.set(b, 0.2 * b * (0.7 + Math.random() * 0.5), b);
+      glowRef.current.scale.setScalar(0.75 * b * (0.9 + Math.random() * 0.25));
+      floorRef.current.scale.setScalar(0.7 + 0.3 * b);
+    }
     const flags = flagsRef?.current ?? 0;
     // bit 8 = shield item (blue), bit 64 = spawn protection (green pulse)
     const prot = !!(flags & 64) && !(flags & 8);
@@ -626,8 +759,11 @@ function CarStatus({ flame, flagsRef, boostingRef }) {
   });
   return (
     <>
-      {/* boost flame, out of the exhaust */}
-      <mesh ref={flameRef} position={[flame[0], flame[1], flame[2] - 0.12]} rotation-x={-Math.PI / 2} visible={false} geometry={FLAME_GEO} material={FLAME_MAT} />
+      {/* boost flame, out of the exhaust; its glow; its light on the floor */}
+      <mesh ref={flameRef} position={[flame[0], flame[1], flame[2] + 0.02]} rotation-x={-Math.PI / 2} visible={false} geometry={FLAME_GEO} material={FLAME_MAT} renderOrder={4} />
+      <mesh ref={coreRef} position={[flame[0], flame[1], flame[2] + 0.02]} rotation-x={-Math.PI / 2} visible={false} geometry={CORE_GEO} material={CORE_MAT} renderOrder={4} />
+      <sprite ref={glowRef} position={[flame[0], flame[1], flame[2] - 0.06]} visible={false} material={FLAME_GLOW} renderOrder={4} />
+      <mesh ref={floorRef} position={[0, floorY + 0.012, -0.45]} visible={false} geometry={FLOOR_GLOW_GEO} material={FLOOR_GLOW_MAT} />
       {/* shield bubble */}
       <mesh ref={shieldRef} visible={false} geometry={SHIELD_GEO} material={shieldMat} />
       {/* battery pack */}

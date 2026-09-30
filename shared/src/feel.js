@@ -1,5 +1,6 @@
-// Game-feel maths: how hard a landing or a wall hit should read, and where the
-// chase camera sits (and swings during a slide). Pure functions so the thresholds are
+// Game-feel maths: how hard a landing or a wall hit should read, where the
+// chase camera sits (and where it swings during a slide), how far the body
+// leans and bobs. Pure functions so the thresholds are
 // tested (scripts/test-driving.mjs) instead of eyeballed — a landing cue that
 // fires on every suspension bump, or a wall thud that fires on every drift
 // catch, would be noise rather than feedback.
@@ -125,6 +126,47 @@ export function chaseRig(speedFrac, fovDeg, out = {}) {
   out.lookAhead = CHASE.lookAhead;
   out.lookUp = CHASE.lookUp;
   return out;
+}
+
+// ---------------------------------------------------------------- body lean
+// Weight transfer on the visual shell, shared by the local car and every
+// rival so they lean alike. Stylised on purpose: honest numbers (8° of roll,
+// 5° of pitch) were a few pixels even at the close lens. Radians per u/s² of
+// lateral/longitudinal acceleration, clamped. Positive roll leans the roof
+// toward −x (outward when accelerating toward +x); positive pitch dips the
+// nose, so throttle squats and brakes dive.
+export const LEAN = {
+  rollGain: 0.0045, rollMax: 0.2,
+  pitchGain: 0.0055, pitchMax: 0.12,
+  rate: 7, // 1/s: how quickly the shell settles into a new lean
+  pivot: -0.2, // roll/pitch about this height (car units): a low roll centre
+};
+
+// Target lean for an acceleration in the car's own frame. Airborne cars
+// hang level. Writes out.roll / out.pitch.
+export function leanTarget(aLat, aLong, grounded, out) {
+  if (!grounded) { out.roll = 0; out.pitch = 0; return out; }
+  out.roll = Math.max(-LEAN.rollMax, Math.min(LEAN.rollMax, aLat * LEAN.rollGain));
+  out.pitch = Math.max(-LEAN.pitchMax, Math.min(LEAN.pitchMax, -aLong * LEAN.pitchGain));
+  return out;
+}
+
+// Heave: the shell bobbing on its springs over bumps. A damped spring
+// driven by vertical acceleration — a kerb that shoves the car up leaves the
+// body behind for a beat, then it rings back — clamped to a few millimetres
+// so it can never reach the tyres.
+export const HEAVE = { stiffness: 260, damping: 11, gain: 0.25, max: 0.04 };
+export const newHeave = () => ({ y: 0, v: 0 });
+export function heaveStep(st, aUp, dt) {
+  const H = HEAVE;
+  const n = Math.max(1, Math.ceil(dt / (1 / 120)));
+  const h = dt / n;
+  for (let i = 0; i < n; i++) {
+    st.v += (-H.stiffness * st.y - H.damping * st.v - aUp * H.gain) * h;
+    st.y += st.v * h;
+  }
+  if (Math.abs(st.y) > H.max) { st.y = Math.sign(st.y) * H.max; st.v *= -0.3; }
+  return st;
 }
 
 // ---------------------------------------------------------------- antenna

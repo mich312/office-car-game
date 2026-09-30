@@ -21,7 +21,7 @@ import {
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS, DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST,
   driftStep, driftTier, newDriftState, isDrifting, DRIFT_ENTER_SPEED, DRIFT_HOLD_SPEED, brakeDecel, COAST_DRAG, BOOST_TOP_MULT, GRAVITY,
   landingStrength, LANDING_MIN_AIR_S, impactStrength, IMPACT_MIN_DROP, chaseHeading,
-  CHASE, chaseFov, chaseRig,
+  CHASE, chaseFov, chaseRig, LEAN, leanTarget, HEAVE, newHeave, heaveStep,
 } from '../shared/src/index.js';
 
 let fails = 0;
@@ -395,6 +395,28 @@ check('chase framing: reduced motion keeps under a third of the FOV kick', (() =
 check('chase framing: the rig follows the lens it is given, not the target (no size breathing mid-ease)', (() => {
   const a = chaseRig(1, CHASE.fov), b = chaseRig(1, CHASE.fov + 10);
   return b.dist < a.dist && b.height < a.height;
+})());
+
+// ------------------------------------------------------ body lean & heave
+const L = {};
+check('lean: a left-hand curve (accel toward +x) rolls the roof outward, to −x', leanTarget(20, 0, true, L).roll > 0);
+check('lean: throttle squats (nose up), brakes dive (nose down)', leanTarget(0, 20, true, L).pitch < 0 && leanTarget(0, -20, true, L).pitch > 0);
+check('lean: clamped however hard the hit', (() => {
+  leanTarget(1e4, -1e4, true, L);
+  return Math.abs(L.roll) <= LEAN.rollMax + 1e-12 && Math.abs(L.pitch) <= LEAN.pitchMax + 1e-12;
+})());
+check('lean: airborne cars hang level', (() => { leanTarget(30, 30, false, L); return L.roll === 0 && L.pitch === 0; })());
+check('heave: a kerb jolt bobs the body, never past its travel, and settles', (() => {
+  const h = newHeave();
+  let peak = 0;
+  heaveStep(h, 60, 1 / 60); // one frame of a hard upward shove
+  for (let i = 0; i < 120; i++) { heaveStep(h, 0, 1 / 60); peak = Math.max(peak, Math.abs(h.y)); }
+  return peak > 0.005 && peak <= HEAVE.max + 1e-12 && Math.abs(h.y) < 0.002;
+})());
+check('heave: a long frame cannot blow the spring up', (() => {
+  const h = newHeave();
+  for (let i = 0; i < 20; i++) heaveStep(h, i % 2 ? 60 : -60, 0.25);
+  return Number.isFinite(h.y) && Math.abs(h.y) <= HEAVE.max + 1e-12;
 })());
 
 console.log(fails ? `\n${fails} driving check(s) failed` : '\nall driving checks passed');

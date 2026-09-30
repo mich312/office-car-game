@@ -19,7 +19,7 @@ import {
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
   landingStrength, impactStrength, chaseHeading, raceSpawn, soccerKickoff,
   SURFACES, surfaceAt, floorHeight, seamCell,
-  CHASE, chaseFov, chaseRig,
+  CHASE, chaseFov, chaseRig, LEAN, leanTarget, newHeave, heaveStep,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
@@ -79,6 +79,7 @@ const _aq = new THREE.Quaternion();
 const _vfwd = new THREE.Vector3();
 const _pivot = new THREE.Vector3();
 const _rig = {};
+const _lean = {};
 const _chase = [0, 1];
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // One object for the life of the app. react-three-rapier re-applies a body's
@@ -181,8 +182,11 @@ export default function LocalCar() {
   const steerRef = useRef(0);
   const boostingRef = useRef(false);
   const flagsRef = useRef(0);
-  // measured weight transfer (rad): roll from lateral G, pitch from accel/brake
-  const leanRef = useRef({ roll: 0, pitch: 0 });
+  // measured weight transfer (rad): roll from lateral G, pitch from
+  // accel/brake; plus the raw per-step accelerations (antenna, heave, surge),
+  // the slip angle (front wheels counter-steer) and extra rear-wheel spin
+  const leanRef = useRef({ roll: 0, pitch: 0, aLat: 0, aLong: 0, aUp: 0, slip: 0, spin: 0, heave: 0 });
+  const heave = useRef(newHeave());
   // per-wheel visual Y (local) so the wheels follow the suspension rays
   const wheelR = (carId === 'monster' ? 0.18 : 0.13) * tyreScale(style?.tyre);
   const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - car.settle + wheelR));
@@ -198,6 +202,7 @@ export default function LocalCar() {
     S.postHSpeed = -1; // a teleport's speed change is not a crash
     S.drift = newDriftState(); // nor does a drift survive one
     S.camReset = true; // …nor should the lens sweep across the map after it
+    S.pvx = undefined; // and the jump is no acceleration
   };
   // headless testing / screenshots, alongside window.__rcTelemetry: park the
   // car at (x, z) meters facing rotY — optionally dropped from y (world units)
@@ -523,6 +528,20 @@ export default function LocalCar() {
     const fwdSpeed = _v.dot(_fwd);
     S.speed = _v.length();
     speedRef.current = fwdSpeed;
+    // Acceleration in the car's own frame, measured per physics step (fixed
+    // dt): what the last step's forces and contacts actually did. The body
+    // lean, the antenna, the heave and the camera surge all read it. Measured
+    // per render frame it was spiky — at 144 Hz most frames hold no step
+    // (reads 0) and the rest hold one (reads 2.4× too much).
+    if (S.pvx !== undefined) {
+      const clampA = (n) => Math.max(-60, Math.min(60, n));
+      const ax = (vel.x - S.pvx) / dt, ay = (vel.y - S.pvy) / dt, az = (vel.z - S.pvz) / dt;
+      const L = leanRef.current;
+      L.aLat = clampA(ax * _right.x + az * _right.z);
+      L.aLong = clampA(ax * _fwd.x + az * _fwd.z);
+      L.aUp = clampA(ay);
+    }
+    S.pvx = vel.x; S.pvy = vel.y; S.pvz = vel.z;
 
     // ---------------- suspension: 4 rays along car-down
     // The Ray is built once and re-aimed per wheel: four allocations every
@@ -876,6 +895,16 @@ export default function LocalCar() {
       body.setAngvel({ x: angNow.x, y: 0, z: angNow.z }, true);
     }
     S.prevDrifting = drifting;
+    // what the wheels show: the slip angle (the fronts counter-steer into a
+    // slide) and rear-tyre surface speed over road speed — a launch lights
+    // them up, a drift keeps them turning faster than the car goes
+    {
+      const L = leanRef.current;
+      L.slip = grounded && fwdSpeed > 2 ? Math.atan2(_v.dot(_right), fwdSpeed) : 0;
+      const launchTop = car.topSpeed * 0.4;
+      const launch = throttle > 0 && fwdSpeed < launchTop ? (1 - Math.max(0, fwdSpeed) / launchTop) * 9 : 0;
+      L.spin = grounded ? Math.max(launch, drifting ? 3 + Math.abs(fwdSpeed) * 0.5 : 0) : throttle > 0 ? 12 : 0;
+    }
     // Off the grounded branch (airborne, or frozen) the drift session still
     // needs its step: holding drift over a ramp hop keeps the charge for the
     // landing, letting go in the air forfeits it.
@@ -1160,29 +1189,21 @@ export default function LocalCar() {
 
     // ---------------- body lean from measured acceleration
     // Weight transfer the suspension can't produce (every force is applied at
-    // the centre of mass): derive lateral/longitudinal G from the velocity
-    // delta and tilt the visual shell — outward roll in curves, squat on
-    // throttle, dive on the brakes. Decays to neutral on its own.
-    if (dt > 0.001) {
-      _right.set(1, 0, 0).applyQuaternion(_q);
-      const ax = (vel.x - (S.pvx ?? vel.x)) / dt;
-      const az = (vel.z - (S.pvz ?? vel.z)) / dt;
-      const ay = (vel.y - (S.pvy ?? vel.y)) / dt;
-      S.pvx = vel.x; S.pvz = vel.z; S.pvy = vel.y;
-      const clampA = (n) => Math.max(-60, Math.min(60, n));
-      const aLat = clampA(ax * _right.x + az * _right.z);
-      const aLong = clampA(ax * _fwd.x + az * _fwd.z);
-      // the antenna wants the raw acceleration, not the smoothed lean
-      leanRef.current.aLat = aLat;
-      leanRef.current.aLong = aLong;
-      leanRef.current.aUp = clampA(ay);
-      const tRoll = grounded ? Math.max(-0.14, Math.min(0.14, aLat * 0.0032)) : 0;
-      const tPitch = grounded ? Math.max(-0.09, Math.min(0.09, -aLong * 0.0035)) : 0;
-      const k = Math.min(1, dt * 7);
-      leanRef.current.roll += (tRoll - leanRef.current.roll) * k;
-      leanRef.current.pitch += (tPitch - leanRef.current.pitch) * k;
-      telemetry.roll = leanRef.current.roll;
-      telemetry.pitch = leanRef.current.pitch;
+    // the centre of mass): the per-step acceleration (measured in the physics
+    // step above) tilts the visual shell — outward roll in curves, squat on
+    // throttle, dive on the brakes — about a low roll centre (CarModel), and
+    // a bump sets the body bobbing on its springs. Decays to neutral.
+    {
+      const L = leanRef.current;
+      leanTarget(L.aLat || 0, L.aLong || 0, grounded, _lean);
+      const k = 1 - Math.exp(-dt * LEAN.rate);
+      L.roll += (_lean.roll - L.roll) * k;
+      L.pitch += (_lean.pitch - L.pitch) * k;
+      // (not on a landing: the squash has that, and both at once sank the
+      // shell into the floor on a hard one)
+      L.heave = heaveStep(heave.current, grounded && S.squash < 0.05 ? L.aUp || 0 : 0, dt).y;
+      telemetry.roll = L.roll;
+      telemetry.pitch = L.pitch;
     }
     leanRef.current.squash = S.squash;
     S.squash *= Math.pow(0.0008, dt);
