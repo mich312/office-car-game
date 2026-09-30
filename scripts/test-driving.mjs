@@ -10,6 +10,10 @@
 // 3. The drift-charge state machine and the brake (shared/src/handling.js),
 //    and the game-feel thresholds (shared/src/feel.js) — again the exact
 //    functions LocalCar.jsx calls.
+// 4. The chase rig's framing: the car projected through chaseRig() must fill
+//    a fifth of a 16:9 frame at every speed — no browser renders here, so
+//    this is what stops the lens drifting back out to where the car was 3%
+//    of the screen.
 import {
   CARS, CAR_IDS, tunedStats, simulateDrive,
   rightingTorque, airRightingK, groundRightingK, roofKickNeeded, recoveryTick,
@@ -17,6 +21,7 @@ import {
   DRIFT_TIER_TIMES, DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS, DRIFT_CHARGE_STEER, DRIFT_CHARGE_COAST,
   driftStep, driftTier, newDriftState, isDrifting, DRIFT_ENTER_SPEED, DRIFT_HOLD_SPEED, brakeDecel, COAST_DRAG, BOOST_TOP_MULT, GRAVITY,
   landingStrength, LANDING_MIN_AIR_S, impactStrength, IMPACT_MIN_DROP, chaseHeading,
+  CHASE, chaseFov, chaseRig,
 } from '../shared/src/index.js';
 
 let fails = 0;
@@ -340,6 +345,56 @@ check('chase cam: mirrored slides swing mirrored', (() => {
   const r = [...chaseHeading(0, 1, 6, 12, H)];
   const l = chaseHeading(0, 1, -6, 12, H);
   return Math.abs(r[0] + l[0]) < 1e-9 && Math.abs(r[1] - l[1]) < 1e-9;
+})());
+
+// ------------------------------------------------------ chase framing
+// The car's box (wheels out, floor to roof, nose to tail) projected through
+// the rig with a 16:9 lens: the camera sits `dist` behind and `height` above
+// the car's centre and aims `lookAhead` (+ the velocity term) ahead, `lookUp`
+// up. → width as % of the frame, box centre as % of its height from the top,
+// and where the horizon crosses.
+function framing(speedFrac, boosting, surge = 0) {
+  const fov = chaseFov(speedFrac, boosting);
+  const rig = chaseRig(speedFrac, fov);
+  const v = Math.min(1, speedFrac) * 17 * (boosting ? BOOST_TOP_MULT : 1);
+  const cam = [0, rig.height, -(rig.dist + surge)], look = [0, rig.lookUp, rig.lookAhead + v * CHASE.lookVel];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = (a) => { const l = Math.hypot(...a); return a.map((x) => x / l); };
+  const f = unit(sub(look, cam)), r = unit(cross(f, [0, 1, 0])), u = cross(r, f);
+  const ty = Math.tan((fov * Math.PI) / 360), tx = ty * 16 / 9;
+  let x0 = 1, x1 = -1, y0 = 1, y1 = -1;
+  for (const x of [-0.37, 0.37]) for (const y of [-0.275, 0.2]) for (const z of [-0.5, 0.5]) {
+    const d = sub([x, y, z], cam), zc = dot(d, f);
+    const px = dot(d, r) / zc / tx, py = dot(d, u) / zc / ty;
+    x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+  }
+  const pitch = Math.asin(-f[1]);
+  return { fov, width: (x1 - x0) * 50, centre: (1 - ((y0 + y1) / 2 + 1) / 2) * 100, horizon: (0.5 - Math.tan(pitch) / ty / 2) * 100 };
+}
+const SPEEDS = [[0, false, 'parked'], [0.5, false, 'half speed'], [1, false, 'top speed'], [1, true, 'boosting']];
+for (const [sf, b, name] of SPEEDS) {
+  const fr = framing(sf, b);
+  check(`chase framing ${name}: the car fills ≥16% of the frame's width (${fr.width.toFixed(1)}%)`, fr.width >= 16);
+  check(`chase framing ${name}: the car sits in the lower third, clear of the bottom edge (${fr.centre.toFixed(0)}% down)`, fr.centre >= 68 && fr.centre <= 80);
+  check(`chase framing ${name}: the horizon is on screen, with room ahead (${fr.horizon.toFixed(0)}% down)`, fr.horizon > 12 && fr.horizon < 55);
+}
+check('chase framing: the lens widens with speed and again on boost', chaseFov(0, false) < chaseFov(0.5, false)
+  && chaseFov(0.5, false) < chaseFov(1, false) && chaseFov(1, false) < chaseFov(1, true));
+check('chase framing: the widening is paid back in distance — boosting keeps ≥85% of the parked size', (() => {
+  return framing(1, true).width >= 0.85 * framing(0, false).width;
+})());
+check('chase framing: a flat-out boost launch, lens surged all the way back, still leaves the car ≥16% wide', (() => {
+  return framing(0.5, true, CHASE.surgeMax).width >= 16;
+})());
+check('chase framing: reduced motion keeps under a third of the FOV kick', (() => {
+  const full = chaseFov(1, true) - chaseFov(0, false);
+  return chaseFov(1, true, 0.3) - chaseFov(0, false, 0.3) <= full * 0.31 + 1e-9;
+})());
+check('chase framing: the rig follows the lens it is given, not the target (no size breathing mid-ease)', (() => {
+  const a = chaseRig(1, CHASE.fov), b = chaseRig(1, CHASE.fov + 10);
+  return b.dist < a.dist && b.height < a.height;
 })());
 
 console.log(fails ? `\n${fails} driving check(s) failed` : '\nall driving checks passed');

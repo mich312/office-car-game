@@ -19,6 +19,7 @@ import {
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
   landingStrength, impactStrength, chaseHeading, raceSpawn, soccerKickoff,
   SURFACES, surfaceAt, floorHeight, seamCell,
+  CHASE, chaseFov, chaseRig,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
@@ -26,6 +27,7 @@ import { useControls } from './useControls.js';
 import CarModel, { tyreScale } from './CarModel.jsx';
 import Particles, { burst, puff } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
+import { carView, setCamProbe, clearLens } from './carView.js';
 import { audio } from '../audio.js';
 import { rumble } from './rumble.js';
 import { currentMap } from './activeMap.js';
@@ -57,12 +59,28 @@ const _torque = { x: 0, y: 0, z: 0 }; // righting torque impulse
 const _worldUp = { x: 0, y: 1, z: 0 };
 const _camTarget = new THREE.Vector3();
 // what the chase camera may not sit inside: fixed colliders that aren't
-// sensors (QueryFilterFlags ONLY_FIXED | EXCLUDE_SENSORS) — props and other
-// cars move, and pulling the lens in for them would make it twitch
+// sensors (QueryFilterFlags ONLY_FIXED | EXCLUDE_SENSORS)…
 const CAM_BLOCKERS = 6 | 8;
+// …and big loose props (ONLY_DYNAMIC | EXCLUDE_SENSORS, filtered by size): at
+// a metre off the floor a sofa or a plant pot fills the lens as surely as a
+// wall does. Mugs and pens don't count — pulling in for them is twitch.
+const CAM_PROPS = 3 | 8;
+const BIG_PROP = 0.35; // u³ — about one and a half cars
+const bigProp = new Map(); // collider handle → big enough to block the lens
+const isBigProp = (c) => {
+  let b = bigProp.get(c.handle);
+  if (b === undefined) { b = c.volume() > BIG_PROP; bigProp.set(c.handle, b); }
+  return b;
+};
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
+const _anchor = new THREE.Vector3(); // the car as drawn (interpolated)
+const _aq = new THREE.Quaternion();
+const _vfwd = new THREE.Vector3();
+const _pivot = new THREE.Vector3();
+const _rig = {};
 const _chase = [0, 1];
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // One object for the life of the app. react-three-rapier re-applies a body's
 // transform (from the last RENDERED pose) whenever a mutable prop changes,
 // and an inline {{…}} is a new object — i.e. a change — on every render. A
@@ -123,7 +141,15 @@ export default function LocalCar() {
     slipBoostUntil: 0,
     slipCooldownUntil: 0,
     shake: 0,
-    fov: 60,
+    fov: CHASE.fov,
+    // chase rig (see shared/src/feel.js CHASE): smoothed yaw and heights,
+    // the launch/brake surge, how far a wall has pulled the lens in
+    camYaw: 0,
+    camY: 0,
+    lookY: 0,
+    aLongSm: 0,
+    camPull: 0,
+    camReset: true,
     speed: 0,
     steerVis: 0,
     slipping: false,
@@ -171,14 +197,37 @@ export default function LocalCar() {
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     S.postHSpeed = -1; // a teleport's speed change is not a crash
     S.drift = newDriftState(); // nor does a drift survive one
+    S.camReset = true; // …nor should the lens sweep across the map after it
   };
   // headless testing / screenshots, alongside window.__rcTelemetry: park the
-  // car at (x, z) meters facing rotY
+  // car at (x, z) meters facing rotY — optionally dropped from y (world units)
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    window.__rcTeleport = (x, z, rotY = 0) => teleport(x * M, SPAWN_Y, z * M, rotY);
+    window.__rcTeleport = (x, z, rotY = 0, y) => teleport(x * M, y ?? SPAWN_Y, z * M, rotY);
     return () => { delete window.__rcTeleport; };
   });
+
+  // The lens probe every camera uses (carView.js): one ray from the origin to
+  // the lens against fixed colliders, one against big loose props, never our
+  // own car. → the share of the way the lens may go, stopping 0.15 short of
+  // whatever is in the way but never closer than 0.45 to the origin.
+  useEffect(() => {
+    let ray = null;
+    setCamProbe((ox, oy, oz, tx, ty, tz) => {
+      const dx = tx - ox, dy = ty - oy, dz = tz - oz;
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 0.46) return 1;
+      ray ||= new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+      ray.origin.x = ox; ray.origin.y = oy; ray.origin.z = oz;
+      ray.dir.x = dx / len; ray.dir.y = dy / len; ray.dir.z = dz / len;
+      const body = rb.current || undefined;
+      const wall = world.castRay(ray, len, true, CAM_BLOCKERS, undefined, undefined, body);
+      const prop = world.castRay(ray, len, true, CAM_PROPS, undefined, undefined, body, isBigProp);
+      const t = Math.min(wall ? wall.timeOfImpact ?? wall.toi : Infinity, prop ? prop.timeOfImpact ?? prop.toi : Infinity);
+      return Number.isFinite(t) ? Math.min(1, Math.max(0.45, t - 0.15) / len) : 1;
+    });
+    return () => { setCamProbe(null); bigProp.clear(); };
+  }, [world, rapier]);
 
   // Ask the server for a respawn. It scores the spawn slots (races get our
   // safe-pose proposal instead) and answers with RESPAWN_AT → we teleport,
@@ -984,9 +1033,27 @@ export default function LocalCar() {
     const throttle = (keys.current.fwd ? 1 : 0) - (keys.current.back ? 1 : 0);
     const drifting = S.prevDrifting;
 
+    // ---------------- the car as drawn
+    // Rapier draws the body interpolated between physics steps; everything
+    // that frames the car reads that pose, not the body's newest state (see
+    // carView.js). Physics steps before this frame callback, so it is current.
+    const vis = visual.current;
+    if (vis) {
+      vis.getWorldPosition(_anchor);
+      vis.getWorldQuaternion(_aq);
+      _vfwd.set(0, 0, 1).applyQuaternion(_aq);
+    } else {
+      _anchor.set(pos.x, pos.y, pos.z);
+      _vfwd.copy(_fwd);
+    }
+    carView.x = _anchor.x; carView.y = _anchor.y; carView.z = _anchor.z;
+    carView.yaw = Math.atan2(_vfwd.x, _vfwd.z);
+    carView.ready = !st.spectating;
+
     // ---------------- camera (SpectatorCam owns it while eliminated)
     if (st.spectating) {
       audio.update({ speed: 0, throttle: 0, slipping: false, boosting: false, topSpeed: car.topSpeed });
+      S.camReset = true;
       return;
     }
     if (S.fallCamUntil > nowMs && !st.photoMode) {
@@ -994,66 +1061,101 @@ export default function LocalCar() {
       _camTarget.set(pos.x + 3.5, Math.max(pos.y + 16, 7), pos.z + 3.5);
       camera.position.lerp(_camTarget, 1 - Math.pow(0.005, dt));
       camera.lookAt(pos.x, pos.y, pos.z);
+      S.camReset = true;
     } else if (!st.photoMode) {
-      // In a slide the camera swings part-way toward the direction of travel,
-      // so a drift shows where you're going, not just where the nose points
-      // (shared/src/feel.js). The position lerp below does the smoothing.
-      chaseHeading(_fwd.x, _fwd.z, vel.x, vel.z, _chase, 0.45 * MOTION);
-      const back = _camPos.set(-_chase[0], 0, -_chase[1]);
-      const dist = 4.0 + Math.min(1.6, S.speed * 0.03);
+      // The chase rig (numbers in shared/src/feel.js CHASE). The lens is
+      // bolted to the car as drawn: only its heading and its height are
+      // smoothed. The old rig lerped the lens POSITION toward a point behind
+      // the car, and a lerp chasing a moving target trails it by v·τ — the
+      // camera fell 1–3 u further back the faster you went and the car
+      // shrank to a speck exactly when there was most to see.
+      const kOf = (tau) => 1 - Math.exp(-Math.min(rawDt, 0.5) / tau); // framerate-independent
+      const reset = S.camReset;
+      const sf = Math.min(1, S.speed / car.topSpeed);
+      const boostingNow = S.boosting || nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil;
+      S.fov = reset ? chaseFov(sf, boostingNow, MOTION) : S.fov + (chaseFov(sf, boostingNow, MOTION) - S.fov) * kOf(0.2);
+      const rig = chaseRig(sf, S.fov, _rig);
+      // heading: behind the car, swung part-way toward the direction of
+      // travel in a slide so a drift shows where you're going (feel.js), and
+      // lagging the car's yaw a beat so a turn shows the car turning
+      chaseHeading(_vfwd.x, _vfwd.z, vel.x, vel.z, _chase, CHASE.swing * MOTION);
+      const yawT = Math.atan2(_chase[0], _chase[1]);
+      S.camYaw = reset ? yawT : S.camYaw + wrapAngle(yawT - S.camYaw) * kOf(MOTION < 1 ? 0.05 : CHASE.yawTau);
+      // height: soaks up suspension chatter on the ground; in the air the
+      // lens lags a climb so a jump rises in frame, but follows a fall
+      // briskly (lagging a drop would sink the car out of the bottom of the
+      // frame) — and never loses the car either way
+      const yT = _anchor.y + (grounded ? 0 : 0.15);
+      const falling = yT < S.camY;
+      S.camY = reset ? yT : S.camY + (yT - S.camY) * kOf(grounded ? CHASE.yTau : falling ? CHASE.yTau : CHASE.yTauAir);
+      S.camY = Math.max(_anchor.y - 1, Math.min(_anchor.y + 0.5, S.camY));
+      S.lookY = reset ? _anchor.y : S.lookY + (_anchor.y - S.lookY) * kOf(grounded || falling ? 0.05 : 0.12);
+      // surge: the car pulls away under power, the lens closes in under
+      // braking — from acceleration, so nothing trails at a steady speed
+      S.aLongSm = reset ? 0 : S.aLongSm + ((leanRef.current.aLong || 0) - S.aLongSm) * kOf(CHASE.surgeTau);
+      const surge = Math.max(CHASE.surgeMin, Math.min(CHASE.surgeMax, S.aLongSm * CHASE.surgeGain)) * MOTION;
       // a hard landing dips the camera with the car, then it recovers
-      const dip = S.camDip * 0.7 * MOTION;
+      const dip = S.camDip * CHASE.dip * MOTION;
       S.camDip *= Math.pow(0.004, dt);
-      _camTarget.set(
-        pos.x + back.x * dist,
-        pos.y + 2.0 + (grounded ? 0 : 0.4) - dip,
-        pos.z + back.z * dist,
-      );
-      // framerate-independent smoothing (unclamped dt so slow frames still converge)
-      const lerpK = 1 - Math.pow(0.0015, Math.min(rawDt, 0.5));
-      camera.position.lerp(_camTarget, lerpK);
-      // keep the camera above the floor
-      if (camera.position.y < 0.7) camera.position.y = 0.7;
-      // ...and out of walls and furniture: backed against a wall or parked
-      // under a bench it sat inside them and filled the screen with their
-      // insides. One ray from the car to the lens against fixed colliders;
-      // the lens comes forward to just short of whatever is in the way.
-      {
-        const cam = camera.position, oy = pos.y + 0.8;
-        const dx = cam.x - pos.x, dy = cam.y - oy, dz = cam.z - pos.z;
-        const len = Math.hypot(dx, dy, dz);
-        if (len > 0.6) {
-          const cr = _camRay.current || (_camRay.current = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }));
-          cr.origin.x = pos.x; cr.origin.y = oy; cr.origin.z = pos.z;
-          cr.dir.x = dx / len; cr.dir.y = dy / len; cr.dir.z = dz / len;
-          const hit = world.castRay(cr, len, true, CAM_BLOCKERS, undefined, undefined, body);
-          if (hit) {
-            const t = Math.max(0.6, (hit.timeOfImpact ?? hit.toi) - 0.25);
-            cam.set(pos.x + cr.dir.x * t, oy + cr.dir.y * t, pos.z + cr.dir.z * t);
-          }
-        }
+      const bx = Math.sin(S.camYaw), bz = Math.cos(S.camYaw);
+      const dist = rig.dist + surge;
+      _camPos.set(_anchor.x - bx * dist, S.camY + rig.height - dip, _anchor.z - bz * dist);
+      // never below the car's own roofline (on a desk top as on the floor)
+      _camPos.y = Math.max(_camPos.y, _anchor.y + 0.3);
+      // ...and out of walls, furniture and big props. Pivot just above the
+      // car; a ray to the lens; blocked, the lens snaps in to just short of
+      // the obstacle, and eases back out (τ 0.35 s) once it's clear, so a
+      // grazing edge or a passing chair can't make it pump. Pulled in hard,
+      // the boom rises too: the view looks down over what's behind you
+      // instead of into your own bumper.
+      _pivot.set(_anchor.x, _anchor.y + 0.5, _anchor.z);
+      const pullT = 1 - clearLens(_pivot.x, _pivot.y, _pivot.z, _camPos.x, _camPos.y, _camPos.z);
+      S.camPull = reset || pullT > S.camPull ? pullT : S.camPull + (pullT - S.camPull) * kOf(0.35);
+      if (S.camPull > 0.001) {
+        const raise = 0.9 * Math.max(0, (S.camPull - 0.25) / 0.75);
+        _camPos.sub(_pivot).multiplyScalar(1 - S.camPull).add(_pivot);
+        _camPos.y += raise;
+        // the raise (or a slow release) can reach round something the first
+        // ray never saw: check the final lens too
+        const f = clearLens(_pivot.x, _pivot.y, _pivot.z, _camPos.x, _camPos.y, _camPos.z);
+        if (f < 1) _camPos.sub(_pivot).multiplyScalar(f).add(_pivot);
       }
-      // keep the car anchored in the lower third: modest look-ahead, higher aim
-      _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85 - dip * 0.4, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
+      S.camReset = false;
+      camera.position.copy(_camPos);
+      telemetry.camDist = _camPos.distanceTo(_anchor); // focus distance for the depth of field
+      // aim: ahead of the car, mostly along the lens heading and partly along
+      // the nose, plus a little of where it's going. A lens pulled in by a
+      // wall aims in by as much, or the car drops out of the bottom of the
+      // frame just when the room is tight.
+      const na = CHASE.noseAim;
+      let ax = bx * (1 - na) + _vfwd.x * na, az = bz * (1 - na) + _vfwd.z * na;
+      const al = Math.hypot(ax, az) || 1;
+      ax /= al; az /= al;
+      const reach = Math.max(0.35, Math.min(1, Math.hypot(_camPos.x - _anchor.x, _camPos.z - _anchor.z) / dist));
+      _look.set(
+        _anchor.x + (ax * rig.lookAhead + vel.x * CHASE.lookVel) * reach,
+        S.lookY + rig.lookUp - dip * 0.3,
+        _anchor.z + (az * rig.lookAhead + vel.z * CHASE.lookVel) * reach,
+      );
       // trauma-style shake: amplitude ∝ shake², plus a rotational component —
-      // rotation is what makes a shake read as force instead of glitch
+      // rotation is what makes a shake read as force instead of glitch. The
+      // aim point is closer than it was, so the same shove moves it less.
       const trauma = S.shake * S.shake * MOTION;
       if (S.shake > 0.01) {
-        _look.x += (Math.random() - 0.5) * trauma * 2.2;
-        _look.y += (Math.random() - 0.5) * trauma * 1.7;
-        _look.z += (Math.random() - 0.5) * trauma * 2.2;
+        _look.x += (Math.random() - 0.5) * trauma * 1.1;
+        _look.y += (Math.random() - 0.5) * trauma * 0.85;
+        _look.z += (Math.random() - 0.5) * trauma * 1.1;
         S.shake *= Math.pow(0.02, dt);
       }
       camera.lookAt(_look);
       if (S.shake > 0.01) camera.rotateZ((Math.random() - 0.5) * trauma * 0.09);
-      const boostingNow = S.boosting || nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil;
-      const targetFov = 58 + Math.min(1, S.speed / car.topSpeed) * 11 + (boostingNow ? 8 : 0);
-      S.fov += (targetFov - S.fov) * Math.min(1, dt * 5);
       // a hit punches the lens in for a beat — outside the smoothing above,
       // so it lands on the frame of the hit and snaps back
       const fov = S.fov - S.fovPunch * MOTION;
       S.fovPunch *= Math.pow(0.001, dt);
       if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
+    } else {
+      S.camReset = true; // back from photo mode: no sweep from the orbit
     }
 
     // ---------------- body lean from measured acceleration

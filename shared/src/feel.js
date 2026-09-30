@@ -1,5 +1,5 @@
 // Game-feel maths: how hard a landing or a wall hit should read, and where the
-// chase camera should sit during a slide. Pure functions so the thresholds are
+// chase camera sits (and swings during a slide). Pure functions so the thresholds are
 // tested (scripts/test-driving.mjs) instead of eyeballed — a landing cue that
 // fires on every suspension bump, or a wall thud that fires on every drift
 // catch, would be noise rather than feedback.
@@ -59,6 +59,71 @@ export function chaseHeading(fwdX, fwdZ, velX, velZ, out, maxBlend = 0.45) {
   const bx = fx + (vx - fx) * w, bz = fz + (vz - fz) * w;
   const bl = Math.hypot(bx, bz) || 1;
   out[0] = bx / bl; out[1] = bz / bl;
+  return out;
+}
+
+// ---------------------------------------------------------------- chase rig
+// Where the chase lens sits, as numbers the tests hold to: the framing checks
+// in scripts/test-driving.mjs project the car through them. Car units,
+// relative to the car's centre; LocalCar.jsx adds the smoothing, the walls
+// and the shake.
+//
+// Close and a little long. The old rig sat 4 u back behind a position lerp
+// that trailed the car by v·τ, so the faster you went the smaller the car
+// got: 9% of the frame's width parked, 4% at top speed, 3% boosting — the
+// roll, the steering and the slide were a few pixels. Here the car fills a
+// fifth of the width at every speed, and 54° compresses the room behind it
+// the way a macro shot of a real 1:10 car does.
+//
+// Speed still widens the lens (that IS the sense of speed), but the lens
+// moves in to pay for it: `dolly` of the widening comes back as distance
+// (`lift` as height), so the car keeps its size while the room streams past
+// the edges.
+export const CHASE = {
+  fov: 54, // degrees, vertical, parked
+  fovSpeed: 9, // + at top speed
+  fovBoost: 6, // + while any boost burns
+  dist: 2.3, // lens behind the car's centre, parked
+  height: 1.02, // lens above the car's centre, parked
+  dolly: 0.75, // share of a FOV change the distance compensates
+  lift: 0.6, // …and the height
+  distSpeed: 0.05, // a touch further back at top speed
+  heightSpeed: 0.03,
+  lookAhead: 2.2, // aim point ahead of the car
+  lookVel: 0.03, // …plus this many seconds of travel
+  lookUp: 0, // aim point height over the car's centre
+  noseAim: 0.3, // how much the aim follows the nose rather than the lens
+  swing: 0.5, // chaseHeading maxBlend at the call site (the default stays 0.45)
+  yawTau: 0.09, // s: the lens swings round after the car, never with it
+  yTau: 0.08, // s: height follow on the ground (eats suspension chatter)
+  yTauAir: 0.3, // s: …and in the air, so a jump visibly rises in frame
+  // launch/brake surge: the car pulls away under power and the lens catches
+  // up under braking — acceleration, never speed, so nothing lags at cruise
+  surgeGain: 0.02, surgeMin: -0.25, surgeMax: 0.25, surgeTau: 0.15,
+  dip: 0.35, // landing dip (u at full landing strength)
+};
+
+const tanHalf = (deg) => Math.tan((deg * Math.PI) / 360);
+
+// Target field of view (degrees) at a share of top speed (0…1). `motion`
+// scales the kick for players who asked for less motion.
+export function chaseFov(speedFrac, boosting, motion = 1) {
+  const sf = clamp01(speedFrac);
+  return CHASE.fov + (CHASE.fovSpeed * sf + (boosting ? CHASE.fovBoost : 0)) * motion;
+}
+
+// The rig for the lens's CURRENT field of view (LocalCar eases the FOV, and
+// the distance has to follow the eased value or the car breathes in size):
+// { fov, dist, height, lookAhead, lookUp } — lookAhead before the velocity
+// term, which is the caller's (it needs the velocity).
+export function chaseRig(speedFrac, fovDeg, out = {}) {
+  const sf = clamp01(speedFrac);
+  const k = tanHalf(CHASE.fov) / tanHalf(fovDeg);
+  out.fov = fovDeg;
+  out.dist = CHASE.dist * (1 - CHASE.dolly + CHASE.dolly * k) + CHASE.distSpeed * sf;
+  out.height = CHASE.height * (1 - CHASE.lift + CHASE.lift * k) + CHASE.heightSpeed * sf;
+  out.lookAhead = CHASE.lookAhead;
+  out.lookUp = CHASE.lookUp;
   return out;
 }
 
