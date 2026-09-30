@@ -50,7 +50,7 @@ function drawDeco({ canvas, g, texture }) {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.fillStyle = 'rgba(154, 167, 192, 0.5)';
-  g.font = '600 13px "Barlow Condensed", "Arial Narrow", sans-serif';
+  g.font = '600 12px Rubik, "Arial Narrow", sans-serif';
   g.fillText('A F T E R   H O U R S   R C   ·   M K - I I', px(0), py(-0.086));
   const keycap = (label, x, y) => {
     g.fillStyle = 'rgba(24, 28, 41, 0.9)';
@@ -62,7 +62,7 @@ function drawDeco({ canvas, g, texture }) {
     g.fill();
     g.stroke();
     g.fillStyle = 'rgba(238, 242, 250, 0.85)';
-    g.font = '700 14px "Barlow Condensed", "Arial Narrow", sans-serif';
+    g.font = '800 13px Rubik, "Arial Narrow", sans-serif';
     g.fillText(label, px(x), py(y) + 1);
   };
   keycap('Q', -0.128, -0.124);
@@ -96,7 +96,7 @@ function drawButtonFace({ canvas, g, texture }, glyphId, { frac = 0, ring = null
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = 'rgba(130, 145, 174, 0.45)';
-    g.font = '700 46px "Barlow Condensed", "Arial Narrow", sans-serif';
+    g.font = '800 44px Rubik, "Arial Narrow", sans-serif';
     g.fillText('?', S / 2, S / 2 + 2);
   }
   // cooldown: dark wipe over the remaining fraction, clockwise from 12
@@ -260,9 +260,9 @@ export default function ControllerHUD() {
       ctx.fillStyle = ACCENT;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'alphabetic';
-      ctx.font = '700 62px "Barlow Condensed", "Arial Narrow", sans-serif';
+      ctx.font = '800 56px Rubik, "Arial Narrow", sans-serif';
       ctx.fillText(String(cms), 138, 66);
-      ctx.font = '600 20px "Barlow Condensed", "Arial Narrow", sans-serif';
+      ctx.font = '800 15px Rubik, "Arial Narrow", sans-serif';
       ctx.fillStyle = 'rgba(255, 180, 84, 0.65)';
       ctx.fillText('CM/S', 182, 66);
       ctx.fillStyle = 'rgba(255, 180, 84, 0.9)';
