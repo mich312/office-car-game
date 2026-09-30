@@ -31,7 +31,7 @@
 // level while others fly over them — and in Packing it gets its own
 // moment: a pallet kicker that jumps it across the belt coming down.
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M;
 const H = 7; // eaves height of the hall; the sawtooth roof rises above it
@@ -368,7 +368,7 @@ const BATTERY_SPAWN = cp(6, 0); // the box junction
 // and the door in the block wall to Packing (x 4).
 const SOCCER = {
   ballSpawn: { x: u(-4), z: u(-7.5), y: u(0.5) },
-  ballRadius: u(0.42),
+  ballRadius: 0.42 / CAR_UNIT_M, // car-sized, not room-sized: bigger than the cars
   goals: [
     { team: 0, x: u(-12), z: u(-7.5), dir: 1, width: u(1.8), name: 'Goods-In Goal' },
     { team: 1, x: u(4), z: u(-7.5), dir: -1, width: u(1.8), name: 'Packing Goal' },

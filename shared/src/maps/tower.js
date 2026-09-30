@@ -32,7 +32,7 @@
 // glass slider into the wind on the terrace, through the pantry, a slalom
 // round the analysts' desk rows, and back into the lobby.
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M;
 const H = 3.3; // a tower floor: tall glass, a high ceiling
@@ -365,7 +365,7 @@ const BATTERY_SPAWN = cp(-1, 7); // under the boardroom table
 // lobby's west and east doorways.
 const SOCCER = {
   ballSpawn: { x: u(0), z: u(-8), y: u(0.5) },
-  ballRadius: u(0.42),
+  ballRadius: 0.42 / CAR_UNIT_M, // car-sized, not room-sized: bigger than the cars
   goals: [
     { team: 0, x: u(-7), z: u(-8), dir: 1, width: u(1.8), name: 'West Goal' },
     { team: 1, x: u(7), z: u(-8), dir: -1, width: u(1.8), name: 'East Goal' },

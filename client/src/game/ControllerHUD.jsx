@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree, createPortal } from '@react-three/fiber';
 import { RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
-import { M, ABILITIES, ABILITY_COOLDOWN_S } from '@rc/shared';
+import { CAR_UNIT_M, ABILITIES, ABILITY_COOLDOWN_S } from '@rc/shared';
 import { useStore } from '../store.js';
 import { ACTION_ICON_PATHS } from '../ui/iconPaths.js';
 import { telemetry } from './LocalCar.jsx';
@@ -249,7 +249,7 @@ export default function ControllerHUD() {
 
     // LCD redraw, throttled and only when the shown value changes
     lcd.acc += delta;
-    const cms = Math.round(Math.abs(telemetry.speed) * (100 / M));
+    const cms = Math.round(Math.abs(telemetry.speed) * CAR_UNIT_M * 100);
     if (lcd.acc > 0.08 && (cms !== lcd.last || Math.abs(frac - lcd.lastFrac) > 0.03)) {
       lcd.acc = 0;
       lcd.last = cms;

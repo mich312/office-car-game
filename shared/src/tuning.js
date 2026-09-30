@@ -14,7 +14,7 @@
 // the preview trace on the bench monitor is honest instead of decorative.
 // ---------------------------------------------------------------------------
 import { CARS } from './cars.js';
-import { PHYS_TIMESTEP, SUSPENSION_REST, SUSPENSION_STIFFNESS, M } from './constants.js';
+import { PHYS_TIMESTEP, SUSPENSION_REST, SUSPENSION_STIFFNESS, GRAVITY, CAR_UNIT_M } from './constants.js';
 
 export const TUNE_MIN = -2;
 export const TUNE_MAX = 2;
@@ -160,7 +160,7 @@ const clamp = (n, lo, hi) => (n < lo ? lo : n > hi ? hi : n);
 // length. Stiffer springs sag less, so the car sits taller — the garage reads
 // this straight off the physics instead of faking a stance offset.
 export function settleFor(springMul = 1) {
-  return SUSPENSION_REST * (1 - (9.81 * M) / (SUSPENSION_STIFFNESS * springMul));
+  return SUSPENSION_REST * (1 + GRAVITY / (SUSPENSION_STIFFNESS * springMul));
 }
 
 // The one function everything else calls: base car + setup sheet → the numbers
@@ -284,7 +284,7 @@ export function tuneMetrics(carOrId, tune) {
 // Scale speed, the way RC boxes quote it: world units → m/s → km/h, then ×20
 // because a 1-unit car standing in for a 4.5 m hatchback is roughly 1:20.
 export const RC_SCALE = 20;
-export const scaleKmh = (unitsPerSecond) => (unitsPerSecond / M) * 3.6 * RC_SCALE;
+export const scaleKmh = (unitsPerSecond) => unitsPerSecond * CAR_UNIT_M * 3.6 * RC_SCALE;
 
 // One-line description of a sheet, for the HUD/garage ("Tall · Soft · Loaded").
 export function tuneLabel(tune) {

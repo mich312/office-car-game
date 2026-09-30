@@ -2,7 +2,7 @@
 // kill feed, minimap, scoreboard, event toasts, podium. Everything anchors
 // to the HUD safe-area frame and composes the shared chip/toast primitives.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MODES, MODE_IDS, MAPS, MAP_IDS, raceLaps, POWERUPS, PHASE, MSG, M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf, perched } from '@rc/shared';
+import { MODES, MODE_IDS, MAPS, MAP_IDS, raceLaps, POWERUPS, PHASE, MSG, CAR_UNIT_M, MUTATORS, ABILITIES, ABILITY_COOLDOWN_S, raceCheckpoints, variantOf, perched } from '@rc/shared';
 import { useMap, currentMap } from '../game/activeMap.js';
 import { useStore } from '../store.js';
 import { net, send } from '../net.js';
@@ -302,7 +302,7 @@ function MatchHUD() {
   const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
   const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, '0');
   const prog = raceProgress[myId];
-  const speedCms = Math.round(telemetry.speed * (100 / M)); // real-world cm/s at toy scale
+  const speedCms = Math.round(telemetry.speed * CAR_UNIT_M * 100); // real-world cm/s at toy scale
   const boostFrac = Math.min(1, Math.max(0, telemetry.boost / 100));
   // Last Car Standing: closing-room countdown + get-out alarm
   const map = useMap();

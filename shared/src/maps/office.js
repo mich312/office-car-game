@@ -18,7 +18,7 @@
 //   │ area     │ boxes │     │    coffee machine, vending)       │ hoop 🏀 │
 //   └──────────┴───────┴─────┴───────────────────────────────────┴─────────┘
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M; // meters → world units
 
@@ -398,7 +398,7 @@ export const BATTERY_SPAWN = cp(-1, 1.5);
 // glass doorways on the east and west walls.
 export const SOCCER = {
   ballSpawn: { x: u(-1), z: u(1.5), y: u(0.5) },
-  ballRadius: u(0.42), // "huge ping pong ball" — bigger than the cars
+  ballRadius: 0.42 / CAR_UNIT_M, // "huge ping pong ball": car-sized, bigger than the cars
   goals: [
     { team: 0, x: u(-8), z: u(4), dir: 1, width: u(1.8), name: 'Focus Goal' }, // focus-booth doorway
     { team: 1, x: u(6), z: u(-0.5), dir: -1, width: u(1.8), name: 'Printer Goal' }, // printer doorway

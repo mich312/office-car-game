@@ -29,7 +29,7 @@
 // here is the cellar's own kit (`cellar_*` types), each one a collider on the
 // server and a batch of parts on the client.
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M;
 const H = 2.8; // a basement ceiling: lower than upstairs
@@ -295,7 +295,7 @@ const BATTERY_SPAWN = cp(1.5, 1); // the crossroads
 // RC Soccer — the hardware lab. The goals are its west and east doorways.
 const SOCCER = {
   ballSpawn: { x: u(4.5), z: u(-6), y: u(0.5) },
-  ballRadius: u(0.42),
+  ballRadius: 0.42 / CAR_UNIT_M, // car-sized, not room-sized: bigger than the cars
   goals: [
     { team: 0, x: u(0), z: u(-6), dir: 1, width: u(1.8), name: 'E-Waste Goal' },
     { team: 1, x: u(9), z: u(-6), dir: -1, width: u(1.8), name: 'Archive Goal' },

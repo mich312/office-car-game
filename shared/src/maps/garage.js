@@ -29,7 +29,7 @@
 // bonnet of the founder's half-covered classic car, over its roof and off
 // the boot, out under the open roller door into the sun.
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M;
 const H = 2.7; // a house ceiling; the garage opens up into its trusses
@@ -333,7 +333,7 @@ const BATTERY_SPAWN = cp(-1, 0.5); // centre spot of the dev pit
 // only thing on the pitch, and you can drive under them.
 const SOCCER = {
   ballSpawn: { x: u(-1), z: u(0.5), y: u(0.5) },
-  ballRadius: u(0.42),
+  ballRadius: 0.42 / CAR_UNIT_M, // car-sized, not room-sized: bigger than the cars
   goals: [
     { team: 0, x: u(-8), z: u(0), dir: 1, width: u(1.8), name: 'Garage Goal' },
     { team: 1, x: u(6), z: u(0), dir: -1, width: u(1.8), name: 'Laundry Goal' },

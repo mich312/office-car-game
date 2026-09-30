@@ -1,14 +1,22 @@
 // ---------------------------------------------------------------------------
 // World scale
-// The player's RC car is 1.0 world units long. M converts the map's
-// real-world meters into units. Tuned for gameplay rather than strict
-// realism: at 1u ≈ 22.5 cm the rooms feel tight and busy instead of empty,
-// while a desk is still a 3.3-unit mountain and a mug still tops your roof.
+// The player's RC car is 1.0 world units long, and every car-side number —
+// speeds, suspension, radii, the chase camera, gravity — is in those units.
+// The maps are authored in real-world meters and M converts them. So M alone
+// decides how big a room is in car lengths: at 1u ≈ 28 cm a desk is a
+// 2.7-unit mountain, a mug still tops your roof, and a room is ~20% fewer
+// car lengths across than it was at 22.5 cm, when the floors felt too big
+// and too empty at racing speed.
+//
+// Physics is anchored to the car, not the map: gravity is real gravity for a
+// 22.5 cm car (CAR_UNIT_M), so changing M never re-tunes jumps, springs or
+// handling — it only moves the walls. Display speeds use CAR_UNIT_M too.
 // ---------------------------------------------------------------------------
-export const M = 1 / 0.225; // ≈ 4.444 units per meter
+export const CAR_UNIT_M = 0.225; // what one car length "is" to physics and speedos
+export const M = 1 / 0.28; // ≈ 3.571 units per meter of map
 
 // Physics
-export const GRAVITY = -9.81 * M; // real gravity expressed in world units
+export const GRAVITY = -9.81 / CAR_UNIT_M; // real gravity in car units
 export const PHYS_TIMESTEP = 1 / 60;
 
 // Car chassis (units)
@@ -21,7 +29,7 @@ export const SUSPENSION_DAMPING = 24;
 // Where a car sits when the suspension has settled: ray length at equilibrium
 // (rest · (1 − |GRAVITY|/stiffness)) plus the chassis-corner offset. Spawning
 // here means no drop-bounce and no scraping before the start.
-export const SUSPENSION_SETTLE = SUSPENSION_REST * (1 - (9.81 * M) / SUSPENSION_STIFFNESS);
+export const SUSPENSION_SETTLE = SUSPENSION_REST * (1 + GRAVITY / SUSPENSION_STIFFNESS);
 export const SPAWN_Y = SUSPENSION_SETTLE + 0.05 + 0.02; // corner offset + a hair
 
 // Driving feel

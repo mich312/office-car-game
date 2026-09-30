@@ -5,7 +5,7 @@ import {
   CARS, CAR_IDS, CHECKPOINT_RADIUS,
   COSMETIC_IDS, PAINT_COLORS, randomStyle, randomTune, tunedStats,
   POWERUP_EFFECT as FX, BATTERY_SPEED_PENALTY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN, BOOST_TOP_MULT,
-  DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt,
+  DRIFT_TIER_BOOST_S, driftStep, isDrifting, newDriftState, raceBotPath, SURFACES, surfaceAt, M, CAR_UNIT_M,
 } from '@rc/shared';
 import { shouldUseItem, padWorthDetour } from './botbrain.js';
 import { wallBoxesOf, lineBlocked, navTo, navOf, navField, navStep, roomGraph } from './nav.js';
@@ -26,6 +26,11 @@ const BOT_DRIFT_MIN_DIST = 8; // no drifting at targets closer than this
 const GRID_NAV_MODES = new Set(['coffee_run', 'battery', 'soccer', 'tag']);
 const BOT_CONTACT = 1.05; // centre distance that counts as two bots touching (separate()'s personal space)
 const SOCCER_LINED_UP = 0.7; // cos of the angle behind the ball a striker attacks from
+// Pitch-sized distances (keeper stand-off, support spacing) were tuned in
+// car lengths when a car length was 22.5 cm of floor; they follow the map's
+// scale so a smaller pitch keeps the same shape of play. Ball-sized ones
+// (reach, the flank swing) stay in car units: the ball is car-sized.
+const PITCH = M * CAR_UNIT_M;
 const SUMO_HUNT_RANGE = 10; // a sumo bot goes after rivals this close (units)
 const SUMO_LOOKAHEAD_S = 6; // Moving Meeting: bots head for where the ring will be this far ahead
 const LCS_CLOSED_COST = 6; // route cost of a closed room's floor, per unit of open floor
@@ -351,7 +356,7 @@ export class Bots {
       // keeper: on the line from our goal to the ball, a few metres out
       const kx = ball.p[0] - own.x, kz = ball.p[2] - own.z;
       const kl = Math.hypot(kx, kz) || 1;
-      const out = Math.min(kl * 0.5, 8);
+      const out = Math.min(kl * 0.5, 8 * PITCH);
       return { x: own.x + (kx / kl) * out, z: own.z + (kz / kl) * out };
     }
     if (rank > 2) {
@@ -360,8 +365,8 @@ export class Bots {
       // (0.3 goals a match). The rest hang wide behind the play, alternate
       // flanks, for the loose ball.
       const side = rank % 2 ? 1 : -1;
-      const w = 8 + 2 * Math.floor((rank - 3) / 2);
-      return { x: ball.p[0] + ux * (set + 10) - uz * side * w, z: ball.p[2] + uz * (set + 10) + ux * side * w };
+      const w = (8 + 2 * Math.floor((rank - 3) / 2)) * PITCH;
+      return { x: ball.p[0] + ux * (set + 10 * PITCH) - uz * side * w, z: ball.p[2] + uz * (set + 10 * PITCH) + ux * side * w };
     }
     const bx = p.p[0] - ball.p[0], bz = p.p[2] - ball.p[2];
     const bl = Math.hypot(bx, bz) || 1;
@@ -371,12 +376,17 @@ export class Bots {
     // hangs back behind the play instead, ready for the rebound.
     if (rank === 0 && behind > SOCCER_LINED_UP) return { x: ball.p[0] + ux * 1.2, z: ball.p[2] + uz * 1.2 };
     if (behind > 0) {
-      const back = rank === 0 ? set : set + 4;
+      const back = rank === 0 ? set : set + 4 * PITCH;
       return { x: ball.p[0] + ux * back, z: ball.p[2] + uz * back };
     }
-    // goal side: round the flank this bot is already on
+    // goal side: round the flank this bot is already on. Near our own goal
+    // the swing goes twice as wide and a little upfield: a tight swing there
+    // clipped the ball from the pitch side and shoved it into our own net —
+    // on the smaller pitches most own goals were exactly that scramble.
     const side = bx * -uz + bz * ux >= 0 ? 1 : -1;
-    return { x: ball.p[0] + (-uz * side + ux * 0.5) * set, z: ball.p[2] + (ux * side + uz * 0.5) * set };
+    const defending = Math.hypot(ball.p[0] - own.x, ball.p[2] - own.z) < 20 * PITCH;
+    const rad = defending ? set * 2 : set, along = defending ? -0.2 : 0.5;
+    return { x: ball.p[0] + (-uz * side + ux * along) * rad, z: ball.p[2] + (ux * side + uz * along) * rad };
   }
 
   // Where to aim for a battery carrier: where it's going to be. Tailing it
