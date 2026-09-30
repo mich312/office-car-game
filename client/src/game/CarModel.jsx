@@ -323,12 +323,17 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
         )}
         {st.vinyl !== 'none' && <Vinyl carId={id} wide={wide} vinyl={st.vinyl} color={st.vinylColor} />}
         {seat && <Driver seat={seat} trim={mats.trim} refGroup={driverRef} />}
-        {isLocal && dark && (
+        {/* Headlights: mounted for the car's whole life and dark by day.
+            three builds every lit material for the number of lights in the
+            scene, so a beam that mounted when night fell (or the lights went
+            out) recompiled every program mid-match — measured 118 → 162
+            programs and a hitch (see eventLight.jsx). The target is a child
+            of the body, so the beam always shines out of the front and dips
+            toward the road ahead. */}
+        {isLocal && (
           <>
-            {/* the target is a child of the car body, so the beam always
-                shines out of the front and dips toward the road ahead */}
             <primitive object={beamTarget} position={[0, -0.6, 7]} />
-            <spotLight position={[0, 0.15, 0.5]} target={beamTarget} angle={0.55} intensity={30} distance={30} penumbra={0.5} color="#fff3cf" />
+            <spotLight position={[0, 0.15, 0.5]} target={beamTarget} angle={0.55} intensity={dark ? 30 : 0} distance={30} penumbra={0.5} color="#fff3cf" />
           </>
         )}
         {/* antenna (equipped variant or the stock whip) */}
@@ -355,13 +360,12 @@ export default function CarModel({ carId, paint, style, tune, name, cosmetics, i
           <instancedMesh ref={coilRef} args={[suspGeos().coil, suspMats(sp.spring), 4]} castShadow frustumCulled={false} />
         </>
       )}
-      {/* underglow */}
+      {/* underglow: the painted pool always, the real light only at night —
+          mounted all the time for the same reason as the headlights */}
       {st.glow && (
-        <group>
-          <mesh position={[0, restY - wheelR + 0.015, 0]} rotation-x={-Math.PI / 2} geometry={GLOW_GEO} material={glowMat(st.glow, dark)} />
-          {isLocal && dark && <pointLight position={[0, -0.1, 0]} color={st.glow} intensity={5} distance={2.2} />}
-        </group>
+        <mesh position={[0, restY - wheelR + 0.015, 0]} rotation-x={-Math.PI / 2} geometry={GLOW_GEO} material={glowMat(st.glow, dark)} />
       )}
+      {isLocal && <pointLight position={[0, -0.1, 0]} color={st.glow || '#ffffff'} intensity={dark && st.glow ? 5 : 0} distance={2.2} />}
       <CarStatus flame={flame} floorY={restY - wheelR} flagsRef={flagsRef} boostingRef={boostingRef} />
       {/* trail anchor + ribbon (world-space, portaled to the scene root) */}
       <group ref={trailAnchor} position={[0, 0.06, -0.55]} />

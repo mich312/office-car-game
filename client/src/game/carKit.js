@@ -178,8 +178,39 @@ export function paintMat(color, finishId, FINISHES) {
   } else {
     m = new THREE.MeshStandardMaterial({ color, roughness: f.roughness, metalness: f.metalness, normalMap: peel, normalScale: new THREE.Vector2(0.4, 0.4) });
   }
+  withRim(m, color);
   paintCache.set(key, m);
   return m;
+}
+
+// Rim light: a fresnel edge on every paint, in the paint's own colour — the
+// owner's colour — so twelve cars stay findable in a dark room without one
+// extra light. The level is shared (LocalCar sets it from the hour: a hint at
+// midday, a clear outline at night and in a blackout); the colour is per
+// material. Dark paints are lifted so a black car still gets an edge.
+const RIM_DEFAULT = 0.25;
+const RIM_LEVEL = { value: RIM_DEFAULT };
+export const setRimLight = (level = RIM_DEFAULT) => { RIM_LEVEL.value = level; };
+const _hsl = { h: 0, s: 0, l: 0 };
+function withRim(m, color) {
+  const rim = new THREE.Color(color);
+  rim.getHSL(_hsl);
+  rim.setHSL(_hsl.h, Math.min(1, _hsl.s * 1.1), Math.max(0.5, _hsl.l));
+  m.userData.rimColor = { value: rim };
+  m.onBeforeCompile = rimCompile;
+}
+// one function for every paint, so they all share a program per material
+// type (three keys the program cache on this function's source)
+function rimCompile(shader) {
+  shader.uniforms.uRimColor = this.userData.rimColor;
+  shader.uniforms.uRimLevel = RIM_LEVEL;
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform vec3 uRimColor;\nuniform float uRimLevel;')
+    .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      {
+        float rimF = 1.0 - saturate(dot(normal, normalize(vViewPosition)));
+        totalEmissiveRadiance += uRimColor * (uRimLevel * rimF * rimF * rimF);
+      }`);
 }
 
 // Wheel rims: one per style colour. Double-sided so the barrel reads from

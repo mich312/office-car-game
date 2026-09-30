@@ -27,7 +27,10 @@ import { useControls } from './useControls.js';
 import CarModel, { tyreScale } from './CarModel.jsx';
 import Particles, { burst, smoke } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
+import BlobShadows, { blobCars } from './BlobShadows.jsx';
 import { carView, setCamProbe, clearLens } from './carView.js';
+import { setRimLight } from './carKit.js';
+import { lightingFor } from './daylight.js';
 import { audio } from '../audio.js';
 import { rumble } from './rumble.js';
 import { currentMap } from './activeMap.js';
@@ -240,6 +243,15 @@ export default function LocalCar() {
     });
     return () => { setCamProbe(null); bigProp.clear(); };
   }, [world, rapier]);
+  // our car's contact shadow (BlobShadows): the drawn car, and the body its
+  // ground ray must not hit
+  useEffect(() => {
+    blobCars.set('me', { obj: visual.current, body: rb });
+    return () => {
+      blobCars.delete('me');
+      setRimLight(); // the garage turntable gets the neutral rim back
+    };
+  }, []);
 
   // Ask the server for a respawn. It scores the spawn slots (races get our
   // safe-pose proposal instead) and answers with RESPAWN_AT → we teleport,
@@ -1243,6 +1255,19 @@ export default function LocalCar() {
     leanRef.current.squash = S.squash;
     S.squash *= Math.pow(0.0008, dt);
 
+    // the paint's rim light in the owner's colour: stronger the darker the
+    // room, so rivals stay findable at night without shouting at midday
+    {
+      const lightsOut = st.event?.id === 'lights_out';
+      const key = `${st.timeOfDay}|${lightsOut}|${map.id}`;
+      if (key !== S.rimKey) {
+        S.rimKey = key;
+        const L = lightingFor(st.timeOfDay, lightsOut, map);
+        const fill = (L.amb?.intensity ?? 0.3) + (L.hemi?.intensity ?? 0.5);
+        setRimLight(Math.max(0.12, Math.min(0.75, 0.95 - fill * 0.85)));
+      }
+    }
+
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed, surface: grounded ? S.wheelSurf?.id : null });
     // a click per seam crossed; on hardwood at speed the seams come too fast
@@ -1391,6 +1416,7 @@ export default function LocalCar() {
       </RigidBody>
       <Particles />
       <SkidMarks />
+      <BlobShadows />
     </>
   );
 }

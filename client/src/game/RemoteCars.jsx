@@ -11,6 +11,7 @@ import { net, sampleRemote } from '../net.js';
 import CarModel, { CarMid, CarProxy } from './CarModel.jsx';
 import { smoke } from './particles.jsx';
 import { skid } from './SkidMarks.jsx';
+import { blobCars } from './BlobShadows.jsx';
 
 export default function RemoteCars() {
   const players = useStore((s) => s.players);
@@ -57,6 +58,11 @@ const RemoteCar = memo(function RemoteCar({ player }) {
   // stable, or every re-render re-applies the body's transform (see LocalCar)
   const userData = useMemo(() => ({ playerId: player.id }), [player.id]);
   useEffect(() => () => rivalAudio.delete(player.id), [player.id]);
+  // a contact shadow under this car too (BlobShadows)
+  useEffect(() => {
+    blobCars.set(player.id, { obj: group.current });
+    return () => blobCars.delete(player.id);
+  }, [player.id]);
 
   useFrame((state, dt) => {
     const s = sampleRemote(player.id);
