@@ -12,6 +12,7 @@ import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
 import { withFloorAO } from './floorAO.js';
+import { CEILING } from './Lighting.jsx';
 import { mat, castsShadow, receivesShadow, foldTint } from './materials.js';
 import { bake, placeMatrix } from './kit.js';
 import { buildPiece, pieceContext, rampParts } from './furniture.js';
@@ -112,10 +113,12 @@ export default function Office() {
 }
 
 // -------------------------------------------- baked-look light pools & shafts
-// Positions mirror the ceiling pointLights in Lighting.jsx. Additive floor
-// quads sell the fixtures' cast for free; brightest at night, dead in a
-// blackout (only the server-room emergency pool stays, turning red).
-const POOL_SPOTS = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, 1.5], [17, -7], [-11, -1]];
+// Under each ceiling point (Lighting.jsx CEILING) an additive floor quad
+// sells the fixture's cast for free — the point light itself falls off
+// physically now (decay 2), and the quad is the soft bright core a real
+// downlight leaves. Brightest at night, dead in a blackout (only the
+// server-room emergency pool stays, turning red).
+const POOL_M = 2.6; // pool diameter, metres
 
 function LightPools() {
   const hour = useStore((s) => s.timeOfDay);
@@ -139,13 +142,13 @@ function LightPools() {
   });
   return (
     <group>
-      {POOL_SPOTS.map(([x, z], i) => (
+      {CEILING.map(([x, z], i) => (
         <mesh key={i} rotation-x={-Math.PI / 2} position={[x * M, 0.03, z * M]} material={warmMat}>
-          <planeGeometry args={[11, 11]} />
+          <planeGeometry args={[POOL_M * M, POOL_M * M]} />
         </mesh>
       ))}
       <mesh rotation-x={-Math.PI / 2} position={[9.5 * M, 0.03, 4.5 * M]} material={serverMat}>
-        <planeGeometry args={[9, 9]} />
+        <planeGeometry args={[2.1 * M, 2.1 * M]} />
       </mesh>
     </group>
   );
@@ -283,12 +286,30 @@ const BEZEL_GEO = (() => {
   return g;
 })();
 
+// After hours most troffers are off — motion sensors, zone by zone — and
+// the few still on cluster round the ceiling points (where Lighting.jsx's
+// real lights are, so the lit panels and the light on the floor agree).
+// That turns a uniformly lit building into lit islands and dark stretches to
+// drive between. Share of zones switched off, per hour:
+const TROFFERS_OFF = { morning: 0, afternoon: 0, golden: 0.6, night: 0.7 };
+
 function Ceiling({ map }) {
   const { WALL_HEIGHT } = map;
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
-  const panelMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 }), []);
+  // an off panel is a white diffuser lit only by the room: the per-instance
+  // colour switches the glow, not the paint
+  const panelMat = useMemo(() => {
+    const m = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 });
+    m.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <color_fragment>', '')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_INSTANCING_COLOR\n\ttotalEmissiveRadiance *= vColor;\n#endif');
+    };
+    m.customProgramCacheKey = () => 'troffer';
+    return m;
+  }, []);
   // front side only: the slabs face down, so from above (photo mode's
   // aerial) the office reads as a dollhouse, not a white lid
   const tileMat = useMemo(() => new THREE.MeshStandardMaterial({ map: ceilingTex(), roughness: 0.95 }), []);
@@ -344,10 +365,29 @@ function Ceiling({ map }) {
     inst.current.instanceMatrix.needsUpdate = true;
     bezel.current.instanceMatrix.needsUpdate = true;
   }, [panels]);
+  // which panels are lit: on an hour change, not per frame (the emissive
+  // intensity above still eases, so the switch reads as the room dimming)
+  useLayoutEffect(() => {
+    const spots = (map.CEILING_LIGHTS || CEILING).map(([x, z]) => [x * M, z * M]);
+    const off = lightsOut ? 1 : TROFFERS_OFF[hour] ?? 0;
+    const c = new THREE.Color();
+    panels.forEach(([x, z], i) => {
+      const near = spots.some(([sx, sz]) => Math.hypot(x - sx, z - sz) < 3.4 * M);
+      // a zone is ~2 × 2 panels (7 × 6.5 m): hash it, not the panel, so dark
+      // reads as a switched-off area rather than salt and pepper
+      const zx = Math.floor(x / (6.8 * M)), zz = Math.floor(z / (6.4 * M));
+      const h = Math.abs(Math.sin(zx * 127.1 + zz * 311.7) * 43758.5453) % 1;
+      const on = !lightsOut && (off === 0 || near || h >= off);
+      inst.current.setColorAt(i, c.setScalar(on ? 1 : 0));
+    });
+    if (inst.current.instanceColor) inst.current.instanceColor.needsUpdate = true;
+  }, [panels, hour, lightsOut, map]);
   return (
     <group>
-      <mesh rotation-x={Math.PI / 2} position={[3.5 * M, WALL_HEIGHT, 0]} geometry={slabs[0]} material={tileMat} />
-      <mesh rotation-x={Math.PI / 2} position={[-17.7 * M, WALL_HEIGHT, -6.5 * M]} geometry={slabs[1]} material={tileMat} />
+      {/* the slabs cast: the sun reaches the floor only through the glass
+          (Lighting.jsx fades the shadow box's edge to shade on this floor) */}
+      <mesh rotation-x={Math.PI / 2} position={[3.5 * M, WALL_HEIGHT, 0]} geometry={slabs[0]} material={tileMat} castShadow />
+      <mesh rotation-x={Math.PI / 2} position={[-17.7 * M, WALL_HEIGHT, -6.5 * M]} geometry={slabs[1]} material={tileMat} castShadow />
       <instancedMesh ref={inst} args={[null, null, panels.length]} material={panelMat} frustumCulled={false}>
         <planeGeometry args={[1.16 * M, 0.56 * M]} />
       </instancedMesh>
