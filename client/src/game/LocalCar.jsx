@@ -12,7 +12,7 @@ import {
   rightingTorque, airRightingK, groundRightingK, roofKickNeeded, recoveryTick, RECOVERY_AFTER_S,
   SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
-  DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS, SLIPSTREAM,
+  DRIFT_TIER_BOOST_S, DRIFT_TIER_TIMES, DRIFT_TIER_COLORS, SLIPSTREAM,
   POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX,
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
@@ -99,7 +99,7 @@ const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // every round with a mutator started from wherever you'd parked.
 const ME = { playerId: 'me' };
 
-export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0, boostHeld: false, miniTurbos: 0 }; // read by HUD/minimap/controller
+export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0, boostHeld: false, miniTurbos: 0, driftTier: 0, driftCharge: 0 }; // read by HUD/minimap/controller
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
 
 export default function LocalCar() {
@@ -1040,6 +1040,10 @@ export default function LocalCar() {
     telemetry.boosting = S.boosting || freeBoost;
     telemetry.boostHeld = S.boosting; // the meter, not a free burst (driving test)
     telemetry.boost = S.boost;
+    // the drift meter on the HUD: tier reached (0-3) and charge toward the
+    // top tier (0..1), zero outside a drift so the meter drops with it
+    telemetry.driftTier = S.prevDrifting ? driftTier(S.drift.charge) : 0;
+    telemetry.driftCharge = S.prevDrifting ? Math.min(1, S.drift.charge / DRIFT_TIER_TIMES[2]) : 0;
     telemetry.speed = S.speed;
     telemetry.x = pos.x;
     telemetry.z = pos.z;

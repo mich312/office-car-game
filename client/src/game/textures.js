@@ -146,21 +146,6 @@ export const rubberTex = (repeat = [16, 16]) =>
     }
   }, repeat);
 
-export const stainTex = () =>
-  canvasTex('stain', 128, 128, (g, w, h) => {
-    g.clearRect(0, 0, w, h);
-    const grad = g.createRadialGradient(w / 2, h / 2, 8, w / 2, h / 2, w / 2);
-    grad.addColorStop(0, 'rgba(74,46,18,0.0)');
-    grad.addColorStop(0.62, 'rgba(74,46,18,0.28)');
-    grad.addColorStop(0.78, 'rgba(60,36,14,0.5)');
-    grad.addColorStop(0.86, 'rgba(60,36,14,0.1)');
-    grad.addColorStop(1, 'rgba(60,36,14,0)');
-    g.fillStyle = grad;
-    g.beginPath();
-    g.ellipse(w / 2, h / 2, w / 2 - 2, h / 2 - 10, 0.3, 0, Math.PI * 2);
-    g.fill();
-  });
-
 export const keysTex = () =>
   canvasTex('keys', 256, 96, (g, w, h) => {
     g.fillStyle = '#23262d';
@@ -260,55 +245,6 @@ export const glowTex = () =>
     grad.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = grad;
     g.fillRect(0, 0, w, h);
-  });
-
-// Vertical light-shaft card with blind-slat stripes, fading toward the floor.
-export const shaftTex = () =>
-  canvasTex('shaft', 128, 256, (g, w, h) => {
-    g.clearRect(0, 0, w, h);
-    const grad = g.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, 'rgba(255,255,255,0.55)');
-    grad.addColorStop(0.75, 'rgba(255,255,255,0.18)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = grad;
-    // slats: bright bands separated by gaps, softened edges
-    for (let x = 0; x < w; x += 22) {
-      g.fillRect(x + 3, 0, 13, h);
-    }
-    // horizontal fade at the card's left/right edges
-    const edge = g.createLinearGradient(0, 0, w, 0);
-    edge.addColorStop(0, 'rgba(0,0,0,1)');
-    edge.addColorStop(0.18, 'rgba(0,0,0,0)');
-    edge.addColorStop(0.82, 'rgba(0,0,0,0)');
-    edge.addColorStop(1, 'rgba(0,0,0,1)');
-    g.globalCompositeOperation = 'destination-out';
-    g.fillStyle = edge;
-    g.fillRect(0, 0, w, h);
-    g.globalCompositeOperation = 'source-over';
-  });
-
-export const skylineTex = () =>
-  canvasTex('skyline', 1024, 256, (g, w, h) => {
-    const grad = g.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, '#0a1024');
-    grad.addColorStop(1, '#1c2b52');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, w, h);
-    for (let x = 0; x < w;) {
-      const bw = 24 + Math.random() * 60;
-      const bh = 60 + Math.random() * 160;
-      g.fillStyle = '#060913';
-      g.fillRect(x, h - bh, bw, bh);
-      for (let wy = h - bh + 6; wy < h - 8; wy += 10) {
-        for (let wx = x + 4; wx < x + bw - 6; wx += 9) {
-          if (Math.random() > 0.55) {
-            g.fillStyle = Math.random() > 0.9 ? 'rgba(255,214,140,0.95)' : 'rgba(255,214,140,0.45)';
-            g.fillRect(wx, wy, 4, 5);
-          }
-        }
-      }
-      x += bw + 6 + Math.random() * 30;
-    }
   });
 
 // ---------------------------------------------------------------------------

@@ -118,7 +118,7 @@ function ServerSparks() {
       const r = racks[Math.floor(Math.random() * racks.length)];
       const x = r.x + (Math.random() - 0.5) * r.w;
       const z = r.z + (Math.random() > 0.5 ? 1 : -1) * r.d * 0.55;
-      burst([x, 2.2 * M * Math.random() + 2, z], { count: 8, color: ['#ffe27a', '#ff9d3c', '#fff'], speed: 7, size: 0.06, ttl: 0.6 });
+      burst([x, 2.2 * M * Math.random() + 2, z], { count: 8, color: ['#ffe27a', '#ff9d3c', '#fff'], speed: 7, size: 0.06, ttl: 0.6, kind: 'spark' });
     }
   });
   return null;

@@ -19,7 +19,7 @@ import { bake, placeMatrix } from './kit.js';
 import { buildPiece, pieceContext, rampParts } from './furniture.js';
 import { buildArchitecture } from './architecture.js';
 import MapDressing from './dressing/index.jsx';
-import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, skylineTex, glowTex, shaftTex, ceilingTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
+import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, glowTex, ceilingTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
 
 // Every floor gets three maps, not one. Albedo alone reads as coloured
 // plastic under a directional light; the normal gives the surface something
