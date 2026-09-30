@@ -20,7 +20,7 @@ import { atlasRect, atlasCell, rng } from './textures.js';
 
 const DEG = Math.PI / 180;
 const CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
-const CABLES = ['#1b1c1f', '#2a2c31', '#3a3d44', '#1d3b6b', '#c9a227'];
+export const CABLES = ['#1b1c1f', '#2a2c31', '#3a3d44', '#1d3b6b', '#c9a227'];
 
 // colliders, in world units, piece frame
 const cuboid = (hx, hy, hz, x = 0, y = 0, z = 0, rot = null) => ({ box: [hx, hy, hz], at: [x, y, z], rot });
@@ -38,8 +38,9 @@ function barHandle(p, mat, x, y, z, len = 0.16, vertical = false) {
   });
 }
 
-// cables drooping from a to b (metres), a few strands side by side
-function cableRun(p, pts, strands = 3, r = 0.006, seed = 0) {
+// cables drooping from a to b (metres), a few strands side by side (the
+// dressing kits lay theirs along the floor with it too)
+export function cableRun(p, pts, strands = 3, r = 0.006, seed = 0) {
   for (let i = 0; i < strands; i++) {
     const o = (i - (strands - 1) / 2) * r * 2.1;
     p.add('tint', tube(pts.map(([x, y, z]) => [x + o * 0.3, y, z + o]), r, 4, true, 8), [0, 0, 0], null, null, CABLES[(i + seed) % CABLES.length]);
