@@ -3,11 +3,8 @@
 // places them from shared/src/maps/cellar.js (CLUTTER, SCATTER,
 // DECOR_PROPS). See kinds/common.js for the contract.
 
-// The cellar draws its own DECALS (themes/cellar-set.js bakes them into its
-// batch with its own atlas); the shared decal mesh takes only its STAINS.
-// To move the cellar onto the shared system: every cellar kind name exists
-// in dressing/decals.js, so drop the loop in cellar-set.js and this flag.
-export const OWN_DECALS = true;
+// The cellar's DECALS draw in the shared decal mesh (dressing/decals.js has
+// every kind it uses) with the STAINS and the clutter's labels.
 
 export const CLUTTER_KINDS = {};
 export const DECAL_KINDS = {};

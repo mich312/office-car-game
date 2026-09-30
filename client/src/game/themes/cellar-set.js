@@ -199,11 +199,8 @@ export function buildFloors(k, map) {
       rect('carpet', x1, z1, x2, z2, room.floor === 'carpet' ? '#9aa8b8' : '#a8988a');
     }
   }
-  // decals: [kind, x, z, w, d, rotation, opacity]
-  for (const [kind, x, z, w, d, rot, a] of map.DECALS || []) {
-    k.cell = map.roomAt(x * M, z * M)?.id || 'corridor';
-    k.quad('decal', [w, d], [x, DECAL_Y, z], { r: [-Math.PI / 2, 0, rot], uv: decalUV(kind), c: '#ffffff', a });
-  }
+  // (the floor decals, map.DECALS, are the shared dressing layer's now:
+  // dressing/decals.js draws them in the map's one decal mesh)
   // the puddles, darker and wetter than the decal under them
   for (const [x, z, w, d] of map.PUDDLES || []) {
     k.cell = map.roomAt(x * M, z * M)?.id || 'corridor';
