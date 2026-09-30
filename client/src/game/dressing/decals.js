@@ -31,7 +31,7 @@ export const LOWFX = typeof window !== 'undefined' && new URLSearchParams(window
 // y of every floor card, world units: above rugs (4 mm) and the concrete
 // floors' −0.02, with a polygon offset on top so nothing z-fights
 export const DECAL_Y = 0.02;
-const GRID = 8; // cells per side
+const COLS = 8; // cells across; rows grow (8, then more) as kinds are added
 
 // ------------------------------------------------------------ painters
 // Helpers every painter can use: soft blob, speckle, text.
@@ -507,28 +507,31 @@ function label(g, S, color, word) {
 // Cells are handed out in registry order (built-ins, then each map's kinds
 // file), row-major, each kind taking its span. The layout is a pure
 // function of the registry, so uvs are known before the texture exists.
-let layout = null;
+// The built-ins fill 49 of the first 64 cells; past that the atlas grows
+// two rows at a time (the texture is WebGL2: any height mipmaps).
+let layout = null, rows = 8;
 let registry = BUILTIN_DECALS;
 export function setDecalKinds(kinds) { registry = kinds; layout = null; }
 function cells() {
   if (layout) return layout;
-  const used = Array.from({ length: GRID }, () => new Array(GRID).fill(false));
+  const used = [];
+  const row = (y) => used[y] || (used[y] = new Array(COLS).fill(false));
   layout = new Map();
   for (const [kind, def] of Object.entries(registry)) {
     const [sw, sh] = def.span || [1, 1];
     let placed = false;
-    for (let cy = 0; cy <= GRID - sh && !placed; cy++) {
-      for (let cx = 0; cx <= GRID - sw && !placed; cx++) {
+    for (let cy = 0; !placed; cy++) {
+      for (let cx = 0; cx <= COLS - sw && !placed; cx++) {
         let free = true;
-        for (let y = 0; y < sh && free; y++) for (let x = 0; x < sw && free; x++) if (used[cy + y][cx + x]) free = false;
+        for (let y = 0; y < sh && free; y++) for (let x = 0; x < sw && free; x++) if (row(cy + y)[cx + x]) free = false;
         if (!free) continue;
-        for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) used[cy + y][cx + x] = true;
+        for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) row(cy + y)[cx + x] = true;
         layout.set(kind, { cx, cy, sw, sh, def });
         placed = true;
       }
     }
-    if (!placed && typeof console !== 'undefined') console.warn(`decals: atlas full, no room for ${kind}`);
   }
+  rows = Math.max(8, used.length + (used.length % 2));
   return layout;
 }
 
@@ -536,8 +539,9 @@ function cells() {
 export function decalUV(kind) {
   const L = cells();
   const c = L.get(kind) || L.values().next().value;
-  const pad = 2.5 / 256 / GRID; // half a few texels in: no bleed from the neighbours
-  return [c.cx / GRID + pad, 1 - (c.cy + c.sh) / GRID + pad, (c.cx + c.sw) / GRID - pad, 1 - c.cy / GRID - pad];
+  // a few texels in: no bleed from the neighbours
+  const pu = 2.5 / 256 / COLS, pv = 2.5 / 256 / rows;
+  return [c.cx / COLS + pu, 1 - (c.cy + c.sh) / rows + pv, (c.cx + c.sw) / COLS - pu, 1 - c.cy / rows - pv];
 }
 export const decalLayer = (kind) => cells().get(kind)?.def.layer || 'matte';
 export const hasDecal = (kind) => cells().has(kind);
@@ -549,11 +553,12 @@ export const hasDecal = (kind) => cells().has(kind);
 let atlasTex = null;
 export function decalAtlas() {
   if (atlasTex) return atlasTex;
-  const size = LOWFX ? 1024 : 2048, S = size / GRID;
+  cells();
+  const S = LOWFX ? 128 : 256, W = COLS * S, H = rows * S;
   const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
+  cv.width = W; cv.height = H;
   const g = cv.getContext('2d', { willReadFrequently: true });
-  g.clearRect(0, 0, size, size);
+  g.clearRect(0, 0, W, H);
   let seed = 11;
   for (const c of cells().values()) {
     g.save();
@@ -562,20 +567,20 @@ export function decalAtlas() {
     try { c.def.draw(g, S, rng(seed++)); } catch (e) { console.warn('decals: painter failed', e); }
     g.restore();
   }
-  const img = g.getImageData(0, 0, size, size).data;
-  const out = new Uint8Array(size * size * 4);
+  const img = g.getImageData(0, 0, W, H).data;
+  const out = new Uint8Array(W * H * 4);
   for (const c of cells().values()) {
     const x0 = c.cx * S, y0 = c.cy * S, x1 = x0 + c.sw * S, y1 = y0 + c.sh * S;
     let R = 0, G = 0, B = 0, A = 0;
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
-      const i = (y * size + x) * 4, a = img[i + 3];
+      const i = (y * W + x) * 4, a = img[i + 3];
       R += img[i] * a; G += img[i + 1] * a; B += img[i + 2] * a; A += a;
     }
     const br = A ? R / A : 128, bg = A ? G / A : 128, bb = A ? B / A : 128;
     for (let y = y0; y < y1; y++) {
-      const row = (size - 1 - y) * size; // flip: canvas rows run down, v runs up
+      const flip = (H - 1 - y) * W; // canvas rows run down, v runs up
       for (let x = x0; x < x1; x++) {
-        const i = (y * size + x) * 4, o = (row + x) * 4, a = img[i + 3];
+        const i = (y * W + x) * 4, o = (flip + x) * 4, a = img[i + 3];
         // faint texels keep a colour between their own and the cell's average
         const t = a >= 48 ? 1 : a / 48;
         out[o] = img[i] * t + br * (1 - t); out[o + 1] = img[i + 1] * t + bg * (1 - t); out[o + 2] = img[i + 2] * t + bb * (1 - t);
@@ -583,7 +588,7 @@ export function decalAtlas() {
       }
     }
   }
-  const tex = new THREE.DataTexture(out, size, size, THREE.RGBAFormat);
+  const tex = new THREE.DataTexture(out, W, H, THREE.RGBAFormat);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.generateMipmaps = true;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
