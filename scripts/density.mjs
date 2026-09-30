@@ -244,6 +244,14 @@ function lint(map, clutter) {
   const P = map.BOT_PATH.map((w) => [m(w.x), m(w.z)]);
   const laneDist = (x, z) => Math.min(...P.map(([ax, az], k) => segDist(x, z, ax, az, ...P[(k + 1) % P.length])));
   const A = map.SOCCER?.arena;
+  // walls and solid furniture in metres (furniture as the server sees it:
+  // axis-aligned, a quarter turn swaps the footprint; drive-under pieces
+  // like desks and tables are left out — things go under them)
+  const walls = map.WALLS.filter((w) => !w.low).map((w) => ({ x: m(w.x), z: m(w.z), w: m(w.w), d: m(w.d) }));
+  const solids = map.FURNITURE.filter((f) => !isDecor(f) && !f.driveUnder && !['desk', 'table', 'ceodesk'].includes(f.type)).map((f) => {
+    const q = Math.abs(Math.sin(f.rotY || 0)) > 0.5;
+    return { type: f.type, x: m(f.x), z: m(f.z), w: m(q ? f.d : f.w), d: m(q ? f.w : f.d) };
+  });
   const inArena = (x, z) => A && x * M > A.minX && x * M < A.maxX && z * M > A.minZ && z * M < A.maxZ;
   const check = (tag, x, z, w, d, rot, h, collide) => {
     if (h < FLAT_H) return;
@@ -258,6 +266,13 @@ function lint(map, clutter) {
     const need = h > 0.05 ? 1.2 : 0.6;
     if (ld < need) out.push(`${tag}: ${ld.toFixed(2)} m from the bot line (needs ${need})`);
     if (collide !== 'none' && cs.some(([a, b]) => inArena(a, b))) out.push(`${tag}: a client-only collider on the soccer pitch`);
+    // standing in a wall, or in a piece of solid furniture (1 cm of slack:
+    // wall-huggers are placed flush)
+    const inside = cs.slice(0, 4).filter(([a, b]) => walls.some((w) => Math.abs(a - w.x) < w.w / 2 - 0.01 && Math.abs(b - w.z) < w.d / 2 - 0.01));
+    if (inside.length) out.push(`${tag}: ${inside.length} corner(s) inside a wall`);
+    const [cxm, czm] = cs[4];
+    const f = solids.find((s) => Math.abs(cxm - s.x) < s.w / 2 && Math.abs(czm - s.z) < s.d / 2);
+    if (f) out.push(`${tag}: stands inside ${f.type}`);
   };
   for (const c of clutter) check(`CLUTTER ${c.kind} (${c.x}, ${c.z})`, c.x, c.z, c.w, c.d, c.rot, c.h, c.collide);
   for (const [name, x, y, z, rot = 0, , o] of map.DECOR_PROPS || []) {
@@ -278,6 +293,10 @@ function lint(map, clutter) {
     }
     const ld = laneDist(m(p.x), m(p.z)) - r;
     if (ld < 0.5) out.push(`PROPS[${i}] ${p.type}: ${ld.toFixed(2)} m from the bot line (side bands start at 0.6)`);
+    const px = m(p.x), pz = m(p.z);
+    if (walls.some((w) => Math.abs(px - w.x) < w.w / 2 + r && Math.abs(pz - w.z) < w.d / 2 + r)) out.push(`PROPS[${i}] ${p.type}: touches a wall`);
+    const f = solids.find((s) => Math.abs(px - s.x) < s.w / 2 + r && Math.abs(pz - s.z) < s.d / 2 + r);
+    if (f) out.push(`PROPS[${i}] ${p.type}: spawns in ${f.type}`);
   });
   return out;
 }
