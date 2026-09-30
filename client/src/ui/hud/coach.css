@@ -1,4 +1,5 @@
-/* Coach: driving test + match hints (Coach.jsx) (moved verbatim from the old ui/hud.css) */
+/* Coach: driving test + match hints (Coach.jsx). Legacy layout on the Toy Box
+   tokens until it is ported (the hint moves out of the car zone then). */
 
 /* ------------------------------------------------ coach: driving test + hints */
 .coach {
@@ -30,7 +31,6 @@
   cursor: pointer;
 }
 .coach-skip:hover { color: var(--text-1); }
-.coach-skip:focus-visible { outline: 2px solid var(--info); border-radius: 4px; }
 .coach-title {
   display: inline-flex;
   align-items: center;
@@ -72,4 +72,4 @@
 .coach-hint .coach-say { color: var(--text-1); font-size: 1rem; }
 @media (prefers-reduced-motion: reduce) { .coach, .coach-title { animation: none; } }
 /* (also defined in lobby.css: the coach card and the lobby rail share it) */
-@keyframes railin { from { transform: translateX(-24px); } }
+@keyframes railin { from { translate: -24px 0; } }

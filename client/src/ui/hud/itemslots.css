@@ -1,4 +1,6 @@
-/* Item + ability action tray (moved verbatim from the old ui/hud.css) */
+/* Item + ability action tray (ItemSlots.jsx). Legacy layout, retinted to
+   the Toy Box tokens until it is ported: ink boxes with a paper rim; the
+   ability is sky when ready; no looping shimmer. */
 
 /* -------------------------------------------- bottom-right action tray */
 .action-tray {
@@ -6,18 +8,17 @@
   right: var(--hud-x-r);
   bottom: var(--hud-y-b);
   display: flex;
-  gap: 0.6rem;
+  gap: 0.75rem;
   align-items: flex-end;
 }
 .slot {
   position: relative;
   width: 5.3rem;
   height: 5.6rem;
-  border-radius: var(--r-card);
-  background: var(--glass);
-  border: 1px solid var(--line);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, var(--ink-3) 0, var(--ink-2) 70%);
+  border: var(--bw) solid var(--paper);
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 .3125rem 0 var(--bw) var(--ink), var(--ambient);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -26,13 +27,13 @@
   overflow: visible;
 }
 .slot .keycap { position: absolute; top: -0.55rem; right: -0.45rem; }
-.slot-icon { font-size: 1.9rem; line-height: 1; }
+.slot-icon { font-size: 1.9rem; line-height: 1; color: var(--paper); }
 .slot-name {
-  font-size: 0.6rem;
-  font-weight: 600;
+  font-size: max(10px, 0.6rem);
+  font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-2);
+  color: var(--paper-dim);
   text-align: center;
   max-width: 94%;
   line-height: 1.15;
@@ -41,28 +42,16 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-.slot .label { font-size: 0.6rem; }
-/* empty powerup slot: quiet scanning shimmer instead of a dim "?" */
-.slot-empty {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  overflow: hidden;
-}
-.slot-empty::after {
-  content: '';
-  position: absolute;
-  inset: -40%;
-  background: linear-gradient(115deg, transparent 42%, rgba(92, 200, 255, 0.13) 50%, transparent 58%);
-  animation: scan 2.2s var(--ease) infinite;
-}
-@keyframes scan { from { transform: translateX(-45%); } to { transform: translateX(45%); } }
+.slot .label { font-size: max(10px, 0.6rem); }
+/* empty powerup slot: a plain "powerup" label (no looping shimmer) */
+.slot-empty { display: none; }
 
-.slot.ability.ready { border-color: rgba(74, 222, 128, 0.65); box-shadow: 0 0 12px rgba(74, 222, 128, 0.25); }
+.slot.ability.ready { border-color: var(--sky); }
+.slot.ability.ready .slot-icon { color: var(--sky-hi); }
 .slot-cd {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: conic-gradient(rgba(8, 10, 16, 0.82) calc(var(--frac) * 360deg), transparent 0);
+  background: conic-gradient(rgba(20, 14, 44, 0.82) calc(var(--frac) * 360deg), transparent 0);
   pointer-events: none;
 }

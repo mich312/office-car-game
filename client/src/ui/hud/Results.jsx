@@ -5,7 +5,8 @@ import { useMemo } from 'react';
 import { useStore } from '../../store.js';
 import './results.css';
 
-const CONFETTI_COLORS = ['#ffb454', '#5cc8ff', '#4ade80', '#ffe27a', '#ff8a3d'];
+// the Toy Box plastics: sun, sky, lime, bubble, blaze
+const CONFETTI_COLORS = ['#ffd23f', '#2bb5ff', '#7de23a', '#ff3e8e', '#ff6a1f'];
 export default function Results() {
   const podium = useStore((s) => s.podium);
   const myId = useStore((s) => s.myId);

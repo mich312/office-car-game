@@ -1,4 +1,5 @@
-/* Feed (moved verbatim from the old ui/hud.css) */
+/* Feed (Feed.jsx). Legacy layout, as ink ribbons until it is ported (the
+   server lines still carry their emoji until parseFeed maps them). */
 
 /* ----------------------------------------------------------------- feed */
 .feed {
@@ -7,18 +8,19 @@
   top: var(--hud-y);
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  align-items: flex-start;
+  gap: 0.6rem;
   max-width: 24rem;
 }
 .feed-item {
-  background: var(--glass);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--amber);
-  padding: 0.4rem 0.7rem;
-  border-radius: var(--r-ctl);
-  font-size: 0.82rem;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  animation: feedin var(--t-slow) var(--ease);
+  color: var(--paper);
+  background: var(--ink-2);
+  border: max(2px, .125rem) solid var(--paper);
+  padding: 0.35rem 0.8rem;
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 max(2px, .125rem) var(--ink), 0 .25rem 0 max(2px, .125rem) var(--ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  animation: feedin var(--t-slow) var(--ease-pop);
 }
-@keyframes feedin { from { transform: translateX(-20px); } }
+@keyframes feedin { from { translate: -1.25rem 0; } }

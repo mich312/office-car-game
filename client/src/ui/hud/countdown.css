@@ -1,4 +1,6 @@
-/* Countdown (moved verbatim from the old ui/hud.css) */
+/* Countdown (Countdown.jsx). Legacy layout, retinted to the Toy Box tokens
+   until it is ported: the invite is a paper memo, the numeral is outlined
+   Kanit (blaze while counting, lime at GO). */
 
 /* ------------------------------------------------------------ countdown */
 .countdown {
@@ -9,7 +11,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.8rem;
+  gap: 1rem;
   text-align: center;
 }
 .invite { max-width: min(26rem, 92vw); text-align: left; }
@@ -19,21 +21,22 @@
   gap: 0.4rem;
   margin-top: 0.35rem;
   padding-top: 0.35rem;
-  border-top: 1px dashed var(--line);
+  border-top: 2px dashed var(--ink-4);
   font-size: 0.78rem;
-  color: var(--info);
+  color: var(--grape-hi);
 }
-.toast-warn .invite-mutator, .invite.toast-warn .invite-mutator { border-color: rgba(74, 61, 14, 0.3); color: var(--note-ink); }
+.toast-warn .invite-mutator, .invite.toast-warn .invite-mutator { border-color: rgba(20, 14, 44, 0.25); color: var(--grape-lo); }
+.toast-warn .variant-tag { color: var(--bubble-lo); }
 .count-num {
-  font-family: var(--font-display);
-  font-weight: 700;
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 900;
   font-size: 7.5rem;
   line-height: 1;
-  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.8);
-  animation: stamp 0.4s var(--ease-pop);
+  color: var(--blaze);
+  -webkit-text-stroke: var(--sw-l) var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 .5rem 0 var(--ink);
+  animation: tb-punch var(--d-slow) var(--ease-pop) both;
 }
-.count-num.go { color: var(--amber); }
-@keyframes stamp {
-  from { transform: scale(1.7) rotate(-5deg); }
-  60% { transform: scale(0.96) rotate(0.5deg); }
-}
+.count-num.go { color: var(--lime); }

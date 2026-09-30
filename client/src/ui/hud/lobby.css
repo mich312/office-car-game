@@ -1,4 +1,5 @@
-/* Lobby rail (moved verbatim from the old ui/hud.css) */
+/* Lobby rail (Lobby.jsx). Legacy layout, retinted to the Toy Box tokens until
+   it is ported: your vote and READY UP are sun (YOU), ready and vote bars lime. */
 
 /* ------------------------------------------------------------- lobby rail */
 .lobby-rail {
@@ -14,13 +15,17 @@
   overflow: hidden;
   animation: railin var(--t-slow) var(--ease-pop);
 }
-@keyframes railin { from { transform: translateX(-24px); } }
+@keyframes railin { from { translate: -24px 0; } }
 .lobby-rail h2 {
-  font-family: var(--font-display);
-  font-weight: 700;
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 900;
   font-size: 1.6rem;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.01em;
   line-height: 1;
+  -webkit-text-stroke: var(--sw-s) var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 .1875rem 0 var(--ink);
 }
 /* the room you're in, and the link that brings friends to it */
 .room-badge {
@@ -29,23 +34,24 @@
   justify-content: space-between;
   gap: 0.6rem;
   padding: 0.55rem 0.7rem;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
+  background: var(--ink);
+  border: 2px solid rgba(255, 248, 234, 0.16);
+  border-radius: var(--r-md);
 }
-.room-badge.private { border-color: var(--amber); background: var(--amber-tint); }
-.room-badge .label { display: inline-flex; align-items: center; gap: 0.3rem; }
+.room-badge.private { border-color: var(--paper-dim); }
+.room-badge .label { display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
 .room-code {
   display: block;
-  font-family: var(--font-display);
+  font-family: var(--f-display);
+  font-style: italic;
   font-size: 1.7rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
+  font-weight: 900;
+  letter-spacing: 0.06em;
   line-height: 1.05;
   color: var(--text-1);
 }
-.room-badge.private .room-code { color: var(--amber); }
-.room-copy { white-space: nowrap; font-size: 0.8rem; padding: 0.45rem 0.7rem; }
+.room-badge.private .room-code { color: var(--paper); }
+.room-copy { white-space: nowrap; font-size: max(10px, 0.72rem); letter-spacing: 0.02em; padding: 0.45rem 0.6rem; flex: none; }
 .rail-players { display: flex; flex-wrap: wrap; gap: 0.35rem; }
 .rail-player {
   display: inline-flex;
@@ -59,7 +65,7 @@
   font-weight: 600;
 }
 .rail-player .icon { color: var(--text-3); }
-.rail-player.ready { border-color: rgba(74, 222, 128, 0.55); }
+.rail-player.ready { border-color: var(--lime); }
 .rail-player.ready .ok { color: var(--good); }
 .rail-player .you { color: var(--text-3); font-weight: 400; }
 
@@ -86,8 +92,8 @@
 .ballot small { display: block; color: var(--text-3); font-size: 0.7rem; line-height: 1.3; }
 .ballot-tally { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; min-width: 2.6rem; }
 .ballot-tally span { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; color: var(--text-2); }
-.ballot-tally .bar { width: 2.6rem; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
-.ballot-tally .bar i { display: block; height: 100%; background: var(--amber); border-radius: 2px; transition: width var(--t-slow) var(--ease); }
+.ballot-tally .bar { width: 2.6rem; height: 4px; border-radius: 2px; background: rgba(255, 248, 234, 0.1); overflow: hidden; }
+.ballot-tally .bar i { display: block; height: 100%; background: var(--lime); border-radius: 2px; transition: width var(--t-slow) var(--ease); }
 
 .map-ballots { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
 .map-ballot {
@@ -107,7 +113,7 @@
 .map-ballot b { font-size: 0.82rem; line-height: 1.15; flex: 1; }
 .map-ballot .icon { color: var(--text-2); flex: none; }
 .map-ballot .count { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; color: var(--text-2); }
-.map-ballot .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--amber); transition: width var(--t-slow) var(--ease); }
+.map-ballot .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--lime); transition: width var(--t-slow) var(--ease); }
 /* the floor you're on wears a small green "here" dot */
 .map-ballot.here::after {
   content: ''; position: absolute; top: 0.35rem; right: 0.35rem;
@@ -124,7 +130,7 @@
 .ready-btn.is-ready {
   background: transparent;
   color: var(--good);
-  border-color: rgba(74, 222, 128, 0.6);
+  border-color: var(--lime);
   box-shadow: none;
 }
 
@@ -145,7 +151,7 @@
 
 .hint-link {
   font: inherit;
-  color: var(--amber);
+  color: var(--paper);
   background: none;
   border: 0;
   padding: 0;
@@ -153,4 +159,3 @@
   text-underline-offset: 2px;
   cursor: pointer;
 }
-.hint-link:focus-visible { outline: 2px solid var(--info); border-radius: 3px; }

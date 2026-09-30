@@ -1,4 +1,5 @@
-/* Top cluster: match clock and per-mode chips (moved verbatim from the old ui/hud.css) */
+/* Top cluster: match clock and per-mode chips (TopCluster.jsx). Legacy
+   layout, retinted to the Toy Box tokens until it is ported. */
 
 /* --------------------------------------------------- top center cluster */
 .hud-top {
@@ -9,30 +10,34 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.75rem;
 }
+/* the clock: a paper sticker with ink digits (Kanit has no tabular figures,
+   so the chip holds a fixed minimum width while the digits change) */
 .timer-chip {
-  padding: 0.15rem 1rem 0.25rem;
-  background: var(--glass);
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  font-family: var(--font-display);
-  font-weight: 700;
+  min-width: 3.6em;
+  padding: 0.2rem 1rem 0.1rem;
+  text-align: center;
+  color: var(--ink);
+  background: linear-gradient(180deg, #fff 0, var(--paper) 50%, var(--paper-2) 100%);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), var(--drop-l), var(--ambient);
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 900;
   font-size: 1.9rem;
   line-height: 1.15;
-  letter-spacing: 0.06em;
-  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
-.timer-chip.low { color: var(--bad); border-color: rgba(255, 92, 92, 0.5); animation: lowpulse 1s ease-in-out infinite alternate; }
-@keyframes lowpulse { to { box-shadow: 0 0 18px rgba(255, 92, 92, 0.35); } }
-.hud-top-row { display: flex; gap: 0.45rem; flex-wrap: wrap; justify-content: center; }
-.chip .team-score { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
-.chip.cup-chip { color: var(--amber); }
-.chip.cup-chip .icon { color: var(--amber); }
-.chip.mutator-chip { color: var(--info); }
-.chip.mutator-chip .icon { color: var(--info); }
+.timer-chip.low { color: var(--cherry-lo); }
+.hud-top-row { display: flex; gap: 0.75rem 0.875rem; flex-wrap: wrap; justify-content: center; }
+.chip .team-score { font-family: var(--f-display); font-style: italic; font-weight: 900; font-size: 1.15rem; }
+.chip.cup-chip { color: var(--paper); }
+.chip.cup-chip .icon { color: var(--paper); }
+/* the round's twist (mutator) is grape; the hazard lines that share the
+   class (perched, contested, out of the ring) read the same until ported */
+.chip.mutator-chip { color: var(--grape-hi); }
+.chip.mutator-chip .icon { color: var(--grape-hi); }
 
-/* the round's layout twist (a reverse race…), wherever the mode is named */
-.variant-tag { color: var(--amber); font-weight: 700; letter-spacing: 0.04em; }
+/* the round's layout twist (a reverse race…), wherever the mode is named: HOT */
+.variant-tag { color: var(--bubble-hi); font-weight: 800; letter-spacing: 0.04em; }
