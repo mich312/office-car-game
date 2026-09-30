@@ -25,7 +25,7 @@ import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
 import { useControls } from './useControls.js';
 import CarModel, { tyreScale } from './CarModel.jsx';
-import Particles, { burst, puff } from './particles.jsx';
+import Particles, { burst, smoke } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
 import { carView, setCamProbe, clearLens } from './carView.js';
 import { audio } from '../audio.js';
@@ -40,6 +40,12 @@ const BASE_MASS = 14;
 const MOTION = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.3 : 1;
 const DUST = ['#d9cfc0', '#c4b8a6', '#efe6d8'];
 const SPARKS = ['#ffe27a', '#ffb347', '#ffffff'];
+// Tyre smoke takes the colour of what it came off: rubber haze on hard
+// floors, warmer on wood, and carpet throws up a duller, thinner fibre dust.
+const SMOKE_TINT = {
+  wood: ['#e0d0b4', 0.26], carpet: ['#b3a597', 0.18], rug: ['#b3a597', 0.18], rubber: ['#9a9590', 0.2],
+};
+const SMOKE_DEFAULT = ['#efedea', 0.26];
 const HALF = { x: CAR_WIDTH / 2, y: CAR_HEIGHT / 2, z: CAR_LENGTH / 2 };
 const WHEELS = [
   [-0.28, -0.05, 0.34], [0.28, -0.05, 0.34], // front L/R
@@ -173,6 +179,7 @@ export default function LocalCar() {
     squash: 0, // 0…1 landing squash on the visual shell
     camDip: 0, // 0…1 landing camera dip
     fovPunch: 0, // degrees of zoom-in on a hit
+    groundY: [0, 0, 0, 0], // world y under each wheel (smoke is laid on it)
   }).current;
 
   // the engine sound wears the selected car's voice
@@ -346,7 +353,12 @@ export default function LocalCar() {
               rumble(1, 350);
               audio.duck(0.5, 0.2, 0.9);
             }
-            if (fx.at) burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
+            if (fx.at) {
+              burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8, kind: 'spark' });
+              for (let i = 0; i < (fx.blocked ? 2 : 6); i++) {
+                smoke(fx.at, [(Math.random() - 0.5) * 3, 1 + Math.random(), (Math.random() - 0.5) * 3], { size: 0.25, grow: 3.5, ttl: 1.4, color: '#5a5550', alpha: 0.4, rise: 1.2 });
+              }
+            }
             break;
           case 'robot_hit':
             if (fx.target === me) {
@@ -388,7 +400,7 @@ export default function LocalCar() {
             if (fx.a !== me && fx.b !== me) {
               // spectator view of someone else's collision: sparks at impact
               if (fx.kind === 'hit' && fx.at) {
-                burst([fx.at[0], (fx.at[1] || 0) + 0.3, fx.at[2]], { count: 10, color: ['#ffe27a', '#ffb347', '#ffffff'], speed: 6, size: 0.07, ttl: 0.4, up: 2 });
+                burst([fx.at[0], (fx.at[1] || 0) + 0.3, fx.at[2]], { count: 10, color: ['#ffe27a', '#ffb347', '#ffffff'], speed: 6, size: 0.07, ttl: 0.4, up: 2, kind: 'spark' });
                 audio.impact(0.45, fx.at); // placed in the world: the panner does distance and side
               }
               break;
@@ -473,7 +485,7 @@ export default function LocalCar() {
           case 'eliminated':
             // zap sparks where they went down; if it's me, park the car in
             // the ghost realm — SpectatorCam takes the camera from here
-            if (fx.at) burst(fx.at, { count: 26, color: ['#ff5f6b', '#ffe27a', '#fff'], speed: 9, size: 0.14, ttl: 0.9 });
+            if (fx.at) burst(fx.at, { count: 26, color: ['#ff5f6b', '#ffe27a', '#fff'], speed: 9, size: 0.14, ttl: 0.9, kind: 'spark' });
             if (fx.id === me) {
               audio.zap();
               audio.duck(0.7, 0.8, 1.6);
@@ -561,6 +573,7 @@ export default function LocalCar() {
       const hit = world.castRayAndGetNormal(ray, SUSPENSION_REST + 0.15, true, undefined, undefined, undefined, body);
       // wheel visual sits where the ray hit (or droops at full travel in the air)
       wheelYRef.current[wi] = wy - (hit ? Math.min(hit.timeOfImpact ?? hit.toi, SUSPENSION_REST + 0.1) : SUSPENSION_REST * 0.8) + wheelR;
+      S.groundY[wi] = hit ? _p.y + ray.dir.y * (hit.timeOfImpact ?? hit.toi) : pos.y - 0.3;
       if (hit) {
         // the floor under this wheel isn't perfectly flat: grout grooves,
         // plank seams and pile (shared/src/surfaces.js). Only on the floor
@@ -615,7 +628,17 @@ export default function LocalCar() {
         S.squash = Math.max(S.squash, landing);
         S.camDip = Math.max(S.camDip, landing);
         S.shake = Math.max(S.shake, 0.12 + landing * 0.35);
-        burst([pos.x, pos.y - 0.12, pos.z], { count: Math.round(5 + landing * 14), color: DUST, speed: 2 + landing * 4, size: 0.09, ttl: 0.55, up: 0.9, gravity: 0.4 });
+        // a ring of dust kicked out from under the car, and a few grains
+        const gy = (S.groundY[0] + S.groundY[1] + S.groundY[2] + S.groundY[3]) / 4;
+        const [tint] = SMOKE_TINT[S.wheelSurf?.id] || SMOKE_DEFAULT;
+        const n = Math.round(5 + landing * 7);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + Math.random() * 0.6;
+          const sp = 1.2 + landing * 3;
+          smoke([pos.x + Math.cos(a) * 0.35, gy + 0.05, pos.z + Math.sin(a) * 0.45], [Math.cos(a) * sp, 0.2, Math.sin(a) * sp],
+            { size: 0.12, grow: 3.2, ttl: 0.9, color: tint, alpha: 0.18 + landing * 0.16, floor: gy, drag: 0.04, rise: 0.25, jitter: 0.3 });
+        }
+        burst([pos.x, gy + 0.05, pos.z], { count: Math.round(2 + landing * 6), color: DUST, speed: 2 + landing * 4, size: 0.05, ttl: 0.55, up: 0.9, gravity: 0.4 });
         audio.thud(landing);
         if (landing > 0.7) audio.duck(0.25, 0.08, 0.5);
         rumble(0.25 + landing * 0.6, 90 + landing * 120);
@@ -630,7 +653,7 @@ export default function LocalCar() {
         // sparks where we were headed, i.e. at whatever stopped us
         const pl = S.postHSpeed || 1;
         burst([pos.x + (S.postVX / pl) * 0.55, pos.y + 0.1, pos.z + (S.postVZ / pl) * 0.55],
-          { count: Math.round(4 + hit * 12), color: SPARKS, speed: 3 + hit * 5, size: 0.06, ttl: 0.35, up: 2 });
+          { count: Math.round(4 + hit * 12), color: SPARKS, speed: 3 + hit * 5, size: 0.06, ttl: 0.35, up: 2, kind: 'spark' });
         audio.impact(0.3 + hit * 0.7);
         if (hit > 0.6) audio.duck(0.3, 0.1, 0.6);
         rumble(0.3 + hit * 0.7, 80 + hit * 140);
@@ -838,7 +861,7 @@ export default function LocalCar() {
         for (const rear of [WHEELS[2], WHEELS[3]]) {
           _corner.set(rear[0], rear[1] - 0.05, rear[2]).applyQuaternion(_q);
           burst([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z],
-            { count: 5 + dr.tierUp * 2, color: DRIFT_TIER_COLORS[dr.tierUp - 1], speed: 3.5, size: 0.07, ttl: 0.4, up: 2.2 });
+            { count: 5 + dr.tierUp * 2, color: DRIFT_TIER_COLORS[dr.tierUp - 1], speed: 3.5, size: 0.07, ttl: 0.4, up: 2.2, kind: 'spark' });
         }
       }
       if (drifting) {
@@ -847,7 +870,7 @@ export default function LocalCar() {
           for (const rear of [WHEELS[2], WHEELS[3]]) {
             _corner.set(rear[0], rear[1] - 0.08, rear[2]).applyQuaternion(_q);
             burst([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z],
-              { count: 1, color: DRIFT_TIER_COLORS[tier - 1], speed: 2.5, size: 0.055, ttl: 0.3, up: 1.5 });
+              { count: 1, color: DRIFT_TIER_COLORS[tier - 1], speed: 2.5, size: 0.055, ttl: 0.3, up: 1.5, kind: 'spark' });
           }
         }
       }
@@ -856,18 +879,26 @@ export default function LocalCar() {
         const tier = dr.release;
         S.miniTurboUntil = nowMs + DRIFT_TIER_BOOST_S[tier - 1] * 1000;
         body.applyImpulse({ x: _fwd.x * mass * 3, y: 0, z: _fwd.z * mass * 3 }, true);
-        burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2 });
+        burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2, kind: 'spark' });
         audio.boostFire();
         rumble(0.3 + tier * 0.15, 150);
         telemetry.miniTurbos++;
       }
-      // tire smoke + skid marks on the floor
+      // tire smoke + skid marks on the floor. The smoke is laid ON the floor
+      // under each rear tyre; ~33 puffs a second a wheel, each growing from a
+      // tyre's width to most of a car, overlapping into one soft trail.
       if (S.slipping) {
+        const [tint, a0] = SMOKE_TINT[S.wheelSurf?.id] || SMOKE_DEFAULT;
         [WHEELS[2], WHEELS[3]].forEach((rear, wi) => {
           _corner.set(rear[0], rear[1] - 0.1, rear[2]).applyQuaternion(_q);
           skid(wi, pos.x + _corner.x, pos.z + _corner.z);
-          if (Math.random() < 0.7) {
-            puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_v.x * 0.1, 0.5, -_v.z * 0.1], 0.32, drifting ? '#e8e8e8' : '#cfcfcf');
+          if (Math.random() < 0.55) {
+            const gy = S.groundY[2 + wi];
+            // it leaves with some of the car's speed and drags to a stop, so
+            // the cloud rolls along behind the car for a beat instead of
+            // being dropped where the camera passes straight through it
+            smoke([pos.x + _corner.x, gy + 0.06, pos.z + _corner.z], [_v.x * 0.45, 0.25, _v.z * 0.45],
+              { size: 0.2, grow: 5.2, ttl: 1.4, color: tint, alpha: a0 * (drifting ? 1 : 0.7), floor: gy, jitter: 0.9, drag: 0.08 });
           }
         });
       } else {
@@ -929,7 +960,8 @@ export default function LocalCar() {
         // wind streaks telegraph the charging draft
         if (Math.random() < 0.35) {
           _corner.set((Math.random() < 0.5 ? -1 : 1) * 0.45, 0.15, 0.6).applyQuaternion(_q);
-          puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 4, 0.6, -_fwd.z * 4], 0.14, '#cfe4ff', 0.35);
+          smoke([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 4, 0.3, -_fwd.z * 4],
+            { size: 0.05, grow: 3, ttl: 0.35, color: '#cfe4ff', alpha: 0.3, glow: 0.5, rise: 0, drag: 0.3, jitter: 0.3 });
         }
         if (S.slipT >= SLIPSTREAM.CHARGE_S && nowMs > S.slipCooldownUntil) {
           S.slipBoostUntil = nowMs + SLIPSTREAM.BOOST_S * 1000;
@@ -954,9 +986,11 @@ export default function LocalCar() {
       if (S.boosting) S.boost = Math.max(0, S.boost - BOOST_DRAIN * dt);
       const f = fwdSpeed < car.topSpeed * BOOST_TOP_MULT ? car.boost * mass : 0;
       body.applyImpulse({ x: _fwd.x * f * dt, y: 0, z: _fwd.z * f * dt }, true);
+      // exhaust: hot self-lit puffs left hanging in the car's wake
       if (Math.random() < 0.8) {
         _corner.set(0, 0.05, -0.55).applyQuaternion(_q);
-        puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 6, 1, -_fwd.z * 6], 0.22, freeBoost && !S.boosting ? '#ffd27a' : '#7ab8ff', 0.35);
+        smoke([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 3, 0.3, -_fwd.z * 3],
+          { size: 0.07, grow: 3, ttl: 0.32, color: freeBoost && !S.boosting ? '#ffd27a' : '#7ab8ff', alpha: 0.5, glow: 1, rise: 0.2, drag: 0.05, jitter: 0.4 });
       }
     }
     if (!S.boosting && grounded) {
@@ -1006,11 +1040,12 @@ export default function LocalCar() {
 
     // ---------------- stun visuals
     if (stunned && Math.random() < 0.4) {
-      burst([pos.x, pos.y + 0.6, pos.z], { count: 2, color: '#ffe27a', speed: 3, size: 0.06, ttl: 0.3, up: 2 });
+      burst([pos.x, pos.y + 0.6, pos.z], { count: 2, color: '#ffe27a', speed: 3, size: 0.06, ttl: 0.3, up: 2, kind: 'spark' });
     }
     // Ram Mode: angry red wake
     if (nowMs < S.ramUntil && Math.random() < 0.6) {
-      puff([pos.x, pos.y + 0.3, pos.z], [(Math.random() - 0.5) * 2, 1.2, (Math.random() - 0.5) * 2], 0.3, '#ff4d3d', 0.5);
+      smoke([pos.x, pos.y + 0.3, pos.z], [(Math.random() - 0.5) * 2, 0.8, (Math.random() - 0.5) * 2],
+        { size: 0.14, grow: 3, ttl: 0.5, color: '#ff4d3d', alpha: 0.35, glow: 1 });
     }
 
     // ---------------- upside-down & fall recovery

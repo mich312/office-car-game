@@ -9,7 +9,7 @@ import { CARS, CAR_WIDTH, CAR_HEIGHT, CAR_LENGTH, POWERUP_EFFECT, LEAN, leanTarg
 import { useStore } from '../store.js';
 import { net, sampleRemote } from '../net.js';
 import CarModel, { CarMid, CarProxy } from './CarModel.jsx';
-import { puff } from './particles.jsx';
+import { smoke } from './particles.jsx';
 import { skid } from './SkidMarks.jsx';
 
 export default function RemoteCars() {
@@ -31,6 +31,7 @@ const _rright = new THREE.Vector3();
 const _rcorner = new THREE.Vector3();
 const _lean = {};
 const REAR = [[-0.28, -0.15, -0.34], [0.28, -0.15, -0.34]];
+const RIDE = 0.27; // car centre over its floor: remote drift smoke is laid there
 const FX_RANGE = 40; // drift smoke & skid marks only near the camera
 
 // Where every remote car is and how it sounds, for the engine voices
@@ -128,9 +129,13 @@ const RemoteCar = memo(function RemoteCar({ player }) {
       _rq.set(s.q[0], s.q[1], s.q[2], s.q[3]);
       for (let i = 0; i < 2; i++) {
         _rcorner.set(REAR[i][0], REAR[i][1], REAR[i][2]).applyQuaternion(_rq);
-        const x = s.p[0] + _rcorner.x, y = s.p[1] + _rcorner.y, z = s.p[2] + _rcorner.z;
+        const x = s.p[0] + _rcorner.x, z = s.p[2] + _rcorner.z;
         skid(skidKeys[i], x, z);
-        if (Math.random() < 0.3) puff([x, y, z], [0, 0.5, 0], 0.3, '#e8e8e8');
+        if (Math.random() < 0.3) {
+          const gy = s.p[1] - RIDE;
+          const v = lastVel.current || [0, 0];
+          smoke([x, gy + 0.06, z], [v[0] * 0.45, 0.25, v[1] * 0.45], { size: 0.2, grow: 5.2, ttl: 1.4, color: '#efedea', alpha: 0.24, floor: gy, jitter: 0.9, drag: 0.08 });
+        }
       }
     } else {
       skid(skidKeys[0], null);
