@@ -11,6 +11,7 @@ import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
+import { withFloorAO } from './floorAO.js';
 import { mat, castsShadow, receivesShadow, foldTint } from './materials.js';
 import { bake, placeMatrix } from './kit.js';
 import { buildPiece, pieceContext, rampParts } from './furniture.js';
@@ -200,10 +201,14 @@ function Floors({ map }) {
   const { ROOMS, MAP_BOUNDS } = map;
   // a map can tint a floor type (the cellar's lino and concrete are older and
   // greyer than upstairs): the tint multiplies the albedo map
+  // Every floor also takes the map's baked occlusion and wear (floorAO.js):
+  // dark under furniture and along the walls, polished down the racing line.
+  // (Floors remounts with its map — Office keys the group on map.id.)
   const tints = map.LOOK?.floors;
   const mats = useMemo(() => Object.fromEntries(Object.entries(FLOOR_MATS).map(([k, fn]) => {
     const m = fn();
     if (tints?.[k]) m.color.set(tints[k]);
+    withFloorAO(m, map);
     return [k, m];
   })), [tints]);
   const stain = useMemo(() => new THREE.MeshBasicMaterial({ map: stainTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }), []);
