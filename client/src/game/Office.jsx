@@ -18,6 +18,7 @@ import { mat, castsShadow, receivesShadow, foldTint } from './materials.js';
 import { bake, placeMatrix } from './kit.js';
 import { buildPiece, pieceContext, rampParts } from './furniture.js';
 import { buildArchitecture } from './architecture.js';
+import MapDressing from './dressing/index.jsx';
 import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, skylineTex, glowTex, shaftTex, ceilingTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
 
 // Every floor gets three maps, not one. Albedo alone reads as coloured
@@ -99,6 +100,7 @@ export default function Office() {
       <Walls map={map} />
       <BigFurniture map={map} />
       <Ramps map={map} />
+      <MapDressing map={map} />
       <Practicals map={map} />
       {Dressing ? <Dressing map={map} /> : (
         <>
@@ -184,8 +186,6 @@ function Floors({ map }) {
     withFloorAO(m, map);
     return [k, m];
   })), [tints]);
-  const stain = useMemo(() => new THREE.MeshBasicMaterial({ map: stainTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }), []);
-  const stains = map.STAINS || [];
   const floorGeos = useMemo(() => ROOMS.map(floorGeometry), [ROOMS]);
   useEffect(() => () => floorGeos.forEach((g) => g.dispose()), [floorGeos]);
   return (
@@ -198,12 +198,7 @@ function Floors({ map }) {
         <mesh key={r.id} rotation-x={-Math.PI / 2} position={[r.x, r.floor === 'concrete' ? -0.02 : 0, r.z]} receiveShadow
           material={mats[r.floor]} geometry={floorGeos[i]} />
       ))}
-      {/* coffee stains */}
-      {stains.map(([x, z, s], i) => (
-        <mesh key={i} rotation-x={-Math.PI / 2} rotation-z={i * 1.7} position={[x * M, 0.02, z * M]} material={stain}>
-          <planeGeometry args={[s * M * 0.35, s * M * 0.3]} />
-        </mesh>
-      ))}
+      {/* the coffee stains are drawn with the map's decals (dressing/decals.js) */}
     </>
   );
 }

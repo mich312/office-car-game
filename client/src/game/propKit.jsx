@@ -346,7 +346,10 @@ function sync(camera, scene) {
     for (const it of k.items) {
       const o = it.obj;
       // a prop with several parts shares one marker: update it once a frame
-      if (o.userData.propFrame !== frame) { o.updateWorldMatrix(true, false); o.userData.propFrame = frame; }
+      // (a static marker — decor that never moves — once, ever)
+      if (it.still) {
+        if (!o.userData.propStill) { o.updateWorldMatrix(true, false); o.userData.propStill = true; }
+      } else if (o.userData.propFrame !== frame) { o.updateWorldMatrix(true, false); o.userData.propFrame = frame; }
       if (it.lod) {
         _v.setFromMatrixPosition(o.matrixWorld);
         if ((_v.distanceToSquared(camera.position) > it.lod * it.lod) !== it.lo) continue;
@@ -383,22 +386,27 @@ export function PropInstances() {
 
 // A prop's visual: an empty group that stands in for the whole model. Put
 // it where the model's origin goes; `color` tints the masked parts.
-export function Inst({ model: name, color = null, ...props }) {
+// `static`: decor with no body that never moves (dressing/decorProps.jsx) —
+// its world matrix is read once instead of every frame. It still draws in
+// the model's shared instanced mesh, so a kind already on the floor costs
+// no new draw call.
+export function Inst({ model: name, color = null, static: still = false, ...props }) {
   const ref = useRef();
   useLayoutEffect(() => {
     const obj = ref.current;
     const { lod } = MODELS[name];
     const items = [];
+    if (still) obj.userData.propStill = false;
     for (const lo of lod ? [false, true] : [false]) {
       for (const [m, geo] of Object.entries(model(name, lo))) {
         const k = kindFor(name, m, geo, lo);
-        const it = { obj, color, lod, lo };
+        const it = { obj, color, lod, lo, still };
         k.items.add(it);
         items.push([k, it]);
       }
     }
     return () => items.forEach(([k, it]) => k.items.delete(it));
-  }, [name, color]);
+  }, [name, color, still]);
   return <group ref={ref} {...props} />;
 }
 
