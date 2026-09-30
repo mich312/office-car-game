@@ -1,0 +1,68 @@
+/* Item + ability action tray (moved verbatim from the old ui/hud.css) */
+
+/* -------------------------------------------- bottom-right action tray */
+.action-tray {
+  position: absolute;
+  right: var(--hud-x-r);
+  bottom: var(--hud-y-b);
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+.slot {
+  position: relative;
+  width: 5.3rem;
+  height: 5.6rem;
+  border-radius: var(--r-card);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  overflow: visible;
+}
+.slot .keycap { position: absolute; top: -0.55rem; right: -0.45rem; }
+.slot-icon { font-size: 1.9rem; line-height: 1; }
+.slot-name {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  text-align: center;
+  max-width: 94%;
+  line-height: 1.15;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.slot .label { font-size: 0.6rem; }
+/* empty powerup slot: quiet scanning shimmer instead of a dim "?" */
+.slot-empty {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+.slot-empty::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background: linear-gradient(115deg, transparent 42%, rgba(92, 200, 255, 0.13) 50%, transparent 58%);
+  animation: scan 2.2s var(--ease) infinite;
+}
+@keyframes scan { from { transform: translateX(-45%); } to { transform: translateX(45%); } }
+
+.slot.ability.ready { border-color: rgba(74, 222, 128, 0.65); box-shadow: 0 0 12px rgba(74, 222, 128, 0.25); }
+.slot-cd {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(rgba(8, 10, 16, 0.82) calc(var(--frac) * 360deg), transparent 0);
+  pointer-events: none;
+}

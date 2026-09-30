@@ -1,0 +1,93 @@
+/* Podium / results + confetti (moved verbatim from the old ui/hud.css) */
+
+/* --------------------------------------------------------------- podium */
+.podium-wrap { position: absolute; inset: 0; overflow: hidden; }
+.podium {
+  position: absolute;
+  left: 50%;
+  top: 9%;
+  transform: translateX(-50%);
+  width: min(34rem, 94vw);
+  max-height: 84vh;
+  overflow: auto;
+  padding: 1.4rem 1.6rem 1.2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: center;
+}
+.podium-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.1rem;
+  letter-spacing: 0.1em;
+  line-height: 1;
+}
+.podium-title.champ { color: var(--amber); }
+.podium-wall { display: flex; gap: 0.8rem; align-items: flex-end; justify-content: center; margin-top: 0.4rem; }
+.plaque {
+  --plaque: var(--line);
+  width: 8.2rem;
+  background: var(--bg-2);
+  border: 2px solid var(--plaque);
+  border-radius: var(--r-card);
+  padding: 0.9rem 0.6rem 0.8rem;
+  animation: rise 0.6s var(--ease-pop) backwards;
+}
+.plaque.r0 { --plaque: #e8b54d; padding-bottom: 2.6rem; animation-delay: 0.25s; }
+.plaque.r1 { --plaque: #b9c4d6; padding-bottom: 1.5rem; animation-delay: 0.1s; }
+.plaque.r2 { --plaque: #c98a54; padding-bottom: 0.8rem; animation-delay: 0.4s; }
+.plaque.empty { visibility: hidden; }
+@keyframes rise { from { transform: translateY(60px); } }
+.plaque-medal {
+  width: 2.6rem;
+  height: 2.6rem;
+  margin: 0 auto 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid var(--plaque);
+  color: var(--plaque);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.3rem;
+}
+.pod-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pod-name .dot { margin-right: 0.35rem; }
+.pod-score { color: var(--text-2); font-family: var(--font-display); font-size: 1.05rem; }
+.pod-mine { font-size: 1rem; }
+.pod-mine b { color: var(--amber); }
+.pod-rivalry {
+  font-size: 0.82rem;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 0.35rem 0.8rem;
+}
+.cup-standings { width: min(20rem, 86vw); }
+.cup-standings .score-row { font-size: 0.85rem; padding: 0.3rem 0.6rem; }
+.cup-standings .cup-gain { margin-left: 0.4rem; color: var(--text-3); font-family: var(--font-body); font-size: 0.75rem; font-weight: 600; }
+
+/* confetti — pure CSS, honors reduced-motion via the global override */
+.confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.confetti i {
+  position: absolute;
+  top: -3vh;
+  width: 8px;
+  height: 13px;
+  border-radius: 2px;
+  opacity: 0.85;
+  animation: confetti linear infinite;
+}
+@keyframes confetti {
+  to { transform: translateY(110vh) rotate(720deg); }
+}

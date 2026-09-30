@@ -1,0 +1,38 @@
+/* Top cluster: match clock and per-mode chips (moved verbatim from the old ui/hud.css) */
+
+/* --------------------------------------------------- top center cluster */
+.hud-top {
+  position: absolute;
+  top: var(--hud-y);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+.timer-chip {
+  padding: 0.15rem 1rem 0.25rem;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.9rem;
+  line-height: 1.15;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+.timer-chip.low { color: var(--bad); border-color: rgba(255, 92, 92, 0.5); animation: lowpulse 1s ease-in-out infinite alternate; }
+@keyframes lowpulse { to { box-shadow: 0 0 18px rgba(255, 92, 92, 0.35); } }
+.hud-top-row { display: flex; gap: 0.45rem; flex-wrap: wrap; justify-content: center; }
+.chip .team-score { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.chip.cup-chip { color: var(--amber); }
+.chip.cup-chip .icon { color: var(--amber); }
+.chip.mutator-chip { color: var(--info); }
+.chip.mutator-chip .icon { color: var(--info); }
+
+/* the round's layout twist (a reverse race…), wherever the mode is named */
+.variant-tag { color: var(--amber); font-weight: 700; letter-spacing: 0.04em; }

@@ -1,0 +1,42 @@
+/* Scoreboard (hold Tab) (moved verbatim from the old ui/hud.css) */
+
+/* ----------------------------------------------------------- scoreboard */
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 7, 12, 0.35);
+}
+.scoreboard {
+  position: absolute;
+  left: 50%;
+  top: 14%;
+  transform: translateX(-50%);
+  width: min(26rem, 92vw);
+  max-height: 70vh;
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  z-index: var(--z-sheet);
+}
+.scoreboard header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.4rem;
+}
+.score-row {
+  display: grid;
+  grid-template-columns: 1.6rem 0.9rem 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.42rem 0.6rem;
+  border-radius: var(--r-ctl);
+  font-size: 0.9rem;
+}
+.score-row:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+.score-row.me { background: var(--amber-tint); box-shadow: inset 2px 0 0 var(--amber); }
+.score-row .place { color: var(--text-3); font-weight: 700; font-variant-numeric: tabular-nums; }
+.score-row .pname { display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-row .pname .icon { color: var(--text-3); flex: none; }
+.score-row b { font-family: var(--font-display); font-size: 1.05rem; font-variant-numeric: tabular-nums; }

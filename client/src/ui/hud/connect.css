@@ -1,0 +1,26 @@
+/* Connect / error screens and the photo-mode hint (moved verbatim from the old ui/hud.css) */
+
+/* ------------------------------------------------------- connect states */
+.connect-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 8, 14, 0.72);
+  z-index: var(--z-connect);
+  pointer-events: auto;
+}
+.connect-screen .logo { align-items: center; }
+.connect-screen p { color: var(--text-2); font-size: 1rem; letter-spacing: 0.04em; }
+.connect-screen .toast { max-width: min(26rem, 90vw); }
+
+.photo-hint {
+  position: fixed;
+  bottom: var(--hud-y-b);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+}

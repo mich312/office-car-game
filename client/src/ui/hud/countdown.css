@@ -1,0 +1,39 @@
+/* Countdown (moved verbatim from the old ui/hud.css) */
+
+/* ------------------------------------------------------------ countdown */
+.countdown {
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  text-align: center;
+}
+.invite { max-width: min(26rem, 92vw); text-align: left; }
+.invite-mutator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--line);
+  font-size: 0.78rem;
+  color: var(--info);
+}
+.toast-warn .invite-mutator, .invite.toast-warn .invite-mutator { border-color: rgba(74, 61, 14, 0.3); color: var(--note-ink); }
+.count-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 7.5rem;
+  line-height: 1;
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.8);
+  animation: stamp 0.4s var(--ease-pop);
+}
+.count-num.go { color: var(--amber); }
+@keyframes stamp {
+  from { transform: scale(1.7) rotate(-5deg); }
+  60% { transform: scale(0.96) rotate(0.5deg); }
+}

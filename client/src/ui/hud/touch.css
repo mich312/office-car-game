@@ -1,0 +1,40 @@
+/* Touch controls (moved verbatim from the old ui/hud.css) */
+
+/* --------------------------------------------------- touch controls */
+.touch-controls { display: none; }
+@media (pointer: coarse) {
+  .touch-controls { display: block; position: absolute; inset: 0; pointer-events: none; }
+}
+.tc-left { position: absolute; left: calc(var(--hud-x) - 8px); bottom: 110px; display: flex; gap: 16px; }
+.tc-right {
+  position: absolute;
+  right: calc(var(--hud-x-r) - 10px);
+  bottom: 110px;
+  display: grid;
+  grid-template-columns: repeat(2, 62px);
+  gap: 12px;
+}
+.tc-btn {
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: var(--glass);
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+}
+.tc-btn:active { background: rgba(255, 180, 84, 0.4); border-color: var(--amber); transform: scale(0.94); }
+.tc-steer { width: 84px; height: 84px; }
+.tc-wide { grid-column: span 2; width: 100%; border-radius: 31px; }

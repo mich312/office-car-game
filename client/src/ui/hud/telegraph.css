@@ -1,0 +1,11 @@
+/* Office-event banner (moved verbatim from the old ui/hud.css) */
+
+/* -------------------------------------------------------- event banner */
+.hud-event {
+  position: absolute;
+  top: calc(var(--hud-y) + 5.6rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  max-width: min(28rem, 92vw);
+}

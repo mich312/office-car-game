@@ -1,0 +1,98 @@
+/* Match HUD: drive cluster, hazard toast, spectator chip, printer flash (moved verbatim from the old ui/hud.css) */
+
+/* --------------------------------------------- bottom-left drive cluster */
+@property --frac { syntax: '<number>'; initial-value: 0; inherits: false; }
+.drive-cluster {
+  position: absolute;
+  left: var(--hud-x);
+  bottom: var(--hud-y-b);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.7rem;
+}
+/* fine pointers get the in-world RC transmitter instead (ControllerHUD.jsx),
+   which also carries the powerup/ability buttons (.hud prefix outranks the
+   later .action-tray display rule) */
+@media (pointer: fine) {
+  .hud .drive-cluster { display: none; }
+  .hud .action-tray { display: none; }
+}
+.boost-ring {
+  position: relative;
+  width: 7.6rem;
+  height: 7.6rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(11, 14, 22, 0.55) 58%, transparent 59%);
+  transition: --frac 0.12s linear;
+}
+.boost-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 220deg,
+      var(--info) calc(var(--frac) * 280deg),
+      rgba(255, 255, 255, 0.1) calc(var(--frac) * 280deg) 280deg,
+      transparent 280deg);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+  mask: radial-gradient(closest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+}
+.boost-ring.full::before {
+  background:
+    conic-gradient(from 220deg,
+      var(--amber) 280deg,
+      transparent 280deg);
+  filter: drop-shadow(0 0 6px rgba(255, 180, 84, 0.6));
+}
+.boost-ring .speed {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+.boost-ring .speed b {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.9rem;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+}
+.boost-ring .speed span { margin-top: 2px; }
+
+/* zap warning + spectator */
+.zap-toast {
+  position: absolute;
+  top: 24%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  animation: toastin var(--t-slow) var(--ease-pop), zappulse 0.6s ease-in-out infinite alternate;
+}
+.zap-toast b { font-family: var(--font-display); font-size: 1.2rem; letter-spacing: 0.12em; }
+@keyframes zappulse { to { box-shadow: 0 0 34px rgba(255, 60, 70, 0.5); } }
+
+.spectate-chip {
+  position: absolute;
+  bottom: calc(var(--hud-y-b) + 6.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+}
+.spectate-chip small { color: var(--text-3); font-weight: 400; }
+
+.printer-flash {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-flash);
+  pointer-events: none;
+  background: rgba(247, 245, 239, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3b3a33;
+  animation: printFade 1.4s ease-out forwards;
+}
+@keyframes printFade { 0% { opacity: 1; } 55% { opacity: 0.95; } 100% { opacity: 0; } }

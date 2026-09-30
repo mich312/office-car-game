@@ -1,0 +1,24 @@
+/* Feed (moved verbatim from the old ui/hud.css) */
+
+/* ----------------------------------------------------------------- feed */
+.feed {
+  position: absolute;
+  left: var(--hud-x);
+  top: var(--hud-y);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: 24rem;
+}
+.feed-item {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--amber);
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--r-ctl);
+  font-size: 0.82rem;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: feedin var(--t-slow) var(--ease);
+}
+@keyframes feedin { from { transform: translateX(-20px); } }
