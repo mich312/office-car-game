@@ -423,6 +423,9 @@ export const GARAGE = {
     wall: '#efe8dc', skirt: '#caa874',
     floors: { concrete: '#d2ccc2', carpet2: '#6f9a44', epoxy: '#9aa1a5', tile: '#f2ede4', wood: '#ffffff' },
   },
+  // The hour the floor opens at (daylight.js defaultHour): golden hour, the
+  // slab of low sun through the roller door.
+  DEFAULT_HOUR: 'golden',
   // ceiling point lights (meters): LED battens in the garage, the house's
   // own fittings. Seven is the budget.
   CEILING_LIGHTS: [[-13, 0.2], [-1, 0.5], [8.5, 0.5], [15.5, 0.5], [1.5, 8.5], [15, 8.5]],

@@ -478,6 +478,10 @@ export const OFFICE = {
     clock: { at: [-19.15, 2.32, -11.87], rotY: 0 },
     memos: { at: [-16.05, 1.95, -11.88], rotY: 0 },
   },
+  // The hour the floor opens at (client/src/game/daylight.js defaultHour):
+  // after hours, the sun low in the west, the city lighting up past the
+  // glass — the office's own fiction, and its best light.
+  DEFAULT_HOUR: 'golden',
   // Paint. Most of the floor is the house off-white; a few rooms get their
   // own colour on the walls that face into them (architecture.js), so each
   // reads as a place from car height: a greige reception, sage kitchen,

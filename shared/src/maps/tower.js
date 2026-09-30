@@ -465,6 +465,9 @@ export const TOWER = {
     wall: '#dcd5ca', skirt: '#3b2a1f',
     floors: { marble: '#dcd8d2', carpet: '#8d8f97', carpet2: '#6e7fb3', wood: '#9c8272', tile: '#ece8e0', concrete: '#cfc7ba' },
   },
+  // The hour the floor opens at (daylight.js defaultHour): golden hour, the
+  // sun flat across the marble from the west over a city going orange.
+  DEFAULT_HOUR: 'golden',
   // point lights (meters): one per room, 3000 K downlights
   CEILING_LIGHTS: [[0, -8], [-14, -8], [14, -7], [-14, -0.5], [-1, 7.5], [-15, 7.5], [14, 0.5]],
   // The light. The tower has the most exposed sun in the game: glass on every
