@@ -1,102 +1,194 @@
-/* Podium / results + confetti (Results.jsx). Legacy layout, retinted to the
-   Toy Box tokens until it is ported. */
+/* ==========================================================================
+   RESULTS + OFFICE CUP (Results.jsx, SPEC-TOYBOX §4.18). The podium blocks
+   wear the drivers' paint; yellow only ever marks YOU (your name ribbon,
+   your stamp, your row, your XP gain). Out of play, so it may cover the
+   car zone. rem on the fluid root; the phone layout (.is-compact) is px.
+   ========================================================================== */
+.tb-pd { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.tb-pd button { pointer-events: auto; }
+.tb-pd-grade { position: absolute; inset: 0;
+  background: radial-gradient(ellipse 60% 55% at 32% 60%, rgba(64, 56, 138, .28), transparent 70%), linear-gradient(180deg, rgba(16, 10, 40, .74), rgba(12, 8, 32, .88)); }
+.tb-pd-burst { position: absolute; left: 30rem; top: 34rem; width: 94rem; height: 94rem; margin: -47rem 0 0 -47rem; border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 248, 234, .07) 0 6deg, transparent 6deg 18deg);
+  -webkit-mask: radial-gradient(circle, #000 0, #000 20%, transparent 55%); mask: radial-gradient(circle, #000 0, #000 20%, transparent 55%); }
+html.lowfx .tb-pd-burst { display: none; }
+.tb-pd-head { position: absolute; left: 3.5rem; top: 2.5rem; display: flex; flex-direction: column; align-items: flex-start; gap: .875rem; }
+.tb-pd-head > .tb-disp { font-size: 4.5rem; color: var(--paper); --sw: .8125rem; --ex: .4375rem; white-space: nowrap; }
+.tb-pd-head .tb-rib { height: 2.25rem; max-width: 44rem; }
+.tb-pd-head .tb-rib .tb-lbl { overflow: hidden; text-overflow: ellipsis; }
+.tb-pd-head svg { width: 1rem; height: 1rem; }
 
-/* --------------------------------------------------------------- podium */
-.podium-wrap { position: absolute; inset: 0; overflow: hidden; }
-.podium {
-  position: absolute;
-  left: 50%;
-  top: 9%;
-  transform: translateX(-50%);
-  width: min(34rem, 94vw);
-  max-height: 84vh;
-  overflow: auto;
-  padding: 1.4rem 1.6rem 1.2rem;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  align-items: center;
-}
-.podium-title {
-  font-family: var(--f-display);
-  font-style: italic;
-  font-weight: 900;
-  font-size: 2rem;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  color: var(--paper);
-  -webkit-text-stroke: var(--sw-s) var(--ink);
-  paint-order: stroke fill;
-  text-shadow: 0 .25rem 0 var(--ink);
-}
-.podium-title.champ { color: var(--bubble-hi); }
-.podium-wall { display: flex; gap: 0.8rem; align-items: flex-end; justify-content: center; margin-top: 0.4rem; }
-.plaque {
-  --plaque: var(--line);
-  width: 8.2rem;
-  background: var(--bg-2);
-  border: 2px solid var(--plaque);
-  border-radius: var(--r-card);
-  padding: 0.9rem 0.6rem 0.8rem;
-  animation: rise 0.6s var(--ease-pop) backwards;
-}
-.plaque.r0 { --plaque: #e8b54d; padding-bottom: 2.6rem; animation-delay: 0.25s; }
-.plaque.r1 { --plaque: #b9c4d6; padding-bottom: 1.5rem; animation-delay: 0.1s; }
-.plaque.r2 { --plaque: #c98a54; padding-bottom: 0.8rem; animation-delay: 0.4s; }
-.plaque.empty { visibility: hidden; }
-@keyframes rise { from { translate: 0 60px; } }
-.plaque-medal {
-  width: 2.6rem;
-  height: 2.6rem;
-  margin: 0 auto 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  border: 2px solid var(--plaque);
-  color: var(--plaque);
-  font-family: var(--f-display);
-  font-style: italic;
-  font-weight: 900;
-  font-size: 1.3rem;
-}
-.pod-name {
-  font-weight: 700;
-  font-size: 0.9rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pod-name .dot { margin-right: 0.35rem; }
-.pod-score { color: var(--paper-dim); font-weight: 800; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
-.pod-mine { font-size: 1rem; }
-.pod-mine b { color: var(--amber); }
-.pod-rivalry {
-  font-size: 0.82rem;
-  color: var(--text-2);
-  background: var(--ink);
-  border: 2px solid rgba(255, 248, 234, 0.16);
-  border-radius: var(--r-sm);
-  padding: 0.35rem 0.8rem;
-}
-.cup-standings { width: min(20rem, 86vw); }
-.cup-standings .score-row { font-size: 0.85rem; padding: 0.3rem 0.6rem; }
-.cup-standings .cup-gain { margin-left: 0.4rem; color: var(--text-3); font-family: var(--font-body); font-size: 0.75rem; font-weight: 600; }
-.cup-standings .score-row.me .cup-gain { color: var(--ink-dim); }
+/* your stamp (top three only): the ceremony may tilt things */
+.tb-pd-stamp { position: absolute; left: 41rem; top: 10.5rem; transform: rotate(-8deg); }
+.tb-stamp { display: grid; place-items: center; align-content: center; width: 9.5rem; height: 9.5rem; border-radius: 50%; text-align: center;
+  background: repeating-conic-gradient(from 0deg, var(--sun) 0 10deg, var(--sun-hi) 10deg 20deg);
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 0 0 .5625rem var(--paper), 0 0 0 .75rem var(--ink), 0 .75rem 0 .625rem var(--ink); }
+.tb-stamp .tb-disp { font-size: 3.5rem; line-height: .9; color: var(--ink); }
+.tb-stamp small { display: block; font: 800 var(--t-xxs)/1 var(--f-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); margin-top: .25rem; }
 
-/* confetti — pure CSS, two falls only; none on lowfx or reduced motion */
-.confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.confetti i {
-  position: absolute;
-  top: -3vh;
-  width: 8px;
-  height: 13px;
-  border-radius: 2px;
-  opacity: 0.85;
-  animation: confetti linear 2 both;
-}
-@keyframes confetti {
-  to { translate: 0 110vh; rotate: 720deg; }
-}
-html.lowfx .confetti { display: none; }
+/* the podium: 2-1-3, blocks in each driver's paint with a plaque title */
+.tb-podium { position: absolute; left: 4.5rem; bottom: 15rem; display: flex; align-items: flex-end; gap: 1.125rem; }
+.tb-pod { display: flex; flex-direction: column; align-items: center; width: 13.75rem; }
+.tb-pod.is-empty { visibility: hidden; }
+.tb-pod-car { width: 10.5rem; height: 6.25rem; margin-bottom: -.25rem; }
+.tb-pod-name { margin-bottom: 1rem; display: flex; flex-direction: column; align-items: center; gap: .75rem; max-width: 100%; }
+.tb-pod-name .tb-rib { height: 2.375rem; padding: 0 1rem; gap: .5rem; max-width: 100%; }
+.tb-pod-name .tb-ui8 { font-size: 1.125rem; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tb-pod-sc { font: 800 max(10px, .875rem)/1 var(--f-ui); color: var(--paper-dim); letter-spacing: .04em; }
+.tb-blk { position: relative; width: 100%; height: var(--h); border-radius: 1.125rem 1.125rem .375rem .375rem; display: flex; flex-direction: column; align-items: center; padding-top: .375rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .28), rgba(255, 255, 255, 0) 30%), var(--paint);
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), inset 0 .5rem 0 rgba(255, 255, 255, .35), inset 0 -.875rem 0 rgba(20, 14, 44, .22), 0 .625rem 0 var(--ink), var(--ambient); }
+.tb-pod.p1 .tb-blk { --h: 15.5rem; } .tb-pod.p2 .tb-blk { --h: 11.75rem; } .tb-pod.p3 .tb-blk { --h: 8.75rem; }
+.tb-blk-n { font-size: 7.5rem; color: var(--paper); --sw: .875rem; --ex: .5rem; line-height: .95; }
+/* Night-Shift copy graft: every podium place gets a plaque title */
+.tb-plaque { position: absolute; left: 50%; bottom: .75rem; translate: -50% 0; white-space: nowrap; padding: .3125rem .625rem; border-radius: .375rem;
+  font: 800 var(--t-micro)/1 var(--f-ui); letter-spacing: .08em; text-transform: uppercase; background: var(--paper); color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink), 0 .1875rem 0 var(--ink); }
+
+/* right column: the rest of the office + your shift report */
+.tb-pd-side { position: absolute; right: 2.5rem; top: 2.5rem; width: 27rem; display: flex; flex-direction: column; gap: 1.5rem; }
+.tb-rest, .tb-shift { padding: 1rem 1rem 1.125rem; }
+.tb-rest-h { margin: 0 .25rem .625rem; color: var(--paper-dim); }
+.tb-cr { position: relative; isolation: isolate; display: grid; grid-template-columns: 3rem minmax(0, 1fr) 4rem 4rem; align-items: center; height: 2.75rem; padding: 0 .875rem; margin-bottom: .375rem; color: var(--paper); }
+.tb-rest .tb-cr { grid-template-columns: 3rem minmax(0, 1fr) 5rem; }
+.tb-cr:last-child { margin-bottom: 0; }
+.tb-cr::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: .6875rem; transform: skewX(var(--lean)); background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 2px rgba(20, 14, 44, .9); }
+.tb-cr .pn { font-size: 1.75rem; color: var(--paper); }
+.tb-cr .nm { display: flex; align-items: center; gap: .625rem; min-width: 0; font: 800 1.0625rem/1 var(--f-ui); }
+.tb-cr .nm > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tb-cr .nm .tb-car { width: 2.375rem; height: 1.4375rem; }
+.tb-cr .plus { text-align: right; font: 800 1rem/1 var(--f-ui); color: var(--lime); }
+.tb-cr .tot { text-align: right; font: 800 1.125rem/1 var(--f-ui); }
+.tb-cr .tot.tb-disp { font: italic 900 1.625rem/1 var(--f-display); }
+.tb-cr.is-you { color: var(--ink); }
+.tb-cr.is-you::before { background: linear-gradient(180deg, var(--sun-hi), var(--sun) 60%, var(--sun-lo)); box-shadow: inset 0 0 0 var(--bw) var(--ink), var(--drop-s), var(--glow-you); }
+.tb-cr.is-you .pn { color: var(--ink); }
+.tb-cr.is-you .plus { color: var(--lime-lo); }
+.tb-cr.is-gap { height: 1.25rem; margin-bottom: .125rem; }
+.tb-cr.is-gap::before { display: none; }
+.tb-cr.is-gap span { grid-column: 1 / -1; text-align: center; color: var(--paper-dim); letter-spacing: .35em; font: 800 var(--t-xxs)/1 var(--f-ui); }
+
+/* shift report: client-measured stats of YOUR match (matchStats.js), never invented */
+.tb-shift-g { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+.tb-shift-g > div { display: flex; flex-direction: column; align-items: flex-start; gap: .375rem; padding: .625rem .75rem; border-radius: .75rem;
+  background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 2px rgba(20, 14, 44, .85); }
+.tb-shift-g .tb-micro { color: var(--paper-dim); }
+.tb-shift-g b { font-size: 2.25rem; line-height: .9; color: var(--paper); }
+.tb-feud { margin: .875rem .25rem 0; font: 600 max(10px, .875rem)/1.3 var(--f-ui); color: var(--paper-dim); }
+.tb-feud b { color: var(--paper); font-weight: 800; }
+
+/* Office Cup standings box */
+.tb-cup { position: absolute; right: 2.5rem; top: 2.5rem; width: 32.5rem; padding: 1.375rem 1.25rem 1.25rem; }
+.tb-cup-h { display: flex; align-items: center; gap: .875rem; margin-bottom: .375rem; }
+.tb-cup-h .tb-disp { font-size: 2.25rem; color: var(--paper); --sw: .4375rem; --ex: .1875rem; }
+.tb-cup-h .tb-lbl { color: var(--paper-dim); margin-top: .375rem; }
+.tb-trophy { width: 3.375rem; height: 3.375rem; border-radius: .875rem; display: grid; place-items: center; flex: none; background: var(--paper); color: var(--ink); transform: rotate(-6deg);
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), inset 0 .25rem 0 rgba(255, 255, 255, .5), var(--drop-m); }
+.tb-trophy svg { width: 2rem; height: 2rem; }
+.tb-rounds { display: flex; gap: .5rem; margin: .875rem 0 .75rem; }
+.tb-rnd { flex: 1; min-width: 0; display: flex; align-items: center; gap: .5rem; height: 2.5rem; padding: 0 .625rem; border-radius: .625rem; font: 800 max(10px, .8125rem)/1.05 var(--f-ui);
+  background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 2px rgba(20, 14, 44, .85); color: var(--paper-dim); }
+.tb-rnd .no { font-size: 1.25rem; color: var(--paper-dim); flex: none; }
+.tb-rnd.is-done { color: var(--paper); }
+.tb-rnd.is-done .no { color: var(--lime); }
+.tb-rnd.is-next { box-shadow: inset 0 0 0 max(2px, .15625rem) var(--paper); color: var(--paper); font-style: italic; }
+.tb-cup-cols { display: grid; grid-template-columns: 3rem minmax(0, 1fr) 4rem 4rem; padding: .5rem .875rem .375rem; color: var(--paper-dim); }
+.tb-cup-cols > span:nth-child(n+3) { text-align: right; }
+
+/* the payslip: XP line items that really add up */
+.tb-pay { position: absolute; left: 3.5rem; bottom: 2.5rem; width: 52rem; padding: 1rem 1.375rem 1.125rem; }
+.tb-pay-h { display: flex; justify-content: space-between; color: var(--paper-dim); }
+.tb-pay-h .tb-lbl { display: inline-flex; align-items: center; gap: .375rem; }
+.tb-pay-h svg { width: .875rem; height: .875rem; }
+.tb-pay-h b { color: var(--paper); }
+.tb-pay-top { display: flex; align-items: center; gap: 1.5rem; margin-top: .625rem; }
+.tb-pay-big { font-size: 3.625rem; --sw: .5625rem; --ex: .3125rem; line-height: .9; white-space: nowrap; }
+.tb-pay-lines { flex: 1; display: flex; flex-direction: column; gap: .3125rem; font: 600 max(10px, .9375rem)/1 var(--f-ui); color: var(--paper); }
+.tb-pay-lines li { display: flex; justify-content: space-between; padding-bottom: .3125rem; border-bottom: 2px dashed rgba(255, 248, 234, .16); }
+.tb-pay-lines b { font-weight: 800; color: var(--lime); }
+.tb-xpbar { position: relative; height: 1.375rem; margin-top: .875rem; border-radius: .5rem; transform: skewX(var(--lean)); overflow: hidden; background: #0e0924; box-shadow: inset 0 0 0 max(2px, .15625rem) var(--ink); }
+.tb-xpbar i { position: absolute; top: 0; bottom: 0; left: calc(var(--l, 0) * 100%); width: calc(var(--w) * 100%); }
+.tb-xpbar .was { background: linear-gradient(180deg, var(--grape-hi), var(--grape)); box-shadow: inset 0 .1875rem 0 rgba(255, 255, 255, .35); }
+/* the gain is YOURS: yellow, striped */
+.tb-xpbar .gain { background: repeating-linear-gradient(-45deg, var(--sun) 0 .5rem, var(--sun-hi) .5rem 1rem); box-shadow: inset 0 .1875rem 0 rgba(255, 255, 255, .4); }
+.tb-pay-f { display: flex; justify-content: space-between; gap: 1rem; margin-top: .625rem; font: 600 max(10px, .8125rem)/1.2 var(--f-ui); color: var(--paper-dim); }
+.tb-pay-f b { color: var(--paper); font-weight: 800; }
+
+/* nemesis: a hot sticker */
+.tb-nem { position: absolute; right: 2.5rem; bottom: 7.5rem; height: auto; min-height: 5.25rem; padding: 1rem 1.5rem 1rem 6rem; max-width: 27rem; }
+.tb-nem .face { position: absolute; left: .875rem; top: 50%; margin-top: -1.875rem; width: 3.75rem; height: 3.75rem; border-radius: 1rem; display: grid; place-items: center;
+  background: var(--paper); box-shadow: inset 0 0 0 var(--bw) var(--ink), 0 .25rem 0 var(--ink); transform: rotate(-6deg); }
+.tb-nem .face svg { width: 3rem; height: 1.875rem; }
+.tb-nem-b { display: flex; flex-direction: column; gap: .3125rem; min-width: 0; }
+.tb-nem-b > b { font: 800 1.25rem/1.1 var(--f-ui); -webkit-text-stroke: max(2px, .1875rem) var(--ink); paint-order: stroke fill; overflow: hidden; text-overflow: ellipsis; }
+.tb-nem-c { font: 600 max(10px, .875rem)/1.2 var(--f-ui); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+.tb-nem-c b { font-weight: 800; }
+.tb-nem .tb-micro { -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+
+.tb-pd-foot { position: absolute; right: 2.5rem; bottom: 2.5rem; display: flex; align-items: center; gap: 1rem; }
+.tb-pd-timer { height: 3rem; padding: 0 1.25rem; gap: .75rem; }
+.tb-pd-timer .tb-disp { font-size: 1.625rem; --slot: .62em; }
+.tb-pd-foot .tb-btn { min-height: 3rem; }
+
+/* confetti: 24 bounded pieces in the winner's paint + paper, two falls, then
+   gone (none on lowfx or under reduced motion) */
+.tb-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.tb-confetti i { position: absolute; top: -3vh; width: .5rem; height: .8125rem; border-radius: .125rem; background: var(--c); box-shadow: inset 0 0 0 1px rgba(20, 14, 44, .5);
+  animation: tb-fall var(--t, 2.8s) linear var(--d, 0s) 2 both; }
+@keyframes tb-fall { 0% { translate: 0 0; rotate: 0deg; } 100% { translate: var(--x, 0) 110vh; rotate: 540deg; } }
+html.lowfx .tb-confetti, html.reduce-motion .tb-confetti, html.still .tb-confetti { display: none; }
+@media (prefers-reduced-motion: reduce) { .tb-confetti { display: none; } }
+
+/* ==========================================================================
+   LANDSCAPE PHONE (844×390, px): the podium, your stamp, the payslip's big
+   number and bar, and the footer. The long lists wait for a bigger screen
+   (the cup keeps a compact top-3 + you table).
+   ========================================================================== */
+.tb-pd.is-compact .tb-pd-burst { left: 190px; top: 260px; width: 900px; height: 900px; margin: -450px 0 0 -450px; }
+.tb-pd.is-compact .tb-pd-head { left: calc(16px + env(safe-area-inset-left, 0px)); top: 10px; gap: 6px; }
+.tb-pd.is-compact .tb-pd-head > .tb-disp { font-size: 34px; --sw: 6px; --ex: 3px; }
+.tb-pd.is-compact .tb-pd-head .tb-rib { height: 26px; padding: 0 12px; max-width: 360px; }
+.tb-pd.is-compact .tb-pd-stamp { left: auto; right: calc(20px + env(safe-area-inset-right, 0px)); top: 14px; }
+.tb-pd.is-compact .tb-stamp { width: 84px; height: 84px; box-shadow: 0 0 0 2px var(--ink), 0 0 0 5px var(--paper), 0 0 0 7px var(--ink), 0 6px 0 5px var(--ink); }
+.tb-pd.is-compact .tb-stamp .tb-disp { font-size: 28px; }
+.tb-pd.is-compact .tb-stamp small { font-size: 10px; margin-top: 2px; }
+.tb-pd.is-compact .tb-podium { left: calc(16px + env(safe-area-inset-left, 0px)); bottom: 70px; gap: 8px; }
+.tb-pd.is-compact .tb-pod { width: 118px; }
+.tb-pd.is-compact .tb-pod-car { width: 62px; height: 38px; }
+.tb-pd.is-compact .tb-pod-name { margin-bottom: 6px; gap: 9px; }
+.tb-pd.is-compact .tb-pod-name .tb-rib { height: 24px; padding: 0 9px; gap: 4px; }
+.tb-pd.is-compact .tb-pod-name .tb-ui8 { font-size: 12px; }
+.tb-pd.is-compact .tb-pod-name .tb-bot, .tb-pd.is-compact .tb-pod-name .tb-you { display: none; }
+.tb-pd.is-compact .tb-pod-sc { font-size: 10px; }
+.tb-pd.is-compact .tb-blk { border-radius: 10px 10px 4px 4px; padding-top: 4px; box-shadow: inset 0 0 0 2px var(--ink), inset 0 4px 0 rgba(255, 255, 255, .35), 0 5px 0 var(--ink); }
+.tb-pd.is-compact .tb-pod.p1 .tb-blk { --h: 92px; } .tb-pd.is-compact .tb-pod.p2 .tb-blk { --h: 70px; } .tb-pd.is-compact .tb-pod.p3 .tb-blk { --h: 54px; }
+.tb-pd.is-compact .tb-blk-n { font-size: 44px; --sw: 7px; --ex: 3px; }
+.tb-pd.is-compact .tb-plaque { display: none; }
+.tb-pd.is-compact .tb-pay { left: auto; right: calc(16px + env(safe-area-inset-right, 0px)); bottom: 70px; width: 408px; padding: 10px 14px 12px;
+  border-width: 3px; box-shadow: 0 0 0 2px var(--ink), inset 0 0 0 2px var(--ink), 0 4px 0 2px var(--ink); }
+.tb-pd.is-compact .tb-pay-top { gap: 12px; margin-top: 6px; }
+.tb-pd.is-compact .tb-pay-big { font-size: 32px; --sw: 5px; --ex: 3px; }
+.tb-pd.is-compact .tb-pay-lines { font-size: 11px; gap: 3px; }
+.tb-pd.is-compact .tb-pay-lines li { padding-bottom: 3px; }
+.tb-pd.is-compact .tb-xpbar { height: 12px; margin-top: 8px; }
+.tb-pd.is-compact .tb-pay-f { font-size: 10px; margin-top: 6px; }
+.tb-pd.is-compact .tb-pay-f > span:last-child { display: none; }
+.tb-pd.is-compact .tb-cup { left: auto; right: calc(16px + env(safe-area-inset-right, 0px)); top: 104px; width: 408px; padding: 8px 12px 10px;
+  border-width: 3px; box-shadow: 0 0 0 2px var(--ink), inset 0 0 0 2px var(--ink), 0 4px 0 2px var(--ink); }
+.tb-pd.is-compact .tb-cup ~ .tb-pay { display: none; }
+.tb-pd.is-compact .tb-cup-h { gap: 8px; }
+.tb-pd.is-compact .tb-cup-h .tb-disp { font-size: 20px; --sw: 4px; --ex: 2px; }
+.tb-pd.is-compact .tb-trophy { width: 32px; height: 32px; border-radius: 9px; }
+.tb-pd.is-compact .tb-trophy svg { width: 20px; height: 20px; }
+.tb-pd.is-compact .tb-cup-cols { display: none; }
+.tb-pd.is-compact .tb-cr { height: 26px; margin-bottom: 3px; padding: 0 10px; grid-template-columns: 26px minmax(0, 1fr) 40px 36px; }
+.tb-pd.is-compact .tb-cr .pn { font-size: 16px; }
+.tb-pd.is-compact .tb-cr .nm { font-size: 12px; gap: 6px; }
+.tb-pd.is-compact .tb-cr .nm .tb-car { width: 26px; height: 16px; }
+.tb-pd.is-compact .tb-cr .plus { font-size: 11px; }
+.tb-pd.is-compact .tb-cr .tot.tb-disp { font-size: 16px; }
+.tb-pd.is-compact .tb-cr.is-gap { height: 12px; }
+.tb-pd.is-compact .tb-pd-foot { right: calc(16px + env(safe-area-inset-right, 0px)); bottom: 12px; gap: 10px; }
+.tb-pd.is-compact .tb-pd-timer { height: 40px; padding: 0 14px; gap: 8px; }
+.tb-pd.is-compact .tb-pd-timer .tb-disp { font-size: 20px; }
+.tb-pd.is-compact .tb-pd-foot .tb-btn { min-height: 44px; font-size: 12px; padding: 0 12px; }
