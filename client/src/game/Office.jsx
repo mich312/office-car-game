@@ -11,6 +11,7 @@ import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
+import { makeOfficeSkyMaterial, stepOfficeSky, OFFICE_SKY } from './officeSky.js';
 import { withFloorAO } from './floorAO.js';
 import { CEILING } from './Lighting.jsx';
 import { mat, castsShadow, receivesShadow, foldTint } from './materials.js';
@@ -552,20 +553,30 @@ function Ramps({ map }) {
 }
 
 // ------------------------------------------- outside: skyline, rain, night
+// The sky and the city past the glass follow the hour (officeSky.js): a
+// golden-hour sun low in the west over dark towers, the city lighting up as
+// the light goes.
 function Outside() {
   const hour = useStore((s) => s.timeOfDay);
   const wet = lightingFor(hour, false).wet;
-  const sky = useMemo(() => skylineTex(), []);
+  const skies = useMemo(() => [makeOfficeSkyMaterial(1), makeOfficeSkyMaterial(90 / 140)], []);
+  useEffect(() => () => skies.forEach((m) => m.dispose()), [skies]);
+  const first = useRef(true);
+  useFrame((_, dt) => {
+    const st = useStore.getState();
+    const out = st.event?.id === 'lights_out';
+    const L = lightingFor(st.timeOfDay, out);
+    stepOfficeSky(skies, out ? OFFICE_SKY.lightsOut : OFFICE_SKY[st.timeOfDay] || OFFICE_SKY.golden, L.sun.pos, first.current ? 1 : Math.min(1, dt * 1.8));
+    first.current = false;
+  });
   return (
     <group>
       {/* city backdrop past the north windows */}
-      <mesh position={[0, 10 * M * 0.32, 27 * M]} rotation-y={Math.PI}>
+      <mesh position={[0, 10 * M * 0.32, 27 * M]} rotation-y={Math.PI} material={skies[0]}>
         <planeGeometry args={[140 * M, 11 * M]} />
-        <meshBasicMaterial map={sky} fog={false} />
       </mesh>
-      <mesh position={[-27 * M, 10 * M * 0.32, 5 * M]} rotation-y={Math.PI / 2}>
+      <mesh position={[-27 * M, 10 * M * 0.32, 5 * M]} rotation-y={Math.PI / 2} material={skies[1]}>
         <planeGeometry args={[90 * M, 11 * M]} />
-        <meshBasicMaterial map={sky} fog={false} />
       </mesh>
       <Rain />
       {/* wet balcony sheen once the light has gone */}
