@@ -8,7 +8,7 @@ import {
   decodeSnapshot, MSG, MAP_BOUNDS, NUDGE_MAX_SPEED, MAX_PLAUSIBLE_SPEED,
 } from '../shared/src/index.js';
 
-const PORT = 8092;
+const PORT = Number(process.env.RC_TEST_PORT_BASE || 8090) + 2; // see smoke.mjs
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

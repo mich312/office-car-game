@@ -67,7 +67,7 @@ check('codes: wrong length or junk is rejected', ['K7Q', 'K7QXZ', '', 'K7-X', nu
 }
 
 // ----------------------------------------------------- over real sockets
-const PORT = 8093;
+const PORT = Number(process.env.RC_TEST_PORT_BASE || 8090) + 3; // see smoke.mjs
 const server = spawn('node', ['server/src/index.js'], {
   cwd: new URL('..', import.meta.url).pathname,
   env: { ...process.env, PORT: String(PORT), RC_BOT_ITEMS: 'off' },
