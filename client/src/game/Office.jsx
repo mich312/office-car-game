@@ -3,7 +3,6 @@
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
-import { Dust } from './dust.jsx';
 import * as THREE from 'three';
 import { M, SURFACES } from '@rc/shared';
 import { useMap } from './activeMap.js';
@@ -11,6 +10,7 @@ import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
+import SunShafts from './sunShafts.jsx';
 import { makeOfficeSkyMaterial, stepOfficeSky, OFFICE_SKY } from './officeSky.js';
 import { withFloorAO } from './floorAO.js';
 import { CEILING } from './Lighting.jsx';
@@ -156,49 +156,18 @@ function LightPools() {
 }
 
 const SERVER_RED = new THREE.Color('#ff5040'), SERVER_BLUE = new THREE.Color('#3d7bff');
-const _shaftColor = new THREE.Color();
 
-// Light through the north windows, laid down as giant parallel slabs. These
-// are the bands you drive through, so they take their tilt from the sun's
-// elevation: a low golden-hour sun lays them almost flat along the floor and
-// a high afternoon sun drops them steeply onto it.
+// Sunbeams through the north glass (sunShafts.jsx): one per window bay of
+// the lounge and the CEO suite, shaped by the sun's real direction.
+const SHAFT_BAYS = [[-12, 2], [-7.2, 2], [-2.4, 2], [2.4, 2], [7.2, 2], [11.4, 1.6], [15.2, 1.8], [18.8, 1.8]];
+const NORTH_GLASS = { z: 11.9, top: 2.85 };
 function LightShafts() {
-  const hour = useStore((s) => s.timeOfDay);
-  const event = useStore((s) => s.event);
-  const lightsOut = event?.id === 'lights_out';
-  const group = useRef();
-  const mat = useRef();
-  const tex = useMemo(() => shaftTex(), []);
-  const light = lightingFor(hour, lightsOut);
-  useFrame((_, dt) => {
-    if (!mat.current) return;
-    const k = Math.min(1, dt * 1.8);
-    const s = light.shaft;
-    mat.current.opacity += (s.opacity - mat.current.opacity) * k;
-    mat.current.color.lerp(_shaftColor.set(s.color), k);
-    if (group.current) {
-      group.current.rotation.x += (s.tilt - group.current.rotation.x) * k;
-      group.current.rotation.y += (s.yaw - group.current.rotation.y) * k;
-      const sc = s.length / 22;
-      group.current.scale.y += (sc - group.current.scale.y) * k;
-    }
-  });
-  // shared material across all shafts (first mesh's ref drives them all)
-  const material = useMemo(() => new THREE.MeshBasicMaterial({
-    map: tex, color: '#8fa8ff', transparent: true, opacity: 0.08,
-    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
-  }), [tex]);
-  mat.current = material;
-  return (
-    <group ref={group} position={[0, 6.1, 50]} rotation-x={0.99}>
-      {[-50, -20, 10, 40, 70].map((x, i) => (
-        <mesh key={i} position={[x, 0, 0]} material={material}>
-          <planeGeometry args={[7, 22]} />
-        </mesh>
-      ))}
-    </group>
-  );
+  return <SunShafts light={officeLightNow} bays={SHAFT_BAYS} glass={NORTH_GLASS} M={M} />;
 }
+const officeLightNow = () => {
+  const st = useStore.getState();
+  return lightingFor(st.timeOfDay, st.event?.id === 'lights_out');
+};
 
 // ------------------------------------------------------------------ floors
 function Floors({ map }) {
@@ -626,7 +595,8 @@ function Rain() {
   );
 }
 
-// -------------------------------------------------- dust + floating paper
+// ----------------------------------------------------------- floating paper
+// (the dust lives in the sunbeams now — sunShafts.jsx — where dust shows)
 function Ambience() {
   const papers = useRef();
   const paperData = useMemo(() => Array.from({ length: 12 }, () => ({
@@ -654,7 +624,6 @@ function Ambience() {
   });
   return (
     <group>
-      <Dust count={140} scale={[140, 15, 90]} position={[0, 8, 0]} size={2.2} speed={0.25} opacity={0.35} color="#ffe9c9" />
       <instancedMesh ref={papers} args={[null, null, 12]} frustumCulled={false}>
         <planeGeometry args={[1.16, 1.65]} />
         <meshStandardMaterial color="#f4f2ec" side={THREE.DoubleSide} roughness={0.9} />
