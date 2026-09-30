@@ -65,7 +65,13 @@ export function Dressing({ map }) {
     const base = cellarMats();
     // the finishes laid over the engine's floor take the map's baked
     // occlusion and wear too (floorAO.js)
-    for (const k of ['vinyl', 'raised', 'perf', 'esd', 'carpet', 'conc']) withFloorAO(base[k], map);
+    for (const k of ['vinyl', 'raised', 'perf', 'esd', 'carpet', 'conc']) {
+      withFloorAO(base[k], map);
+      // and the map's tint (LOOK.finishes): a basement floor must not be the
+      // brightest thing in a room lit from pools overhead
+      const tint = map.LOOK?.finishes?.[k];
+      if (tint) base[k].color.set(tint);
+    }
     return { ...base, ...labelsFor(map).mats };
   }, [map]);
   return (
@@ -251,7 +257,13 @@ function CellarProp({ p, spec, type, map }) {
     const base = cellarMats();
     // the finishes laid over the engine's floor take the map's baked
     // occlusion and wear too (floorAO.js)
-    for (const k of ['vinyl', 'raised', 'perf', 'esd', 'carpet', 'conc']) withFloorAO(base[k], map);
+    for (const k of ['vinyl', 'raised', 'perf', 'esd', 'carpet', 'conc']) {
+      withFloorAO(base[k], map);
+      // and the map's tint (LOOK.finishes): a basement floor must not be the
+      // brightest thing in a room lit from pools overhead
+      const tint = map.LOOK?.finishes?.[k];
+      if (tint) base[k].color.set(tint);
+    }
     return { ...base, ...labelsFor(map).mats };
   }, [map]);
   return (

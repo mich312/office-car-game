@@ -368,6 +368,8 @@ export const CELLAR = {
     // the lino darker than it was: the floor must not be the brightest
     // thing in a basement lit from pools overhead
     floors: { tile: '#6c766f', concrete: '#6c6d65', carpet: '#8d97a3', carpet2: '#9a8f9f' },
+    // and the finishes laid over it (themes/cellar-set.js), likewise
+    finishes: { vinyl: '#aab4ad', esd: '#a3aba7', raised: '#a2aaac', perf: '#b4bcbe', conc: '#9c9c92' },
   },
   // point lights (meters): the tube banks that actually light the floor
   CEILING_LIGHTS: [[-9, 1], [8, 1], [-13, 7], [12, 7], [-13.5, -6], [4.5, -6]],
@@ -385,7 +387,7 @@ export const CELLAR = {
       sun: { pos: [22, 210, 30], color: '#e6fff4', intensity: 0.4 },
       amb: { intensity: 0.06, color: '#b8d0c6' },
       hemi: { intensity: 0.16, sky: '#dff5ec', ground: '#2c2a24' },
-      ceiling: 0.9,
+      ceiling: 0.75,
       env: {
         intensity: 0.22,
         bg: '#0d1214',
@@ -402,7 +404,7 @@ export const CELLAR = {
       practical: 0.8,
       wet: false,
       // green-teal murk; the eye opens up for it
-      exposure: 1.4,
+      exposure: 1.3,
       fog: { color: '#16211d', density: 0.0068 },
       grade: { contrast: 1.16, sat: 0.9, shadow: '#1d4a40', high: '#f2ffe0', split: 0.14, lift: 0.03, vignette: 0.5, grain: 0.045 },
     },
