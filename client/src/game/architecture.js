@@ -215,7 +215,9 @@ export function buildArchitecture(map, opts) {
 //   stops      door stops beside the doorways
 //   thresholds a metal strip across a doorway where the floor changes
 //   guards     steel corner guards up every pillar
-//   convector  'exterior' | 'all': a floor grille along the face
+//   convector  'exterior' | 'indoor' | 'all': a floor grille along the face —
+//              where the wall's far side is outside the building, where
+//              the face looks into an indoor room, or everywhere
 //   scuppers   (railings) a drain at the base every this many metres
 //   faces      (wall, side) => bool: which faces take it at all (side −1:
 //              the wall's −x/−z face, +1: its +x/+z face)
@@ -264,12 +266,13 @@ export function bandOf(map) {
       const runs = [];
       for (let a = s.a; a < s.b - 1e-6; a += 0.25) {
         const mid = Math.min(a + 0.125, s.b);
-        const id = roomAt(...worldAt(s, mid, side * (s.t / 2 + 0.3)))?.id || null;
+        const room = roomAt(...worldAt(s, mid, side * (s.t / 2 + 0.3)));
+        const id = room?.id || null;
         // an exterior face: nothing but sky on the wall's other side
         const outside = !roomAt(...worldAt(s, mid, -side * (s.t / 2 + 0.3)));
         const last = runs[runs.length - 1];
         if (last && last.id === id) { last.b = Math.min(a + 0.25, s.b); last.exterior &&= outside; }
-        else runs.push({ id, exterior: outside, a, b: Math.min(a + 0.25, s.b) });
+        else runs.push({ id, indoor: !!room && !room.outdoor, exterior: outside, a, b: Math.min(a + 0.25, s.b) });
       }
       for (const run of runs) {
         if (!run.id) continue;
@@ -389,7 +392,8 @@ function bandRun(p, r, prof, run, L, X, pillar) {
       p.add('scuff', card(w, h, [cu, cv, cu + 0.5, cv + 0.5]), [at(x), SKIRT_H + 0.02 + h / 2 + r() * 0.2, trunk ? 0.047 : 0.0045]);
     }
   }
-  if (prof.convector && !pillar && (prof.convector === 'all' || run.exterior)) {
+  const conv = prof.convector;
+  if (conv && !pillar && (conv === 'all' || (conv === 'indoor' ? run.indoor : run.exterior && run.indoor))) {
     const a = run.a + 0.05, b = run.b - 0.05;
     if (b - a > 0.4) {
       p.add('aluminium', rbox(b - a, 0.006, 0.26, 0.002, 1), [at((a + b) / 2), 0.003, 0.14]);

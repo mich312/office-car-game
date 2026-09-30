@@ -8,9 +8,10 @@ export const SCATTER_KINDS = {};
 export const DECOR_MODELS = {};
 
 // Wall-base bands by wall style: a floor convector along the inside of the
-// whole curtain wall, sockets and vents on the core's plaster.
+// curtain wall (not out on the terrace), sockets and vents on the core's
+// plaster.
 export const BANDS = {
-  tower_curtain: { convector: 'all' },
+  tower_curtain: { convector: 'indoor' },
   tower_core: { sockets: 5, vents: 8, scuffs: 4 },
   tower_stone: {},
   tower_glass: {},
