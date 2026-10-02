@@ -29,7 +29,7 @@
 // here is the cellar's own kit (`cellar_*` types), each one a collider on the
 // server and a batch of parts on the client.
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M;
 const H = 2.8; // a basement ceiling: lower than upstairs
@@ -295,7 +295,7 @@ const BATTERY_SPAWN = cp(1.5, 1); // the crossroads
 // RC Soccer — the hardware lab. The goals are its west and east doorways.
 const SOCCER = {
   ballSpawn: { x: u(4.5), z: u(-6), y: u(0.5) },
-  ballRadius: u(0.42),
+  ballRadius: 0.42 / CAR_UNIT_M, // car-sized, not room-sized: bigger than the cars
   goals: [
     { team: 0, x: u(0), z: u(-6), dir: 1, width: u(1.8), name: 'E-Waste Goal' },
     { team: 1, x: u(9), z: u(-6), dir: -1, width: u(1.8), name: 'Archive Goal' },
@@ -341,6 +341,133 @@ const PRINTER = { x: u(17.3), z: u(9.6), rotY: -Math.PI / 2, radius: u(5), minIn
 // The cleaning robot patrols Corridor B-1, round both columns.
 const ROBOT_PATH = [cp(-15, 0.2), cp(0, 0.2), cp(15, 0.2), cp(15, 2.2), cp(0, 2.2), cp(-15, 2.2)];
 
+// ---------------------------------------------------------------------------
+// Dressing (client only, metres; client/src/game/dressing, the cellar's
+// kinds in dressing/kinds/cellar.js). The rules it keeps (scripts/density.mjs
+// lints them): 3D things ≥ 0.8 m off pads, beans, checkpoints and spawns and
+// out of the KOTH discs; anything over 5 cm ≥ 1.2 m off BOT_PATH (the low
+// cable ramps, mats, loose tiles and flattened cartons ride the 0.6–1.2 m
+// side bands); the lab is the soccer pitch, so flat things only there.
+
+// Floor decals: [kind, x, z, w, d, rotation, opacity, tint?]. At a car's
+// eye height anything under ~0.5 opacity vanishes, so along the lap they sit
+// at 0.6–0.9: the tyre marks where it turns hardest, grime at the columns,
+// damp at the wall foot, the stencils.
+const DECALS = [
+  // loading dock: the courier's tyres, oil, the climb to the corridor, rain
+  // and leaves blown in under the shutter
+  ['tyre', -12.5, -7.5, 1.4, 4.5, 0.3, 0.75], ['tyre2', -11, -4.5, 1.4, 3.5, -0.9, 0.75], ['oil', -12.2, -9.2, 1.6, 1.6, 0.4, 0.8],
+  ['oil', -16.2, -1.9, 1, 1, 1.1, 0.6], ['grime', -10.4, -7.5, 2.4, 2.4, 0, 0.8], ['footprints', -13.5, -2.8, 0.7, 1.6, 0.1, 0.7],
+  ['tyre2', -12.9, -3.8, 1.4, 3.2, -0.5, 0.75], ['wet', -12.9, -10.45, 2.6, 0.8, 0, 0.65], ['leaves', -13.4, -10.6, 1.2, 0.5, 0.2, 0.9],
+  ['leaves', -12.2, -10.65, 1.0, 0.45, -0.3, 0.85], ['cellar_rust', -11.85, -1.55, 0.9, 0.9, 0.4, 0.7], ['cellar_keepclear', -13.5, -0.5, 1.5, 0.4, Math.PI, 0.7],
+  ['grime', -16.9, -1.9, 1.6, 1.2, 0, 0.7], ['arrow', -11.8, -9.0, 0.6, 0.8, Math.PI, 0.55],
+  // boiler room: the drain and the leak, the coffee corner, rust under the
+  // drums, a tide line of damp along the north wall
+  ['drain', -13.6, 7.4, 0.45, 0.45, 0, 1], ['wet', -14.6, 7.1, 2.4, 1.6, 0.3, 0.6], ['grime', -10, 6.5, 3, 3, 0.5, 0.75],
+  ['ring', -16.7, 4.6, 0.3, 0.3, 0.4, 0.8], ['scuff', -12.5, 5, 1.2, 1.2, 0.2, 0.6], ['crack', -10.8, 4.5, 2.2, 0.6, 0.6, 0.8],
+  ['cellar_rust', -17.4, 8.35, 1.0, 1.5, 0.2, 0.8], ['oil', -11.5, 6.4, 1.0, 0.8, 0.2, 0.7], ['cellar_tide', -15.2, 10.55, 3.2, 0.6, 0, 0.75],
+  ['crumbs', -16.4, 4.35, 0.6, 0.5, 0.2, 0.85], ['cellar_rust', -13.4, 10.45, 0.7, 0.7, 1.2, 0.6], ['grime', -8.7, 9.6, 1.0, 2.4, 0, 0.7],
+  // e-waste: grime under the pallets, the scrape past the cage, scraps
+  ['grime', -4.5, -8.5, 3, 3, 0.8, 0.8], ['scuff', -2.5, -4.5, 1.6, 1.6, 1, 0.7], ['oil', -7.6, -6, 1, 1, 0.2, 0.7],
+  ['tyre', -4.2, -5.2, 1.2, 3.5, 1.57, 0.7], ['crack', -2.4, -7.2, 2.4, 0.5, -0.4, 0.8], ['drain', -8.2, -1.9, 0.45, 0.45, 0, 1],
+  ['tyre2', -1.9, -5.5, 1.4, 3.2, 1.3, 0.75], ['tyre', -7.8, -5.7, 1.3, 3.0, 1.85, 0.7], ['scraps', -6.0, -4.2, 0.8, 0.8, 0.5, 0.85],
+  ['dust', -8.3, -8.0, 1.0, 2.6, 0, 0.7], ['scraps', -2.2, -8.6, 0.8, 0.8, 2.1, 0.8],
+  // corridor: burnouts off the grid, the stencil, grime at both columns,
+  // the swings round them, damp at the wall foot, the drip by the cooler
+  ['scuff', -4, 1.2, 2, 1.4, 0.1, 0.75], ['scuff', 5.5, 0.8, 2, 1.4, 2, 0.7], ['scuff', 12.5, 1.4, 2, 1.4, 0.6, 0.7],
+  ['tyre', -9, 1.1, 1.4, 5, 1.57, 0.65], ['footprints', 14.9, 1.6, 0.6, 1.4, 0.2, 0.6], ['wet', 6.6, -0.5, 0.9, 0.7, 0, 0.7],
+  ['ring', 3.3, 1.9, 0.26, 0.26, 1.2, 0.8], ['grime', 17, 1, 2, 2, 0, 0.7],
+  ['tyre2', -12.4, 0.8, 1.4, 3.2, 1.3, 0.7], ['tyre', -15.6, 1.0, 1.4, 3.6, 1.57, 0.55], ['cellar_b1', -12.0, 1.0, 1.3, 1.3, -Math.PI / 2, 0.55],
+  ['tyre2', -6.5, 0.4, 1.4, 3.0, 1.9, 0.7], ['grime', -6.0, 1.0, 1.6, 1.6, 0, 0.8], ['grime', 8.0, 1.0, 1.6, 1.6, 0.5, 0.8],
+  ['tyre', 8.2, 2.0, 1.3, 3.2, 1.35, 0.7], ['tyre2', 14.3, 2.8, 1.4, 3.0, 0.7, 0.75], ['footprints', -4.5, -0.35, 0.5, 1.2, 0.1, 0.6],
+  ['cellar_tide', -2.2, -0.72, 2.4, 0.45, 0, 0.6], ['cellar_tide', 10.8, 2.72, 2.8, 0.45, Math.PI, 0.55], ['drain', 4.0, -0.55, 0.45, 0.45, 0, 1],
+  ['spill', 16.5, 1.5, 0.6, 0.5, 0.4, 0.8], ['ring', 16.9, 1.1, 0.2, 0.2, 0.3, 0.8], ['joint', -9.6, 1.0, 3.8, 0.3, Math.PI / 2, 0.7],
+  ['dust', -15.5, 2.65, 3.0, 0.4, 0, 0.6], ['gum', 11.0, 0.4, 0.4, 0.4, 0, 0.8],
+  // server hall: the chicane, the door, dust where the air never moves
+  ['tyre2', 2.3, 6.0, 1.4, 3.2, 0.55, 0.7], ['tyre', 5.2, 7.0, 1.2, 3.0, 1.57, 0.6], ['scuff', 0.8, 7.6, 1.2, 1.0, 0.3, 0.6],
+  ['dust', -4.6, 5.3, 2.8, 1.0, 0, 0.7], ['dust', -4.4, 10.3, 3.6, 0.9, 0, 0.6], ['bunny', -2.6, 5.9, 0.25, 0.2, 0.4, 0.9],
+  ['bunny', 3.0, 10.0, 0.22, 0.18, 1.2, 0.9], ['scuff', -1.0, 4.0, 1.0, 0.8, 0.8, 0.6],
+  // helpdesk: the swing in off the corridor, coffee, crumbs round the desks
+  ['tyre2', 14.2, 5.4, 1.4, 3.2, -0.65, 0.65], ['tyre', 9.5, 7.0, 1.2, 3.0, 1.57, 0.55], ['crumbs', 9.5, 9.2, 0.6, 0.5, 0.3, 0.8],
+  ['stain', 12.8, 8.0, 0.5, 0.4, 1, 0.8], ['scuff', 7.3, 7.0, 1.2, 1.0, 0.2, 0.6], ['crumbs', 13.5, 9.2, 0.5, 0.5, 1.1, 0.75],
+  ['spill', 11.4, 6.1, 0.5, 0.4, 0.6, 0.7],
+  // hardware lab (the pitch: flat things only): the lap's hook west, the
+  // goalmouths worn, oil under the scope bench, a crack across the sheet
+  ['tyre2', 1.7, -4.6, 1.4, 3.2, 0.15, 0.75], ['tyre', 1.3, -6.0, 1.3, 2.8, 1.2, 0.7], ['scuff', 4.5, -6, 2.4, 2.0, 0.4, 0.5],
+  ['oil', 6.8, -9.4, 0.8, 0.8, 0.3, 0.7], ['crack', 6.0, -3.2, 2.0, 0.5, 0.5, 0.7], ['tyre2', 7.6, -6.2, 1.4, 3.2, 1.8, 0.6],
+  ['scuff', 0.7, -6.0, 1.0, 1.4, 0, 0.7], ['scuff', 8.3, -6.0, 1.0, 1.4, 0, 0.7], ['cellar_keepclear', 4.8, -9.5, 1.5, 0.4, 0, 0.6],
+  ['cellar_tapering', 4.5, -6.0, 2.6, 2.6, 0.3, 0.85],
+  // archive: dust down the aisles, damp at the east wall, the odd footprint
+  ['dust', 12.1, -6.2, 1.2, 5, 0, 0.7], ['dust', 14.3, -5.4, 1.2, 5, 0, 0.7], ['cellar_tide', 17.5, -6.4, 2.4, 0.5, Math.PI / 2, 0.7],
+  ['footprints', 13.5, -2.5, 0.5, 1.2, 0, 0.55], ['bunny', 16.3, -3.6, 0.25, 0.2, 0.3, 0.9],
+];
+
+// Clutter: [kind, x, z, rotY, opts] — wall-huggers with their backs to the
+// wall (rotY 0 faces north), low things in the lap's side bands.
+const CLUTTER = [
+  // corridor: a cable ramp by the grid, the e-waste door's mat and the
+  // cable run past it, flattened cartons, loose raised-floor tiles outside
+  // the server hall's glass; servers, UPS batteries and dead CRTs waiting
+  // against the glass; a ladder; the archive's overflow at the far end
+  ['cellar_ramp', -12.05, -0.36, 0, { len: 1.0 }],
+  ['cellar_mat', -4.3, -0.58, 0, { w: 1.2, d: 0.6 }],
+  ['cellar_ramp', -2.2, -0.25, 0, { len: 2.4, lid: '#e0662a', hazard: true, seed: 1 }],
+  ['cellar_flatcard', -5.0, 1.55, 0.05, { w: 0.9, d: 0.5 }],
+  ['cellar_floortile', 4.6, 2.35, 0.2], ['cellar_floortile', 5.35, 2.5, -0.15],
+  ['cellar_flatcard', 6.4, 2.68, 0, { w: 0.9, d: 0.4 }],
+  ['cellar_servers', -7.0, 2.55, Math.PI, { n: 6 }], ['cellar_batteries', -5.2, 2.67, Math.PI],
+  ['cellar_crts', -1.6, 2.7, Math.PI, { cols: 2, rows: 2 }], ['cellar_ladder', -2.4, -0.75, 0],
+  ['cellar_archive', 15.3, -0.69, 0, { cols: 3, rows: 3, gap: true }], ['cellar_ladder', 16.2, -0.75, 0],
+  // server hall: tiles up by the chicane, a pedestal fan on the network
+  // rack, the spares against the glass
+  ['cellar_floortile', 2.55, 4.1, 0.1], ['cellar_floortile', 2.95, 5.25, -0.12], ['cellar_floortile', 5.3, 8.1, 0.25],
+  ['cellar_floortile', -5.0, 5.6, 0.3, { n: 2 }],
+  ['cellar_servers', -5.2, 3.45, 0, { n: 5 }], ['cellar_batteries', -4.3, 3.33, 0],
+  ['cellar_fan', 5.6, 4.9, -2.1], ['cellar_servers', 5.525, 10.5, -Math.PI / 2, { n: 4 }],
+  // helpdesk: the queue mat at the ticket machine, returned kit by the
+  // door, a cable ramp to the desks, PCs and CRTs awaiting collection
+  ['cellar_mat', 13.43, 5.02, 0.927, { w: 1.2, d: 0.6 }], ['cellar_ramp', 13.75, 3.95, 0, { len: 1.0, seed: 1 }],
+  ['cellar_keyheap', 6.75, 6.05, 0, { w: 0.8, d: 0.5 }],
+  ['cellar_ramp', 7.2, 8.15, 0, { len: 2.1 }],
+  ['cellar_towers', 17.65, 8.2, -Math.PI / 2, { n: 3 }], ['cellar_crts', 16.4, 10.68, Math.PI, { cols: 2, rows: 1 }],
+  ['cellar_water', 15.4, 10.73, Math.PI], ['cellar_archive', 8.0, 10.69, Math.PI, { cols: 2, rows: 2 }],
+  // e-waste: drifts of dead keyboards and flattened cartons either side of
+  // the line, CRTs and towers against the walls, servers by the door
+  ['cellar_keyheap', -1.3, -6.5, 0.336, { w: 0.8, d: 0.5 }], ['cellar_flatcard', -0.99, -4.64, 0.336, { w: 0.9, d: 0.5 }],
+  ['cellar_keyheap', -8.0, -6.66, -0.266, { w: 0.8, d: 0.5 }], ['cellar_flatcard', -7.4, -4.6, -0.27, { w: 0.9, d: 0.5 }],
+  ['cellar_crts', -3.0, -10.68, 0, { cols: 2, rows: 2 }], ['cellar_towers', -8.65, -3.9, Math.PI / 2, { n: 4 }],
+  ['cellar_servers', -0.55, -1.475, Math.PI, { n: 6 }], ['cellar_bags', -7.6, -1.375, Math.PI, { n: 3 }],
+  // loading dock: stripped cartons by the line, cones at the door and the
+  // shutter, a stack of empties, a drum by the corridor door
+  ['cellar_flatcard', -11.9, -3.18, -0.5, { w: 0.9, d: 0.7 }],
+  ['cellar_cones', -9.3, -4.2, -Math.PI / 2, { n: 2, down: 1 }], ['cellar_cones', -14.15, -10.2, 0.2, { n: 2 }],
+  ['cellar_pallets', -16.9, -1.62, 0, { n: 5 }], ['cellar_drum', -15.5, -1.55, 0], ['cellar_drums', -11.85, -1.41, Math.PI, { n: 1, color: '#2f5a8a' }],
+  // boiler room: the flow and return along the north wall, the expansion
+  // vessel, drums by the heater, the maintenance ladder, water refills
+  ['cellar_pipes', -15.2, 10.75, Math.PI, { len: 2.4 }], ['cellar_tank', -13.4, 10.55, Math.PI],
+  ['cellar_drums', -17.59, 8.35, Math.PI / 2, { n: 2 }], ['cellar_ladder', -8.25, 5.5, -Math.PI / 2],
+  ['cellar_water', -8.48, 3.28, 0],
+  // archive: boxes, boxes
+  ['cellar_archive', 10.0, -10.69, 0, { cols: 2, rows: 3 }], ['cellar_archive', 16.3, -10.69, 0, { cols: 2, rows: 2, gap: true }],
+  // hardware lab (the pitch: flat things only): anti-static mats run out in
+  // front of the scope bench, the benches' cables taped along the floor
+  ['cellar_esdmat', 6.5, -9.6, 0, { w: 2.2, d: 0.6 }], ['cellar_esdmat', 1.2, -9.7, 0.04, { w: 1.4, d: 0.55 }],
+  ['cablerun', 4.8, -9.95, 0, { pts: [[-1.1, 0], [-0.3, 0.06], [0.6, 0.02], [1.2, 0.08]], n: 3 }],
+  ['cablerun', 8.55, -8.4, Math.PI / 2, { pts: [[-1.2, 0], [-0.2, 0.05], [0.8, 0], [1.6, 0.04]], n: 2, seed: 1 }],
+];
+
+// Micro-scatter: [kind, x, z, w, d, n, opts].
+const SCREWS = ['#6d6f72', '#9a9c9e', '#4a4c50', '#8a7a5a'];
+const PCB = ['#2f6e3b', '#3b7a44', '#1f4a2a', '#c9b98a'];
+const SCATTER = [
+  ['scrap', -3.2, -8.3, 3.6, 3.0, 26, { colors: PCB }], ['pebble', -4.0, -3.7, 6, 3.2, 40, { colors: SCREWS }],
+  ['scrap', -7.6, -3.9, 1.6, 1.2, 10], ['pebble', -12.6, -8.6, 4.4, 3.4, 50],
+  ['leaf', -13, -10.5, 2.8, 0.7, 34, { edge: 0.5 }], ['crumb', -16.5, 4.45, 1.2, 0.7, 30],
+  ['paper', 13.3, -6.4, 1.4, 7, 12], ['paper', 16.3, -6.0, 1.1, 8, 9], ['paper', 12.1, -9.4, 1.2, 2.5, 5],
+  ['paper', 10.6, 9.3, 3, 1.8, 6], ['postit', 13.6, 9.2, 2.6, 1.8, 10], ['scrap', -0.4, 1.9, 5, 0.6, 5],
+  ['pebble', 2.6, -9.6, 5.6, 1.2, 30, { colors: SCREWS }],
+];
+
 export const CELLAR = {
   id: 'cellar',
   name: 'The IT Cellar',
@@ -365,41 +492,51 @@ export const CELLAR = {
   // institutional paint: pale green block walls over a dark skirting
   LOOK: {
     wall: '#b4bfb0', skirt: '#4f5953',
-    floors: { tile: '#8c978f', concrete: '#77786f', carpet: '#8d97a3', carpet2: '#9a8f9f' },
+    // the lino darker than it was: the floor must not be the brightest
+    // thing in a basement lit from pools overhead
+    floors: { tile: '#6c766f', concrete: '#6c6d65', carpet: '#8d97a3', carpet2: '#9a8f9f' },
+    // and the finishes laid over it (themes/cellar-set.js), likewise
+    finishes: { vinyl: '#aab4ad', esd: '#a3aba7', raised: '#a2aaac', perf: '#b4bcbe', conc: '#9c9c92' },
   },
   // point lights (meters): the tube banks that actually light the floor
   CEILING_LIGHTS: [[-9, 1], [8, 1], [-13, 7], [12, 7], [-13.5, -6], [4.5, -6]],
   // The light (client/src/game/daylight.js reads it). No windows, so no time
   // of day: one state, lit by banks of fluorescent tubes. Cold, a little
-  // green, and flat — the light that makes a basement a basement. The key
-  // light stands almost straight overhead (where the tubes are) so shadows
-  // pool under things instead of raking across.
+  // green — the light that makes a basement a basement. The key light stands
+  // almost straight overhead (where the tubes are) so shadows pool under
+  // things instead of raking across. It used to be a uniform fill as bright
+  // as the tubes; now the tubes' pools carry the floor (the point lights and
+  // cellar-tubes.jsx's pools) and between them it is murky green-black.
   LIGHTING: {
     fixed: {
       label: 'Basement B-1',
       clock: '--:--',
-      sun: { pos: [22, 210, 30], color: '#e6fff4', intensity: 1.05 },
-      amb: { intensity: 0.2, color: '#b8d0c6' },
-      hemi: { intensity: 0.36, sky: '#dff5ec', ground: '#2c2a24' },
-      ceiling: 16,
+      sun: { pos: [22, 210, 30], color: '#e6fff4', intensity: 0.4 },
+      amb: { intensity: 0.06, color: '#b8d0c6' },
+      hemi: { intensity: 0.16, sky: '#dff5ec', ground: '#2c2a24' },
+      ceiling: 0.75,
       env: {
-        intensity: 0.42,
+        intensity: 0.22,
         bg: '#0d1214',
         window: { color: '#1a2226', intensity: 0.2 },
-        ceil: { color: '#e4fff3', intensity: 2.6 },
+        ceil: { color: '#e4fff3', intensity: 1.6 },
         warm: { color: '#ffb46a', intensity: 0.35 },
-        key: { color: '#cfeee2', intensity: 1.1 },
+        key: { color: '#cfeee2', intensity: 0.9 },
       },
       shaft: { opacity: 0, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
       pool: 0.12,
       panel: 1.6,
-      bloom: { intensity: 0.85, threshold: 0.72 },
-      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.7 },
+      bloom: { intensity: 0.9, threshold: 0.95 },
+      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.75 },
       practical: 0.8,
       wet: false,
+      // green-teal murk; the eye opens up for it
+      exposure: 1.3,
+      fog: { color: '#16211d', density: 0.0068 },
+      grade: { contrast: 1.16, sat: 0.9, shadow: '#1d4a40', high: '#f2ffe0', split: 0.14, lift: 0.03, vignette: 0.5, grain: 0.045 },
     },
     // the ceiling point lights: colour, reach (m), and the server glow
-    points: { color: '#e8fff4', distance: 17 },
+    points: { color: '#e8fff4', distance: 9 },
     glow: { at: [-4, 8], color: '#3d7bff' },
   },
   // what you hear: no rain on glass down here, only the ballast hum
@@ -459,18 +596,9 @@ export const CELLAR = {
     lab: { plate: 'B-1.09', name: 'HARDWARE LAB' },
     archive: { plate: 'B-1.08', name: 'ARCHIVE' },
   },
-  // floor decals: [kind, x, z, w, d, rotation, opacity] (cellar-tex.js DECAL)
-  DECALS: [
-    ['tyre', -12.5, -7.5, 1.4, 4.5, 0.3, 0.7], ['tyre2', -11, -4.5, 1.4, 3.5, -0.9, 0.6], ['oil', -12.2, -9.2, 1.6, 1.6, 0.4, 0.8],
-    ['oil', -16.2, -1.9, 1, 1, 1.1, 0.5], ['grime', -10.4, -7.5, 2.4, 2.4, 0, 0.8], ['footprints', -13.5, -2.8, 0.7, 1.6, 0.1, 0.5],
-    ['drain', -13.6, 7.4, 0.45, 0.45, 0, 1], ['wet', -14.6, 7.1, 2.4, 1.6, 0.3, 0.6], ['grime', -10, 6.5, 3, 3, 0.5, 0.7],
-    ['ring', -16.7, 4.6, 0.3, 0.3, 0.4, 0.8], ['scuff', -12.5, 5, 1.2, 1.2, 0.2, 0.6], ['crack', -10.8, 4.5, 2.2, 0.6, 0.6, 0.8],
-    ['grime', -4.5, -8.5, 3, 3, 0.8, 0.8], ['scuff', -2.5, -4.5, 1.6, 1.6, 1, 0.7], ['oil', -7.6, -6, 1, 1, 0.2, 0.5],
-    ['tyre', -4.2, -5.2, 1.2, 3.5, 1.57, 0.4], ['crack', -2.4, -7.2, 2.4, 0.5, -0.4, 0.8], ['drain', -8.2, -1.9, 0.45, 0.45, 0, 1],
-    ['scuff', -4, 1.2, 2, 1.4, 0.1, 0.5], ['scuff', 5.5, 0.8, 2, 1.4, 2, 0.4], ['scuff', 12.5, 1.4, 2, 1.4, 0.6, 0.45],
-    ['tyre', -9, 1.1, 1.4, 5, 1.57, 0.25], ['footprints', 14.9, 1.6, 0.6, 1.4, 0.2, 0.35], ['wet', 6.6, -0.5, 0.9, 0.7, 0, 0.5],
-    ['ring', 3.3, 1.9, 0.26, 0.26, 1.2, 0.6], ['grime', 17, 1, 2, 2, 0, 0.5],
-  ],
+  // floor decals, clutter, micro-scatter: the shared dressing layer
+  // (client/src/game/dressing; the cellar's own kinds in kinds/cellar.js)
+  DECALS, CLUTTER, SCATTER,
   // notice boards and posters on the corridor walls: [x, y, z, rotY, w, h, kind]
   NOTICES: [
     [9.6, 1.35, 2.88, Math.PI, 1.2, 0.8, 'board'], [-15.7, 1.35, -0.88, 0, 1.0, 0.7, 'board'],
@@ -490,6 +618,9 @@ export const CELLAR = {
     lines: [
       [-15.2, -10.8, -15.2, -1.2, 0.08, '#d9b21f'], [-9.4, -3, -12.4, -3, 0.08, '#d9b21f'],
       [4.5, -10.9, 4.5, -1.1, 0.05, '#d9d6c8'], // the lab's halfway line
+      // and the rest of the pitch somebody taped out: a box at each goal
+      [0.1, -7.9, 1.3, -7.9, 0.05, '#d9d6c8'], [1.3, -7.9, 1.3, -4.1, 0.05, '#d9d6c8'], [0.1, -4.1, 1.3, -4.1, 0.05, '#d9d6c8'],
+      [8.9, -7.9, 7.7, -7.9, 0.05, '#d9d6c8'], [7.7, -7.9, 7.7, -4.1, 0.05, '#d9d6c8'], [8.9, -4.1, 7.7, -4.1, 0.05, '#d9d6c8'],
     ],
     hatch: [[-13, -10.4, 2.8, 0.9]],
   },

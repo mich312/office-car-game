@@ -1298,6 +1298,7 @@ function StaticStock({ map }) {
 // bodies, one for the parts each station adds), plus a kinematic collider
 // each so a car that hops onto the assembly line meets them.
 const _o = new THREE.Object3D();
+const _bay = new THREE.Color();
 const _v = { x: 0, y: 0, z: 0 };
 const LAMPS = ['#ff3b30', '#ffb020', '#2ee06a'].map((c) => new THREE.Color(c));
 function AssemblyPrinters() {
@@ -1503,9 +1504,14 @@ function Building({ map }) {
 }
 
 // High-bay LED fixtures: a grid of discs at 6.6 m, instanced (housing, lens).
-// Dead in a blackout, like everything on the mains.
+// Dead in a blackout, like everything on the mains. On the night shift only
+// the bays over where work is going on are lit — the ones round the real
+// ceiling points (map.CEILING_LIGHTS, Lighting.jsx) — so the hall is islands
+// of 5000 K in the dark, not a lit ceiling with nothing under it.
+const NIGHT_BAY_REACH = 5.5; // m from a ceiling point that keeps a bay lit
 function HighBays({ map }) {
   const event = useStore((s) => s.event);
+  const hour = useStore((s) => s.timeOfDay);
   const lightsOut = event?.id === 'lights_out';
   const B = map.MAP_BOUNDS, H = map.WALL_HEIGHT;
   const spots = useMemo(() => {
@@ -1529,9 +1535,15 @@ function HighBays({ map }) {
     });
     for (const r of [housing, lens, rod]) r.current.instanceMatrix.needsUpdate = true;
   }, [spots, H]);
-  useEffect(() => {
-    lensMat.color.setRGB(...(lightsOut ? [0.03, 0.03, 0.04] : [2.2, 2.3, 2.5]));
-  }, [lightsOut, lensMat]);
+  useLayoutEffect(() => {
+    const pts = (map.CEILING_LIGHTS || []).map(([x, z]) => [m(x), m(z)]);
+    const night = hour === 'night';
+    spots.forEach(([x, z], i) => {
+      const on = !lightsOut && (!night || pts.some(([px, pz]) => Math.hypot(x - px, z - pz) < m(NIGHT_BAY_REACH)));
+      lens.current.setColorAt(i, _bay.setScalar(on ? 1 : 0.012));
+    });
+    if (lens.current.instanceColor) lens.current.instanceColor.needsUpdate = true;
+  }, [spots, map, hour, lightsOut]);
   return (
     <group>
       <instancedMesh ref={housing} args={[null, null, spots.length]} frustumCulled={false}>

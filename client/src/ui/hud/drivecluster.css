@@ -1,0 +1,38 @@
+/* Drive cluster (DriveCluster.jsx), bottom-left (SPEC-TOYBOX §4.9): speed,
+   drift tiers + charge, boost. Live numbers use digit slots and the one
+   baked text-shadow set (--ts-live), never stroke + extrude. 24.6 rem wide,
+   so its right edge stays clear of the car zone even at HUD size L. */
+
+.tb-drive { display: flex; flex-direction: column; gap: .875rem; align-items: flex-start; }
+.tb-spdrow { display: flex; align-items: flex-end; gap: .875rem; }
+.tb-spd { display: flex; align-items: baseline; gap: .5rem; }
+.tb-spd-n { font-size: var(--t-xxl); color: var(--paper); line-height: .86; }
+.tb-spd-n .tb-slots { --slot: .6em; }
+.tb-spd-u { font-size: 1.5rem; color: var(--paper); }
+.tb-drift { display: flex; flex-direction: column; gap: .4375rem; margin-bottom: .5rem; }
+.tb-chevs { display: flex; margin-left: .125rem; }
+.tb-chev { position: relative; width: 3rem; height: 2.125rem; margin-left: -.625rem; }
+.tb-chev:first-child { margin-left: 0; }
+.tb-chev svg { width: 100%; height: 100%; overflow: visible; }
+.tb-chev path { fill: var(--ink-3); stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; }
+.tb-chev b { position: absolute; left: 1rem; top: 50%; translate: 0 -50%; width: 1.125rem; text-align: center;
+  font: italic 900 1.25rem/1 var(--f-display); color: var(--paper-dim); }
+.tb-chev.is-on path { fill: var(--c); }
+.tb-chev.is-on b { color: var(--ink); }
+/* drift charge toward the next tier: 3 segments in tier colours, --f per segment from the loop */
+.tb-dcharge { display: flex; gap: .1875rem; width: 7.625rem; margin-left: .25rem; }
+.tb-dcharge i { position: relative; flex: 1; height: .4375rem; border-radius: 99px; background: var(--ink-3); box-shadow: 0 0 0 2px var(--ink); overflow: hidden; }
+.tb-dcharge i::after { content: ""; position: absolute; inset: 0; background: var(--c); transform-origin: 0 50%; scale: var(--f, 0) 1; }
+.tb-drift-l { display: flex; align-items: center; gap: .5rem; }
+.tb-drift-l .tb-lbl, .tb-boost .tb-lbl { color: var(--paper); text-shadow: var(--ts-live-s); }
+.tb-boost { display: flex; align-items: center; gap: .875rem; }
+.tb-boost-track { position: relative; width: 17.75rem; height: 2.125rem; border-radius: .625rem; transform: skewX(var(--lean)); overflow: hidden;
+  background: linear-gradient(180deg, #110a28, var(--ink-2)); border: var(--bw) solid var(--ink);
+  box-shadow: 0 0 0 .1875rem var(--paper), 0 0 0 .375rem var(--ink), 0 .5625rem 0 .1875rem var(--ink); }
+.tb-boost-fill { position: absolute; inset: 0; transform-origin: 0 50%; scale: var(--v, 0) 1;
+  background: linear-gradient(90deg, var(--blaze-lo), var(--blaze) 55%, var(--blaze-hi));
+  box-shadow: inset 0 .3125rem 0 rgba(255,255,255,.38), inset 0 -.25rem 0 rgba(120,20,0,.28); }
+.tb-boost-track::after { content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 1.8125rem, var(--ink) 1.8125rem 2rem); }
+.tb-boost.is-boosting .tb-boost-fill { background: repeating-linear-gradient(-50deg, var(--blaze-hi) 0 .5rem, var(--blaze) .5rem 1rem); }
+.tb-boost-l { display: flex; flex-direction: column; gap: .4375rem; align-items: flex-start; }

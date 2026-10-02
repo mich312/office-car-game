@@ -1,0 +1,49 @@
+/* Countdown (Countdown.jsx): title card + start lights + numeral. Transient,
+   and still it ends above the car zone (the numeral box ends at 476 px of
+   900, the zone starts at 495). SPEC-TOYBOX §4.11. */
+
+.tb-cd { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; padding-top: 6rem; pointer-events: none; isolation: isolate; }
+.tb-cd-burst { position: absolute; left: 50%; top: 23rem; width: 62rem; height: 62rem; margin: -31rem 0 0 -31rem; border-radius: 50%; z-index: -1;
+  background: repeating-conic-gradient(from 4deg, rgba(255,138,31,.22) 0 7deg, transparent 7deg 20deg);
+  -webkit-mask: radial-gradient(circle, #000 0, #000 18%, transparent 58%); mask: radial-gradient(circle, #000 0, #000 18%, transparent 58%); }
+html.lowfx .tb-cd-burst { display: none; }
+.tb-cd-mode { display: flex; align-items: center; gap: 1rem; }
+.tb-cd-mode > .tb-disp { font-size: 4.25rem; color: var(--paper); --sw: .75rem; --ex: .4375rem; white-space: nowrap; }
+.tb-cd-var { transform: rotate(-5deg) translateY(-.375rem); }
+.tb-cd-var .tb-rib { height: 3rem; padding: 0 1.25rem; }
+.tb-cd-var .tb-disp { font-size: 2rem; line-height: 1; }
+.tb-cd-sub { margin-top: .875rem; }
+.tb-cd-sub .tb-rib { height: 2.25rem; gap: .5rem; }
+.tb-cd-sub .tb-lbl { font-size: max(10px, .875rem); }
+.tb-cd-fact { display: inline-flex; align-items: center; gap: .5rem; }
+.tb-cd-dot { opacity: .5; }
+.tb-cd-mu { color: var(--grape-hi); }
+.tb-cd-mu svg { width: 1rem; height: 1rem; fill: currentColor; }
+.tb-cd-desc { margin-top: .75rem; max-width: 52rem; text-wrap: balance; text-align: center; font: 600 1rem/1.35 var(--f-ui); color: var(--paper); text-shadow: var(--ts-live-s); }
+/* start lights: 3 · 2 · 1 then GO (blaze = lit, lime = go) */
+.tb-lights { display: flex; gap: .875rem; align-items: center; padding: .625rem 1rem; margin-top: 1.125rem; border-radius: 999px; background: var(--ink-2);
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 0 0 .4375rem var(--paper), 0 0 0 .625rem var(--ink), 0 .75rem 0 .4375rem var(--ink); }
+.tb-lights i { width: 2.125rem; height: 2.125rem; border-radius: 50%; background: #2a2158; box-shadow: inset 0 0 0 .1875rem var(--ink), inset 0 .3125rem 0 rgba(255,255,255,.08); }
+.tb-lights i.is-on { background: radial-gradient(circle at 40% 35%, #ffd9a8, var(--blaze) 55%, var(--blaze-lo)); box-shadow: inset 0 0 0 .1875rem var(--ink), 0 0 1.25rem .25rem rgba(255,106,31,.7); }
+.tb-lights .go { width: auto; height: 2.125rem; padding: 0 .75rem; border-radius: 999px; display: grid; place-items: center; font: italic 900 1.125rem/1 var(--f-display); color: var(--ink-4); background: #2a2158; box-shadow: inset 0 0 0 .1875rem var(--ink); }
+.tb-lights.is-go i, .tb-lights.is-go .go { background: radial-gradient(circle at 40% 35%, #e6ffc9, var(--lime) 55%, var(--lime-lo)); color: var(--ink); box-shadow: inset 0 0 0 .1875rem var(--ink), 0 0 1.25rem .25rem rgba(125,226,58,.6); }
+html.lowfx .tb-lights i.is-on, html.lowfx .tb-lights.is-go i, html.lowfx .tb-lights.is-go .go { box-shadow: inset 0 0 0 .1875rem var(--ink); }
+.tb-cd-n { font-size: var(--t-mega); --sw: 1.125rem; --ex: .75rem; margin-top: .25rem; line-height: .86; --grad-base: var(--blaze);
+  --fill: linear-gradient(180deg, #ffd8a8 0, #ffae3b 30%, var(--blaze) 62%, var(--blaze-lo) 100%); }
+.tb-cd-n.is-go { --grad-base: var(--lime-lo); --fill: linear-gradient(180deg, #e6ffc9 0, var(--lime-hi) 30%, var(--lime) 62%, var(--lime-lo) 100%); }
+
+/* ------------------------------------------ landscape phone (px layout):
+   between the clock row's line and the pad, clear of the car */
+.tb-hud.is-compact .tb-cd { padding-top: 12px; }
+.tb-hud.is-compact .tb-cd-burst { top: 120px; width: 460px; height: 460px; margin: -230px 0 0 -230px; }
+.tb-hud.is-compact .tb-cd-mode > .tb-disp { font-size: 34px; --sw: 6px; --ex: 4px; }
+.tb-hud.is-compact .tb-cd-var .tb-rib { height: 26px; padding: 0 10px; }
+.tb-hud.is-compact .tb-cd-var .tb-disp { font-size: 16px; }
+.tb-hud.is-compact .tb-cd-sub { margin-top: 6px; }
+.tb-hud.is-compact .tb-cd-sub .tb-rib { height: 26px; padding: 0 12px; gap: 5px; }
+.tb-hud.is-compact .tb-cd-sub .tb-lbl { font-size: 10px; }
+.tb-hud.is-compact .tb-cd-desc { display: none; }
+.tb-hud.is-compact .tb-lights { gap: 8px; padding: 5px 8px; margin-top: 12px; box-shadow: 0 0 0 2.5px var(--ink), 0 0 0 5px var(--paper), 0 0 0 7.5px var(--ink), 0 8px 0 5px var(--ink); }
+.tb-hud.is-compact .tb-lights i { width: 20px; height: 20px; }
+.tb-hud.is-compact .tb-lights .go { height: 20px; font-size: 12px; padding: 0 8px; }
+.tb-hud.is-compact .tb-cd-n { font-size: 72px; --sw: 8px; --ex: 5px; }

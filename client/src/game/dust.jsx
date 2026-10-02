@@ -1,5 +1,7 @@
 // Floating dust, as drei's Sparkles — with its own shaders but a glow that
-// can't blow up (every floor's dust uses this, never Sparkles bare).
+// can't blow up (every floor's dust uses this, never Sparkles bare). The
+// office's motes live in its sunbeams instead (sunShafts.jsx), where dust is
+// actually visible; this is the free-floating kind for the other floors.
 import { useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Sparkles } from '@react-three/drei';
@@ -31,12 +33,19 @@ const DUST_VERT = /* glsl */`
     vOpacity = opacity;
   }
 `;
+// The mote's glow, bounded (shared with the sunbeam dust, sunShafts.jsx).
+export const DUST_GLOW = /* glsl */`
+  float dustGlow(vec2 pc) {
+    float d = distance(pc, vec2(0.5));
+    return clamp(0.05 / max(d, 0.04) - 0.1, 0.0, 1.0);
+  }
+`;
 const DUST_FRAG = /* glsl */`
   varying vec3 vColor;
   varying float vOpacity;
+  ${DUST_GLOW}
   void main() {
-    float d = distance(gl_PointCoord, vec2(0.5));
-    float strength = clamp(0.05 / max(d, 0.04) - 0.1, 0.0, 1.0);
+    float strength = dustGlow(gl_PointCoord);
     gl_FragColor = vec4(vColor, strength * vOpacity);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>

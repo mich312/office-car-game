@@ -1,8 +1,13 @@
-// Procedural inline-SVG icon set — the UI's single icon language.
-// 24×24 grid, 2px rounded stroke, recolorable via currentColor. Replaces
-// emoji chrome (emoji survive only as in-game content, e.g. emotes).
+// Inline-SVG icons — the UI's only icon language (emoji survive only as
+// in-game content, e.g. emotes).
+//   <ToyIcon>        the Toy Box set: solid 32-grid pictograms (TOY_ICONS)
+//   <ActionSticker>  an item / ability glyph as a toy sticker (ink outline +
+//                    item colour), from the shared ACTION_ICON_PATHS
+//   <ToyCar>         a side-view toy car in a driver's paint
+//   <Icon>           the legacy 24-grid stroke set, kept for the garage and
+//                    any surface not yet ported to the Toy Box look
 
-import { ACTION_ICON_PATHS } from './iconPaths.js';
+import { ACTION_ICON_PATHS, TOY_ICONS } from './iconPaths.js';
 
 const fill = { fill: 'currentColor', stroke: 'none' };
 
@@ -235,3 +240,105 @@ export const EVENT_ICON = {
   cleaning_robot: 'bot',
   sprinklers: 'drop',
 };
+
+// ================================================================ Toy Box
+const toyCache = new Map();
+function toyGlyph(name) {
+  let g = toyCache.get(name);
+  if (g === undefined) {
+    const def = TOY_ICONS[name];
+    g = def ? (
+      <>
+        {(def.f || []).map((d, i) => <path key={`f${i}`} d={d} fillRule="evenodd" />)}
+        {(def.s || []).map(([d, w], i) => (
+          <path key={`s${i}`} d={d} fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" />
+        ))}
+      </>
+    ) : null;
+    toyCache.set(name, g);
+  }
+  return g;
+}
+
+// <ToyIcon name="flame" />: 32-grid, painted with currentColor. Sized by CSS
+// (.tb-i is 1.25rem; a parent's `.x svg` rule wins), or by `size` (px/rem).
+export function ToyIcon({ name, size, className = '', style, ...rest }) {
+  const glyph = toyGlyph(name);
+  if (!glyph) return null;
+  const sz = size != null ? { width: size, height: size } : null;
+  return (
+    <svg
+      className={`tb-i${className ? ` ${className}` : ''}`}
+      viewBox="0 0 32 32"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+      style={sz || style ? { ...sz, ...style } : undefined}
+      {...rest}
+    >
+      {glyph}
+    </svg>
+  );
+}
+
+// The colour an item's sticker is painted in (the outline is always ink).
+export const ITEM_COLOR = {
+  turbo: 'var(--blaze)', emp: 'var(--sky)', rocket: 'var(--cherry)', oil: 'var(--ink-4)', coffee: 'var(--blaze-lo)',
+  shield: 'var(--sky)', shrink: 'var(--lime-lo)', spring: 'var(--lime-lo)', swap: 'var(--grape)', fake: 'var(--bubble)',
+};
+
+// An item or ability glyph as a toy sticker: the shared 24-grid stroke glyph
+// drawn twice, a fat ink outline under the coloured stroke (.tb-sticker).
+// Covers every powerup and ability with no new art.
+export function ActionSticker({ id, color, size, className = '', style }) {
+  const paths = ACTION_ICON_PATHS[id];
+  if (!paths) return null;
+  const strokes = paths.map((d, i) => <path key={i} d={d} />);
+  return (
+    <svg
+      className={`tb-sticker${className ? ` ${className}` : ''}`}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+      style={{ '--sc': color || ITEM_COLOR[id] || 'var(--grape)', ...(size != null ? { width: size, height: size } : null), ...style }}
+    >
+      <g className="o">{strokes}</g>
+      <g className="f">{strokes}</g>
+    </svg>
+  );
+}
+
+// A side-view toy car in a driver's paint (lobby rows, standings, podium,
+// the connect loader). 124×76 artboard, sized by .tb-car (2.875rem wide).
+const INK = '#140e2c';
+const PAPER = '#fff8ea';
+export function ToyCar({ paint = '#9aa7c0', className = 'tb-car', style }) {
+  return (
+    <svg className={className} viewBox="0 0 124 76" aria-hidden="true" focusable="false" style={style}>
+      <path d="M86 20 L93 4" stroke={INK} strokeWidth="3" strokeLinecap="round" />
+      <circle cx="93.5" cy="4.5" r="4" fill="#ff3b4a" stroke={INK} strokeWidth="2.2" />
+      <path d="M7 51c0-8 5-12.5 13-13.5l17-2 12.5-14.5c3-3.5 6.5-5 11-5h22.5c6 0 9.5 3 12.5 8l5.5 10.5 10.5 2c5 1 9 5 9 10v5.5c0 3-2 5-5 5H12c-3 0-5-2-5-5z" fill={paint} stroke={INK} strokeWidth="3.6" strokeLinejoin="round" />
+      <path d="M14 45.5c16-3 62-4 98-1" stroke="rgba(255,255,255,.5)" strokeWidth="3.2" fill="none" strokeLinecap="round" />
+      <path d="M53 22.5c2-2.5 4-3.5 7.5-3.5H70v14.5H42.5z" fill="#c8ecff" stroke={INK} strokeWidth="3" strokeLinejoin="round" />
+      <path d="M74 19h8.5c4 0 6.5 2 8.5 5.5l4.8 9H74z" fill="#c8ecff" stroke={INK} strokeWidth="3" strokeLinejoin="round" />
+      <circle cx="31" cy="60" r="13.5" fill={INK} /><circle cx="31" cy="60" r="6" fill={PAPER} stroke={INK} strokeWidth="2" />
+      <circle cx="97" cy="60" r="13.5" fill={INK} /><circle cx="97" cy="60" r="6" fill={PAPER} stroke={INK} strokeWidth="2" />
+    </svg>
+  );
+}
+
+// Domain → Toy icon maps.
+export const MODE_TOY = {
+  desk_dash: 'flag', coffee_run: 'bean', battery: 'battery', soccer: 'ball', koth: 'pin',
+  tag: 'target', sumo: 'sumo', last_standing: 'crown', free_roam: 'globe', office_cup: 'trophy',
+};
+// floors by map id (= theme): the icon and the lift-panel code
+export const FLOOR_TOY = { office: 'office', cellar: 'server', tower: 'tower', garage: 'garage', factory: 'factory' };
+export { FLOOR_CODE } from './hud/format.js';
+// office events by id (every floor keeps the ids; only the names differ)
+export const EVENT_TOY = {
+  lights_out: 'moon', earthquake: 'quake', paper_storm: 'printer', ac_wind: 'wind',
+  server_overload: 'flame', cleaning_robot: 'bot', sprinklers: 'drop',
+};
+// the round's twist (shared/src/modes.js MUTATORS)
+export const MUTATOR_TOY = { moon_gravity: 'moon', giant_ball: 'ball', mug_rain: 'cup', tiny_cars: 'size' };

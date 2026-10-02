@@ -1,0 +1,52 @@
+/* Office-event telegraph, running event and hazard toast (EventTelegraph.jsx),
+   in the top-centre column under the objective (SPEC-TOYBOX §4.6). Hazard is
+   cherry + paper barricade stripes, never yellow (yellow is YOU). Paper text
+   on cherry always carries an ink outline. */
+
+.tb-tele { position: relative; isolation: isolate; display: flex; align-items: center; height: 4.5rem; padding: 0 1.125rem 0 5.875rem; gap: .875rem; color: var(--paper); }
+.tb-tele::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: .75rem; transform: skewX(var(--lean));
+  border: var(--bw) solid var(--ink); box-shadow: var(--drop-m), var(--ambient);
+  background:
+    var(--stripes) left / 3rem 100% no-repeat,
+    var(--stripes) right / 1.875rem 100% no-repeat,
+    linear-gradient(180deg, var(--cherry-hi), var(--cherry) 45%, var(--cherry-lo)); }
+.tb-tele-ic { position: absolute; left: 2.125rem; top: 50%; width: 3.125rem; height: 3.125rem; margin-top: -1.5625rem; border-radius: 50%;
+  display: grid; place-items: center; background: var(--ink-2); color: var(--paper);
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 0 0 .375rem var(--paper), 0 0 0 .5625rem var(--ink); }
+.tb-tele-ic svg { width: 1.75rem; height: 1.75rem; fill: currentColor; }
+.tb-tele-b { display: flex; flex-direction: column; gap: .3125rem; padding-bottom: .5rem; }
+.tb-tele-k { font: 800 var(--t-micro)/1 var(--f-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--paper);
+  -webkit-text-stroke: max(2px, .1875rem) var(--ink); paint-order: stroke fill; white-space: nowrap; }
+.tb-tele-t { font-size: 1.875rem; line-height: 1; --sw: .3125rem; white-space: nowrap; }
+.tb-tele-n { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 50%; flex: none;
+  background: var(--paper); color: var(--ink); font-size: 2rem; padding-right: .1875rem; margin-bottom: .375rem;
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), 0 .1875rem 0 var(--ink); }
+/* the fuse: an ink track with a paper fuse, scale(--fuse) written by the loop */
+.tb-fuse { position: absolute; left: 5.875rem; right: 4.625rem; bottom: .5625rem; height: .375rem; border-radius: 99px; background: var(--ink); overflow: hidden; }
+.tb-fuse > i { position: absolute; inset: 0; background: var(--paper); transform-origin: 0 50%; scale: var(--fuse, 1) 1; border-radius: inherit; }
+/* running event: the same barricade, compact, with a drain bar */
+.tb-evt { height: 3.25rem; padding-left: 5rem; }
+.tb-evt .tb-tele-ic { left: 1.625rem; width: 2.5rem; height: 2.5rem; margin-top: -1.25rem; }
+.tb-evt .tb-tele-ic svg { width: 1.375rem; height: 1.375rem; }
+.tb-evt .tb-tele-t { font-size: 1.5rem; }
+.tb-evt .tb-tele-b { padding-bottom: .25rem; }
+.tb-evt .tb-tele-n { display: flex; align-items: center; width: auto; min-width: 2.75rem; height: 2.125rem; padding: 0 .625rem; border-radius: .5625rem; font-size: 1.375rem; margin-bottom: .25rem; }
+.tb-evt .tb-fuse { left: 5rem; right: 1.875rem; bottom: .375rem; height: .25rem; }
+/* hazard toast: no number, no fuse */
+.tb-haz { padding-right: 2.5rem; }
+.tb-haz .tb-tele-b { padding-bottom: 0; }
+
+/* ------------------------------------------ landscape phone (px layout) */
+.tb-hud.is-compact .tb-tele { height: 38px; padding: 0 8px 0 50px; gap: 8px; }
+.tb-hud.is-compact .tb-tele::before { border-radius: 9px; box-shadow: var(--drop-s);
+  background: var(--stripes) left / 28px 100% no-repeat, linear-gradient(180deg, var(--cherry-hi), var(--cherry) 45%, var(--cherry-lo)); }
+.tb-hud.is-compact .tb-tele-ic { left: 17px; width: 28px; height: 28px; margin-top: -14px; box-shadow: 0 0 0 2.5px var(--ink), 0 0 0 4px var(--paper), 0 0 0 6.5px var(--ink); }
+.tb-hud.is-compact .tb-tele-ic svg { width: 16px; height: 16px; }
+.tb-hud.is-compact .tb-tele-k { display: none; }
+.tb-hud.is-compact .tb-tele-b { padding-bottom: 4px; }
+.tb-hud.is-compact .tb-tele-t { font-size: 18px; --sw: 4px; }
+.tb-hud.is-compact .tb-tele-n { width: 28px; height: 28px; font-size: 18px; margin-bottom: 4px; }
+.tb-hud.is-compact .tb-evt .tb-tele-n { width: auto; min-width: 34px; padding: 0 6px; border-radius: 7px; }
+.tb-hud.is-compact .tb-fuse { left: 50px; right: 40px; bottom: 4px; height: 4px; }
+.tb-hud.is-compact .tb-evt .tb-fuse { right: 14px; }
+.tb-hud.is-compact .tb-haz { padding-right: 16px; }

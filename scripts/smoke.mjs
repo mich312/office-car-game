@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process';
 import WebSocket from 'ws';
 import { decodeSnapshot, MSG } from '../shared/src/index.js';
 
-const PORT = 8091;
+// RC_TEST_PORT_BASE lets parallel checkouts run the suite side by side
+const PORT = Number(process.env.RC_TEST_PORT_BASE || 8090) + 1;
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

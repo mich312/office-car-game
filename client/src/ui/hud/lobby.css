@@ -1,0 +1,180 @@
+/* ==========================================================================
+   LOBBY (Lobby.jsx, SPEC-TOYBOX §4.15). The live office IS the lobby: two
+   slim toy-box rails, the world stays visible in the middle (≥ 60%).
+   The wrapper keeps class "lobby-rail" (scripts/shoot.mjs hides it).
+   rem on the fluid root (16px at 1600×900); the phone layout is px.
+   ========================================================================== */
+.tb-lob { position: absolute; inset: 0; pointer-events: none; }
+.tb-lob button { pointer-events: auto; }
+.tb-lob .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.tb-lob-l, .tb-lob-r { position: absolute; top: 1.5rem; max-height: calc(100% - 3rem); padding: 1.25rem 1.125rem 1.125rem;
+  display: flex; flex-direction: column; pointer-events: auto; }
+.tb-lob-l { left: 1.5rem; width: 20rem; }
+.tb-lob-r { right: 1.5rem; width: 20.5rem; }
+.tb-lob-h { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .875rem; }
+.tb-lob-h .tb-disp { font-size: 2.5rem; color: var(--paper); --sw: .5rem; --ex: .25rem; }
+.tb-lob-h .tb-tag { margin-left: auto; }
+.tb-tag.is-go { --tag-bg: var(--lime); }
+.tb-lob-pause { width: 2.75rem; min-width: 44px; min-height: 44px; padding: 0; }
+
+/* the room ticket: code + invite link */
+.tb-ticket { position: relative; flex: none; border-radius: 1rem; padding: .75rem 1rem .875rem; margin-bottom: 1.125rem;
+  background: linear-gradient(180deg, #100a26, #1a1440); box-shadow: inset 0 0 0 max(2px, .15625rem) var(--ink), inset 0 0 0 .3125rem rgba(255, 248, 234, .12); }
+.tb-ticket::before, .tb-ticket::after { content: ""; position: absolute; top: 50%; width: 1.125rem; height: 1.125rem; margin-top: -.5625rem; border-radius: 50%;
+  background: var(--ink-2); box-shadow: inset 0 0 0 max(2px, .15625rem) var(--ink); }
+.tb-ticket::before { left: -.5625rem; } .tb-ticket::after { right: -.5625rem; }
+.tb-ticket-top { display: flex; justify-content: space-between; align-items: center; color: var(--paper-dim); }
+.tb-ticket-top .tb-lbl { display: inline-flex; align-items: center; gap: .375rem; }
+.tb-ticket-top svg { width: .875rem; height: .875rem; }
+.tb-lbl.is-live { color: var(--lime); }
+.tb-lbl.is-live::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: var(--lime); }
+.tb-code { font-size: 4.375rem; color: var(--paper); letter-spacing: .08em; line-height: 1; margin: .25rem 0 .75rem; text-shadow: 0 .25rem 0 #000; }
+.tb-ticket .tb-btn { width: 100%; }
+.tb-btn.is-copied { background: linear-gradient(180deg, var(--lime-hi), var(--lime) 60%, var(--lime-lo)); }
+.tb-btn.is-failed { background: linear-gradient(180deg, var(--cherry-hi), var(--cherry) 60%, var(--cherry-lo)); color: var(--paper); }
+
+/* the crew */
+.tb-sect { display: flex; align-items: center; justify-content: space-between; margin: .25rem .125rem .625rem; color: var(--paper-dim); }
+.tb-lbl.is-count { color: var(--lime); }
+.tb-players { display: flex; flex-direction: column; gap: .375rem; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 2px; margin: -2px; }
+.tb-pl { display: flex; align-items: center; gap: .625rem; height: 2.75rem; flex: none; padding: 0 .625rem 0 .5rem; border-radius: .75rem; color: var(--paper);
+  background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 2px rgba(20, 14, 44, .85); font: 800 var(--t-xs)/1 var(--f-ui); }
+.tb-pl .nm { flex: 1; display: flex; align-items: center; gap: .5rem; min-width: 0; white-space: nowrap; }
+.tb-pl .nm > span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tb-pl.is-you { background: rgba(255, 210, 63, .16); box-shadow: inset 0 0 0 max(2px, .15625rem) var(--sun); }
+.tb-pl .st { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: .1875rem; flex: none; height: 1.625rem; padding: 0 .5625rem; border-radius: .5rem;
+  font: 800 var(--t-micro)/1 var(--f-ui); letter-spacing: .08em; text-transform: uppercase; }
+.tb-pl .st.is-ok { width: 1.875rem; height: 1.875rem; padding: 0; background: var(--lime); color: var(--ink); box-shadow: inset 0 0 0 2px var(--ink); }
+.tb-pl .st.is-ok svg { width: 1rem; height: 1rem; }
+.tb-pl .st.is-wait { width: 1.875rem; height: 1.875rem; padding: 0; box-shadow: inset 0 0 0 2px rgba(255, 248, 234, .3); }
+.tb-pl .st.is-wait i { width: .1875rem; height: .1875rem; border-radius: 50%; background: var(--paper-dim); }
+/* your "not ready": hot, with an ink outline (paper on bubble is display-size only) */
+.tb-pl .st.is-nag { background: var(--bubble); color: var(--paper); box-shadow: inset 0 0 0 2px var(--ink); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+.tb-lob-l .tb-cta { flex: none; margin-top: 1.125rem; }
+.tb-cta.is-done svg { width: 2rem; height: 2rem; }
+.tb-hint { margin-top: .875rem; text-align: center; font: 600 max(10px, .8125rem)/1.35 var(--f-ui); color: var(--paper-dim); }
+.tb-hint b { color: var(--paper); font-weight: 800; }
+.tb-hint-links { margin-top: .5rem; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: .25rem 1.25rem; }
+.tb-hint-links > span { display: inline-flex; align-items: center; gap: .375rem; }
+.tb-hint-links:empty { display: none; }
+.tb-hint-links .tb-k { height: 1.25rem; min-width: 1.25rem; box-shadow: none; font-size: max(10px, .6875rem); }
+.tb-link { font: 800 max(10px, .8125rem)/1 var(--f-ui); color: var(--paper); text-decoration: underline; text-underline-offset: 3px;
+  padding: .5rem .25rem; margin: -.5rem -.25rem; min-height: 24px; }
+.tb-link:hover { color: #fff; }
+
+/* votes: every option is a button with aria-pressed; count + voter paint dots */
+.tb-vote-h { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin: .25rem .125rem .5rem; color: var(--paper-dim); }
+.tb-vote-h .tb-lbl { flex: none; white-space: nowrap; }
+.tb-vote-h .tb-micro { min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-votes { display: flex; flex-direction: column; gap: .3125rem; margin-bottom: 1rem; }
+.tb-votes:last-child { margin-bottom: 0; }
+.tb-vr { position: relative; display: flex; align-items: center; gap: .625rem; height: 2.375rem; flex: none; padding: 0 .625rem 0 .375rem; border-radius: .6875rem; overflow: hidden; text-align: left;
+  background: rgba(255, 255, 255, .06); box-shadow: inset 0 0 0 2px rgba(20, 14, 44, .85); font: 800 max(10px, .9375rem)/1 var(--f-ui); color: var(--paper); }
+.tb-vr:hover { background: rgba(255, 255, 255, .1); }
+.tb-vr .ic { width: 1.75rem; height: 1.75rem; border-radius: .5rem; display: grid; place-items: center; flex: none; background: var(--ink-4); color: var(--paper); box-shadow: inset 0 0 0 2px var(--ink); }
+.tb-vr .ic svg { width: 1.0625rem; height: 1.0625rem; }
+.tb-vr .ic b { font: italic 900 max(10px, .875rem)/1 var(--f-display); }
+.tb-vr .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-vr .nm small { margin-left: .375rem; font: 800 var(--t-micro)/1 var(--f-ui); letter-spacing: .03em; text-transform: uppercase; color: var(--lime); }
+.tb-vr .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; transform-origin: 0 50%; scale: var(--v) 1; z-index: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(125, 226, 58, 0), rgba(125, 226, 58, .2)); transition: scale var(--d-med) var(--ease-out); }
+.tb-vr > *:not(.bar) { position: relative; z-index: 1; }
+.tb-vr .dots { display: flex; padding-left: .1875rem; }
+.tb-vr .dots i { width: .8125rem; height: .8125rem; border-radius: 50%; background: var(--paint); box-shadow: 0 0 0 2px var(--ink); margin-left: -.1875rem; }
+.tb-vr .n { min-width: 1.125rem; text-align: right; font-size: 1.25rem; }
+.tb-vr .crown { width: 1.0625rem; height: 1.0625rem; color: var(--paper); }
+.tb-vr.is-zero .n, .tb-vr.is-zero .nm { color: var(--paper-dim); }
+/* YOUR vote is yellow (yellow = you) */
+.tb-vr.is-mine { background: linear-gradient(180deg, var(--sun-hi), var(--sun) 60%, var(--sun-lo)); color: var(--ink);
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), 0 .25rem 0 var(--ink); overflow: visible; }
+.tb-vr.is-mine .ic { background: var(--ink); color: var(--paper); }
+.tb-vr.is-mine .n, .tb-vr.is-mine .nm { color: var(--ink); }
+.tb-vr.is-mine .nm small { color: var(--ink-dim); }
+.tb-vr.is-mine .crown { color: var(--ink); }
+.tb-vr.is-mine .bar { display: none; }
+.tb-vr:focus-visible { outline: var(--focus); outline-offset: 2px; }
+
+/* top centre: "drive around" banner (the driving test takes the slot while it runs) */
+.tb-lob-top { position: absolute; left: 0; right: 0; top: 1.625rem; display: flex; justify-content: center; align-items: center; gap: .875rem; pointer-events: none; }
+.tb-lob-top > .tb-rib { height: 2.75rem; padding: 0 1.25rem; gap: .625rem; }
+.tb-lob-top .tb-disp { font-size: 1.375rem; line-height: 1; margin-top: .125rem; }
+.tb-lob-top svg { width: 1.375rem; height: 1.375rem; }
+.tb-keys { gap: .375rem; }
+.tb-keys .tb-k { height: 1.5rem; min-width: 1.5rem; }
+.tb-keys .tb-lbl { color: var(--paper-dim); margin: 0 .375rem 0 .125rem; }
+/* the driving test's own look lives in coach.css (Coach.jsx); these are
+   zero-specificity fallbacks for its slot so it holds either way */
+:where(.tb-test) { max-width: 33rem; }
+
+/* ---- 7–12 drivers: a 2-column crew grid, tighter rails ----------------- */
+.tb-lob.is-dense .tb-lob-l { width: 24rem; padding-top: 1rem; }
+.tb-lob.is-dense .tb-lob-h { margin-bottom: .625rem; }
+.tb-lob.is-dense .tb-lob-h .tb-disp { font-size: 2.125rem; }
+.tb-lob.is-dense .tb-ticket { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: .75rem; align-items: center; padding: .625rem .875rem; margin-bottom: .875rem; }
+.tb-lob.is-dense .tb-ticket-top { grid-column: 1 / -1; }
+.tb-lob.is-dense .tb-code { font-size: 3rem; margin: .25rem 0 0; }
+.tb-lob.is-dense .tb-ticket .tb-btn { width: auto; min-height: 2.75rem; }
+.tb-lob.is-dense .tb-players { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .3125rem; }
+.tb-lob.is-dense .tb-pl { height: 2.25rem; gap: .375rem; padding: 0 .3125rem; font-size: max(10px, .8125rem); min-width: 0; }
+.tb-lob.is-dense .tb-pl .tb-car { width: 1.75rem; height: 1.125rem; }
+.tb-lob.is-dense .tb-pl .st.is-ok, .tb-lob.is-dense .tb-pl .st.is-wait { width: 1.375rem; height: 1.375rem; }
+.tb-lob.is-dense .tb-pl .st.is-ok svg { width: .75rem; height: .75rem; }
+.tb-lob.is-dense .tb-pl .st.is-nag { height: 1.375rem; padding: 0 .3125rem; letter-spacing: .02em; }
+.tb-lob.is-dense .tb-cta { height: 4.25rem; }
+.tb-lob.is-dense .tb-cta .tb-disp { font-size: 2.25rem; }
+.tb-lob.is-dense .tb-lob-r { padding-top: 1rem; }
+.tb-lob.is-dense .tb-vr { height: 2.1875rem; }
+
+/* ==========================================================================
+   COMPACT LOBBY (landscape phone, px): ticket, crew, votes left · READY
+   right · hint top-centre · the touch pad live underneath.
+   Car zone at 844×390: x 253–591, y 215–390.
+   ========================================================================== */
+.tb-lob.is-compact .tb-ml > * { position: absolute; pointer-events: auto; }
+.tb-ml-ticket { left: calc(14px + env(safe-area-inset-left, 0px)); top: 10px; width: 226px; height: 64px; padding: 0 8px 0 14px; display: flex; align-items: center; justify-content: space-between;
+  border-width: 3px; border-radius: 14px; box-shadow: 0 0 0 2.5px var(--ink), inset 0 0 0 2px var(--ink), 0 5px 0 2.5px var(--ink); }
+.tb-ml-code { display: flex; flex-direction: column; gap: 3px; min-width: 0; color: var(--paper-dim); }
+.tb-ml-code .tb-micro { display: inline-flex; align-items: center; gap: 4px; }
+.tb-ml-code svg { width: 11px; height: 11px; }
+.tb-ml-code .tb-disp { font-size: 30px; letter-spacing: .08em; color: var(--paper); }
+.tb-ml-inv { width: 44px; height: 44px; min-height: 44px; padding: 0; flex: none; }
+.tb-ml-crew { left: calc(18px + env(safe-area-inset-left, 0px)); top: 86px; height: 32px; padding: 0 12px; gap: 5px; }
+.tb-ml-crew i { width: 16px; height: 16px; border-radius: 50%; flex: none; background: var(--paint); box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px rgba(255, 248, 234, .25); }
+.tb-ml-crew i.is-ok { box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--lime); }
+.tb-ml-crew i.is-you { box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--sun); }
+.tb-lob.is-compact.is-dense .tb-ml-crew { gap: 4px; padding: 0 10px; }
+.tb-lob.is-compact.is-dense .tb-ml-crew i { width: 12px; height: 12px; }
+.tb-ml-crew .tb-micro { margin-left: 6px; color: var(--lime); }
+.tb-ml-vote { left: calc(14px + env(safe-area-inset-left, 0px)); width: 226px; height: 48px; padding: 0 12px 0 8px; display: flex; align-items: center; gap: 9px; text-align: left; color: var(--paper);
+  border-width: 3px; border-radius: 13px; box-shadow: 0 0 0 2.5px var(--ink), inset 0 0 0 2px var(--ink), 0 4px 0 2.5px var(--ink); }
+.tb-ml-vote.is-floor { top: 128px; }
+.tb-ml-vote.is-mode { top: 184px; }
+.tb-ml-vote .ic { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--ink-4); color: var(--paper); box-shadow: inset 0 0 0 2px var(--ink); flex: none; }
+.tb-ml-vote .ic svg { width: 17px; height: 17px; }
+.tb-ml-vote .nm { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tb-ml-vote .nm .tb-micro { color: var(--paper-dim); }
+.tb-ml-vote .nm b { font: 800 14px/1 var(--f-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-ml-vote .n { font-size: 22px; }
+.tb-lob.is-compact .tb-ml-ready { right: calc(22px + env(safe-area-inset-right, 0px)); top: 12px; width: 176px; height: 58px; }
+.tb-lob.is-compact .tb-ml-ready .tb-disp { font-size: 27px; }
+.tb-ml-ready svg { width: 22px; height: 22px; }
+.tb-ml-ready::before { border-radius: 13px; }
+.tb-ml-pause { right: calc(212px + env(safe-area-inset-right, 0px)); top: 18px; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 12px; }
+.tb-ml-pause svg { width: 18px; height: 18px; }
+.tb-ml-hint { left: 0; right: 0; top: 12px; display: flex; justify-content: center; pointer-events: none !important; }
+.tb-ml-hint .tb-rib { height: 30px; padding: 0 12px; gap: 6px; }
+.tb-ml-hint svg { width: 15px; height: 15px; }
+/* narrower phones: the hint gives way to READY and the ticket */
+@media (max-width: 760px) { .tb-ml-hint { display: none; } }
+
+/* the vote sheet: left ~74%, scrollable, closes on pick / outside tap / ✕ */
+.tb-sheet-scrim { position: absolute; inset: 0; background: rgba(10, 6, 28, .5); pointer-events: auto; }
+.tb-sheet { position: absolute; left: calc(10px + env(safe-area-inset-left, 0px)); top: 10px; bottom: 10px; width: min(74vw, 600px); padding: 12px; display: flex; flex-direction: column; pointer-events: auto;
+  border-width: 3px; box-shadow: 0 0 0 2.5px var(--ink), inset 0 0 0 2px var(--ink), 0 5px 0 2.5px var(--ink); }
+.tb-sheet-h { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.tb-sheet-h .tb-disp { font-size: 26px; --sw: 5px; --ex: 3px; color: var(--paper); }
+.tb-sheet-h .tb-lbl { margin-left: auto; color: var(--paper-dim); }
+.tb-sheet-x { width: 44px; height: 44px; min-height: 44px; padding: 0; flex: none; }
+.tb-sheet .tb-votes { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; overflow-y: auto; scrollbar-width: thin; padding: 3px; margin: -3px -3px 0; }
+.tb-sheet .tb-vr { height: 48px; font-size: 13px; }
+.tb-sheet .tb-vr .dots i { width: 11px; height: 11px; }

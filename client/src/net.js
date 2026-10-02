@@ -109,6 +109,20 @@ export function connect() {
   };
 }
 
+// "Try again" on the error screen: drop whatever socket is left (a full
+// room keeps it open) without letting its close handler schedule a second
+// reconnect, then ask again.
+export function retryConnect() {
+  clearTimeout(reconnectTimer);
+  const old = net.ws;
+  if (old) {
+    old.onclose = null; old.onerror = null; old.onmessage = null;
+    try { old.close(); } catch { /* already gone */ }
+  }
+  useStore.setState({ connected: false, connectError: null, connectFatal: false });
+  connect();
+}
+
 export function disconnect() {
   intentionalClose = true;
   net.rejoin = null;
@@ -149,7 +163,7 @@ function handleMessage(msg) {
       net.puddles = [];
       net.rockets = [];
       S.setState({
-        connected: true, connectError: null, myId: msg.id,
+        connected: true, connectError: null, connectFatal: false, myId: msg.id,
         phase: msg.phase, modeId: msg.mode, endsAt: toLocalTime(msg.endsAt), players,
         // mid-countdown joiners get the remaining time; everyone else gets 0
         countdownEnd: msg.countdownMs ? Date.now() + msg.countdownMs : 0,
@@ -164,6 +178,7 @@ function handleMessage(msg) {
         spectating: !!msg.spectating,
         // always set, so a reconnect into a non-cup room drops a stale chip
         cup: msg.cup || null,
+        ...(msg.cup ? {} : { cupLog: [] }),
       });
       // a drop-in is put down by the server (the respawn policy): LocalCar
       // mounts there, or teleports there if it is already running
@@ -220,6 +235,8 @@ function handleMessage(msg) {
         mutator: msg.mutator || null, cup: msg.cup || null, variant: msg.variant || 'classic',
         mapId: msg.map || S.getState().mapId,
         abilityReadyAt: 0, printerFlashUntil: 0,
+        // a new cup (or no cup) starts a fresh log of the rounds played
+        ...(!msg.cup || msg.cup.round <= 1 ? { cupLog: [] } : {}),
       });
       emit('match_start', msg);
       break;
@@ -316,8 +333,9 @@ function handleMessage(msg) {
       break;
     case MSG.OFFICE_EVENT:
       if (msg.warn) {
-        // 3s heads-up before the event actually starts
-        S.setState({ eventWarn: msg });
+        // 3s heads-up before the event actually starts; `until` lets the
+        // telegraph's fuse and number count down on this machine's clock
+        S.setState({ eventWarn: { ...msg, until: Date.now() + (msg.startsIn || 3) * 1000 } });
         S.getState().pushFeed(`Incoming: ${msg.name}`);
         setTimeout(() => {
           const w = S.getState().eventWarn;
@@ -334,7 +352,19 @@ function handleMessage(msg) {
       S.setState({ scores: msg.scores });
       break;
     case MSG.MATCH_END: {
+      const st = S.getState();
+      const gained = msg.xp?.[net.myId] || 0;
+      const mine = msg.podium?.find((p) => p.id === net.myId);
+      // The Office Cup names only its standings; the client remembers which
+      // mode each round was (the results' rounds strip).
+      const cupLog = msg.cup
+        ? [...st.cupLog.filter((r) => r.round < msg.cup.round), { round: msg.cup.round, modeId: st.modeId }]
+        : [];
       S.setState({
+        // the payslip: what this match paid, read BEFORE addXp moves the total
+        lastXp: gained ? { gained, before: st.xp, after: st.xp + gained, place: mine?.place || 0, score: mine?.score || 0 } : null,
+        matchEndAt: Date.now(),
+        cupLog,
         phase: PHASE.PODIUM, podium: msg.podium,
         // lights out / wind / wet floors end with the match, not whenever
         // their duration timer happens to fire
@@ -342,13 +372,12 @@ function handleMessage(msg) {
         rivalry: msg.rivalries?.[net.myId] || null, nemesis: msg.nemesis || null,
         cup: msg.cup || null,
       });
-      const gained = msg.xp?.[net.myId] || 0;
       if (gained) S.getState().addXp(gained);
       emit('match_end', msg);
       break;
     }
     case MSG.ERROR:
-      S.setState({ connectError: msg.reason });
+      S.setState({ connectError: msg.reason, connectFatal: !!msg.fatal });
       if (msg.fatal) {
         // the server turned the connection away (bad code, at capacity):
         // retrying the same request would only be turned away again

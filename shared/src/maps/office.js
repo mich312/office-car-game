@@ -18,7 +18,7 @@
 //   │ area     │ boxes │     │    coffee machine, vending)       │ hoop 🏀 │
 //   └──────────┴───────┴─────┴───────────────────────────────────┴─────────┘
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M; // meters → world units
 
@@ -152,7 +152,10 @@ const f = (type, x, z, w, d, h, rotY = 0) => ({ type, x: u(x), z: u(z), w: u(w),
 
 export const FURNITURE = [
   // Reception — big desk, waiting corner
-  f('recdesk', -17.5, -10.7, 3.2, 1, 1.05),
+  // 1.7 m deep, its back against the wall: the plank jump off the grid
+  // carries a car ~1.6 m past the desk's front at full throttle, and a 1 m
+  // desk dropped it into a 0.7 m trench behind, nose to the wall
+  f('recdesk', -17.5, -11.04, 3.2, 1.68, 1.05),
   // the sofa backs onto the west wall, north of the grid's last row
   f('sofa', -20.3, -3.6, 2.4, 0.95, 0.75, Math.PI / 2),
   f('table', -19, -3.6, 1, 0.6, 0.4, Math.PI / 2),
@@ -200,7 +203,9 @@ export const FURNITURE = [
   f('island', -1, -9.2, 3, 1.1, 0.92),
   // at the run's west end: at its east end (5.3) it stood on the bottom half
   // of the steel ramp, which came out of its door and couldn't be driven
-  f('fridge', -6.9, -11.4, 1, 0.8, 1.9),
+  // flush with the counter's end: the car that drives the worktop stops
+  // against it instead of dropping into a 0.4 m slot between the two
+  f('fridge', -6.5, -11.4, 1, 0.8, 1.9),
   f('vending', 12.4, -11.5, 1, 0.8, 1.9),
   f('bartop', -6.8, -5.42, 0.6, 2.6, 1.1),
   f('table', 6.5, -6.5, 1.2, 1.2, 0.74),
@@ -208,7 +213,8 @@ export const FURNITURE = [
   f('table', 5, -10, 1.2, 1.2, 0.74),
   f('art', -3.5, -11.82, 1.8, 0.1, 1.2),
   // Games corner — foosball, hoop, hangout
-  f('foosball', 15.5, -4.5, 1.4, 0.8, 0.85),
+  // a tournament-length table (1.6 m): the ruler's jump lands on it
+  f('foosball', 15.4, -4.5, 1.6, 0.8, 0.85),
   f('hoop', 20.4, -7, 0.6, 0.6, 2.6, -Math.PI / 2),
   f('sofa', 14.32, -11.35, 2.4, 0.95, 0.75), // back to the south wall
   f('table', 17.5, -10.5, 1, 0.6, 0.4),
@@ -257,8 +263,10 @@ export const RAMPS = [
   ramp(18.5, 8.85, 1.7, 0.55, 0.78, 0, 'books'), // book-stack ramp onto the CEO desk
   ramp(-2.1, 11.3, 1.6, 0.6, 0.75, -Math.PI / 2, 'clipboard'), // clipboard onto the lounge sofa
   // ruler ramp onto the foosball table, from its open east end (off the west
-  // end its foot was 0.1 m from the wall: no way to line up on it)
-  ramp(17.05, -4.5, 1.7, 0.55, 0.85, -Math.PI / 2, 'ruler'),
+  // end its foot was 0.1 m from the wall: no way to line up on it). 2 m long:
+  // at 1.7 m (27°) a full-throttle car cleared the whole table and hit the
+  // wall behind it once the floor shrank to 28 cm a unit
+  ramp(17.2, -4.5, 2.0, 0.55, 0.85, -Math.PI / 2, 'ruler'),
   ramp(-17.5, -9.3, 1.8, 0.6, 1.05, Math.PI, 'plank'), // reception desk jump (tall!)
 ];
 
@@ -332,6 +340,26 @@ export const PROPS = [
   // ---- balcony
   p('plant', -15, 11.2), p('plant', -20.2, -0.3), p('bottle', -14.9, 4.4), p('roll', -16, 0.6),
   p('box', -19.8, 10.8),
+  // ---- side-band clutter (append-only: props are relayed by index). Each
+  // sits 0.6–1 m off the bot line, where a lap ran past a metre and more of
+  // bare floor: close enough to frame the car and get clipped now and then,
+  // clear of pads, beans and the standup discs (scripts/density.mjs lints it)
+  // Each area takes the prop types it already shows (a type new to a view
+  // costs its instanced kinds' draw calls, twice with shadows).
+  // balcony: potted plants and cartons by the straight and the turn in
+  p('plant', -15.9, 7.6), p('box', -15.3, 8.05, 0, 0.4), p('plant', -19.05, 2.25), p('box', -16.9, 1.6, 0, 0.7),
+  p('bottle', -16.95, 0.2, 0, 1.1), p('box', -16.2, 9.6, 0, -0.3), p('plant', -16.85, 3), p('bottle', -18.9, 3.3, 0, 2.6),
+  // reception: along the approach to the storage door
+  p('plant', -16, -5.9), p('box', -15.95, -7.25, 0, 0.2), p('box', -15.2, -8.95, 0, -0.4),
+  // lounge: both sides of the long run under the windows
+  p('basketball', 11.2, 9), p('book', 8.3, 8.45, 0, 0.6), p('plant', 11.5, 10.85), p('plant', 4.2, 7.65),
+  p('book', 4, 9.35, 0, -0.2), p('plant', -10.2, 8.7), p('plant', -13.4, 8.6), p('basketball', -12.4, 10.35),
+  p('book', -9.6, 10.3, 0, 2.2), p('trash', 10.2, 10.45), p('basketball', 9.6, 8.6), p('plant', 7.45, 8.35),
+  p('book', -11.2, 10.45, 0, 0.5),
+  // cafeteria: the east end and the west run past the bar
+  p('chair', 11.8, -8.65, 0, 0.3), p('trash', 11.3, -6.85), p('chair', -6, -7.6, 0, 2.6), p('bottle', -6.5, -9.55, 0, -0.5),
+  // games corner, a chair pushed back from the meeting table, the CEO's door
+  p('basketball', 14.6, -6.2), p('book', 13.9, -8.3, 0, 0.9), p('chair', 16.05, 4.35, 0, 2.9), p('plant', 18.1, 5.75),
 ];
 
 // Race spawn grid — reception, facing east toward the storage door.
@@ -398,7 +426,7 @@ export const BATTERY_SPAWN = cp(-1, 1.5);
 // glass doorways on the east and west walls.
 export const SOCCER = {
   ballSpawn: { x: u(-1), z: u(1.5), y: u(0.5) },
-  ballRadius: u(0.42), // "huge ping pong ball" — bigger than the cars
+  ballRadius: 0.42 / CAR_UNIT_M, // "huge ping pong ball": car-sized, bigger than the cars
   goals: [
     { team: 0, x: u(-8), z: u(4), dir: 1, width: u(1.8), name: 'Focus Goal' }, // focus-booth doorway
     { team: 1, x: u(6), z: u(-0.5), dir: -1, width: u(1.8), name: 'Printer Goal' }, // printer doorway
@@ -459,6 +487,104 @@ export const ROBOT_PATH = [
   cp(2.5, 7.8), cp(2.5, 5), cp(-2.5, 1.5), cp(-5, -1.5),
 ];
 
+// ------------------------------------------------------------ dressing
+// Client-only (client/src/game/dressing/): the server and bots never read
+// these, and nothing here collides with anything the server simulates. All
+// metres. The rules they keep (scripts/density.mjs lints them): 3D things
+// ≥ 0.8 m off pads, beans, checkpoints and spawns and out of the standup
+// discs; anything over 5 cm tall ≥ 1.2 m off the bot line; nothing solid
+// on the soccer pitch (the open office); nothing purple or yellow.
+
+// Floor decals: [kind, x, z, w, d, rotation, opacity]. Tyre marks where
+// the lap turns hardest, wet and leaves outside, crumbs and spills by the
+// tables — at grazing angles below 0.5 they vanish, so most sit at 0.5–0.9.
+const DECALS = [
+  // balcony: rain on concrete, the expansion joints, leaf drifts, the
+  // smokers' corner by the door
+  ['puddle', -16.1, 4.9, 1.5, 1, 0.3, 0.85], ['puddle', -19.2, 8.4, 1, 0.7, 1.2, 0.8], ['wet', -15.2, 6.9, 1.6, 1.1, 0.2, 0.7],
+  ['wet', -18.9, 1.1, 1.2, 0.9, 0.9, 0.6], ['crack', -16.8, 3.2, 1.8, 0.4, 0.4, 0.8], ['crack', -19.5, 10.2, 1.4, 0.35, -0.8, 0.7],
+  ['joint', -17.5, 3, 7, 0.3, 0, 0.8], ['joint', -17.5, 8, 7, 0.3, 0, 0.8],
+  ['leaves', -20.3, 11.3, 1.2, 1, 0.3, 0.9], ['leaves', -14.6, 11.4, 1.1, 0.9, 1.4, 0.85], ['leaves', -20.4, 0.2, 1, 1, 2, 0.85],
+  ['leaves', -14.7, 4.3, 0.9, 1.4, 0.2, 0.8], ['grime', -17.6, 11.05, 3.2, 0.8, 0, 0.6], ['butts', -19.2, -0.35, 0.6, 0.5, 0.4, 0.9],
+  ['tyre2', -17.6, 6.4, 1.2, 3, 0.35, 0.55], ['footprints', -17.4, 0.4, 0.5, 1, 0.1, 0.3],
+  // reception: burnouts on the grid, the swing into the storage door
+  ['tyre', -18.6, -7.5, 1.6, 4, 0.1, 0.45], ['tyre2', -16.8, -7.2, 1.4, 3, -0.6, 0.5], ['scuff', -15, -8, 1.2, 1, 0.3, 0.55],
+  ['footprints', -17.2, -2.6, 0.5, 1, 0.15, 0.3],
+  // lounge
+  ['tyre2', 10.5, 9.7, 1.4, 3.6, 1.35, 0.5], ['tyre', 3.4, 8.1, 1.2, 2.6, 1.3, 0.45], ['tyre2', -9.2, 9.3, 1.4, 3, 1.75, 0.45],
+  ['crumbs', 3.3, 10.6, 0.6, 0.5, 0.3, 0.8], ['crumbs', -4.3, 10.7, 0.5, 0.5, 1.2, 0.7], ['scuff', 12, 9.6, 1.4, 1.1, 0.4, 0.5],
+  ['bunny', 12.8, 7.3, 0.25, 0.2, 0, 0.9], ['bunny', -13.8, 11.8, 0.22, 0.18, 0.5, 0.9],
+  // cafeteria: the mop's story (a spill, the wet patch, footprints through
+  // it), crumbs under the tables, drift marks round the island
+  ['spill', 6.9, -10.4, 0.7, 0.6, 0.4, 0.85], ['wet', 7.1, -10.9, 1.4, 1, 0.2, 0.7], ['footprints', 7.8, -9.4, 0.5, 1, 1.9, 0.45],
+  ['crumbs', 6.5, -6.2, 0.9, 0.8, 0.5, 0.8], ['crumbs', 9.6, -8.8, 0.8, 0.7, 1.4, 0.75], ['crumbs', 5.2, -9.6, 0.7, 0.7, 2.1, 0.7],
+  ['ring', 12, -5, 0.2, 0.2, 0.7, 0.7], ['spill', -5.8, -5.2, 0.5, 0.4, 1.1, 0.7],
+  ['tyre2', -3.6, -9.6, 1.4, 2.8, 0.9, 0.5], ['tyre', 1, -10.35, 1.2, 3.2, 1.57, 0.4], ['tyre2', 7.2, -8.5, 1.4, 3, 1.45, 0.45],
+  ['scuff', 9.5, -7, 1, 0.9, 1, 0.5],
+  // the open office is a pitch: flat things only
+  ['tyre2', -1, 1.5, 1.6, 3.6, 0.6, 0.45], ['scuff', -1.8, 3.5, 1.2, 1, 0.2, 0.5],
+  // games, storage
+  ['tyre2', 17.6, -5.8, 1.4, 3.2, 0.9, 0.5], ['scuff', 15.5, -7.2, 1.2, 1, 0.3, 0.5],
+  ['tyre', -11, -8.1, 1.2, 4, 1.57, 0.4], ['bunny', -13.7, -11.7, 0.25, 0.2, 0.2, 0.9],
+];
+
+// Clutter: [kind, x, z, rotY, opts] (dressing/kinds). Wall-huggers, their
+// backs to the wall; flat things (floor boxes, the mat) wherever.
+const CLUTTER = [
+  // balcony: the smokers' urn by the door, a trough between the west
+  // planters, a fig and a bin in the corner by the bathroom wall
+  ['cigurn', -19.55, -0.62, 0], ['trough', -20.66, 5.7, Math.PI / 2, { len: 2.3 }],
+  ['bigplant', -14.36, -0.66, -Math.PI / 2], ['bin', -14.28, 0.15, -Math.PI / 2, { color: '#3a3d42' }],
+  // reception: the company mat at the terrace door, coats and umbrellas by
+  // it, deliveries waiting by the storage door, a cooler for the guests,
+  // the receptionist's bin beside the desk, a bag by the storage door
+  ['mat', -17.5, -1.62, 0, { w: 1.6, d: 0.9, logo: true }],
+  ['umbrellastand', -20.72, -1.3, Math.PI / 2], ['coatstand', -20.62, -1.95, Math.PI / 2],
+  ['parcels', -14.4, -10.4, -Math.PI / 2], ['watercooler', -20.7, -10.4, Math.PI / 2],
+  ['bin', -19.45, -11.62, 0], ['backpack', -14.35, -9.6, -Math.PI / 2],
+  // lounge: lamps at the sofas' ends, a bean bag and its magazines, a fig in
+  // the corner, a cooler on the server-room wall, a trough on the glass, a
+  // floor box feeding the bar
+  ['floorlamp', -5.65, 11.5, 0], ['floorlamp', 4.65, 11.5, 0, { shade: '#d9785a' }],
+  ['beanbag', -9.75, 11.38, 0.4, { color: '#c0573f' }], ['magazines', -9.3, 10.6, 0.3],
+  ['bigplant', 12.2, 11.62, 0], ['watercooler', 6.95, 7.3, 0], ['trough', -9.3, 7.28, 0, { len: 1.6 }],
+  ['floorbox', 7, 10.55, 0, { cable: 0.5 }], ['backpack', 1, 11.65, Math.PI, { color: '#3f5f8a' }],
+  // cafeteria: the recycling point and the empties by the games door, the
+  // mop and its sign by the tables, a bin by the bar, a fig and yesterday's
+  // papers by the open-office door
+  ['recycling', 11.8, -4.34, Math.PI], ['bottlecrate', 12.62, -5.4, -Math.PI / 2, { n: 2 }],
+  ['bottlecrate', 12.62, -5.9, -Math.PI / 2 + 0.05, { n: 1, color: '#2f5f9e' }],
+  ['mopbucket', 7.3, -11.6, 0.2], ['wetsign', 6.55, -10.95, 0.5], ['bin', -6.1, -4.32, Math.PI],
+  ['bigplant', -2.95, -4.38, Math.PI], ['paperpile', -2.3, -4.3, Math.PI],
+  // printer nook: paper stock, the shredder
+  ['copierpaper', 11.6, -3.74, 0, { n: 2, open: true }], ['shredder', 12.72, -2.3, -Math.PI / 2],
+  // games: bean bags in the corner, somebody's gym bag
+  ['beanbag', 20.2, -11.2, 0.3, { color: '#3f7d7a' }], ['beanbag', 19.25, -11.35, -0.5, { color: '#56606b' }],
+  ['backpack', 13.45, -2.55, Math.PI / 2, { color: '#2f6e4b' }],
+  // open office (the pitch: flat only): floor boxes feeding the pods
+  ['floorbox', -2.55, -1, -Math.PI / 2, { cable: 0.4 }], ['floorbox', 0.55, -1, Math.PI / 2, { cable: 0.4 }],
+  ['floorbox', -2.55, 4, -Math.PI / 2, { cable: 0.4 }], ['floorbox', 0.55, 4, Math.PI / 2, { cable: 0.4 }],
+];
+
+// Static decor from the props' models, where no car reaches: [name, x, y,
+// z, rotY, colour, opts] (y = the surface it stands on).
+const DECOR_PROPS = [
+  ['plant2', 7.45, 1.1, 11.25, 0.3, '#ebe6dc'], ['book', 8.15, 1.1, 11.3, 0.4, '#2f4f7e'], // lounge bar
+  ['mug', -6.8, 1.1, -5.9, 0, '#e8503a'], ['glass', -6.75, 1.1, -6.3], ['sheets', -6.85, 1.1, -5, 0.3, '#fbfaf5'], // café bar
+  ['box', -6.5, 1.9, -11.4, 0.2, '#f1e8dc'], ['bottle', -6.15, 1.9, -11.5, 0, '#2d7fd0'], // on the fridge
+  ['roll', -13.3, 0.85, 0.3], // a spare on the basin counter
+  ['plant', -13.62, 0, 11.6, 0.8, '#3b3d42', { collide: 'box' }], // lounge corner
+  ['plant', -14.45, 0, -11.55, 0, '#b5623f', { collide: 'box' }], // reception corner
+];
+
+// Micro-scatter: [kind, x, z, w, d, n, opts].
+const SCATTER = [
+  ['leaf', -17.5, 5.5, 6.8, 12.8, 480, { edge: 0.5 }], ['leaf', -20.2, 11.2, 1.4, 1.2, 40], ['leaf', -14.7, 11.3, 1, 1.1, 30],
+  ['paper', -1, 1, 5, 4, 7], ['postit', -1, 1.5, 6, 5, 12], ['paper', 9.5, -0.6, 3, 2, 6],
+  ['scrap', 12.3, -4.9, 1, 0.5, 5],
+  ['leaf', 12.2, 11.5, 0.8, 0.6, 12, { colors: ['#4c7a33', '#6f8f3a', '#8a7a3a'] }],
+];
+
 // Everything above, as one map (maps/index registers it).
 export const OFFICE = {
   id: 'office',
@@ -478,6 +604,10 @@ export const OFFICE = {
     clock: { at: [-19.15, 2.32, -11.87], rotY: 0 },
     memos: { at: [-16.05, 1.95, -11.88], rotY: 0 },
   },
+  // The hour the floor opens at (client/src/game/daylight.js defaultHour):
+  // after hours, the sun low in the west, the city lighting up past the
+  // glass — the office's own fiction, and its best light.
+  DEFAULT_HOUR: 'golden',
   // Paint. Most of the floor is the house off-white; a few rooms get their
   // own colour on the walls that face into them (architecture.js), so each
   // reads as a place from car height: a greige reception, sage kitchen,
@@ -497,4 +627,5 @@ export const OFFICE = {
     [-17.5, -4, 2.4], [-1, 0.5, 2], [2.5, -8.8, 3], [9.5, -1, 1.6], [0, 9.7, 2.2],
     [17, 8, 1.7], [-11, -1, 1.8], [16.5, -7, 2], [-6, -6.2, 1.5],
   ],
+  DECALS, CLUTTER, DECOR_PROPS, SCATTER,
 };

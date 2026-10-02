@@ -79,10 +79,10 @@ for (const seed of SEEDS) {
 }
 const meanLap = firstLaps.reduce((a, b) => a + b, 0) / Math.max(1, firstLaps.length);
 check(`race: bots complete laps (${lapped}/${bots} finished lap one)`, lapped >= bots * 0.9);
-// Pace band. Flat out, the balanced car laps the 498-unit line in 29 s; a
-// human learning the map runs ~35-45 s. Bots belong in there — rivals,
-// not ghosts, and not on rails either.
-check(`race: bot pace is competitive but beatable (mean first lap ${meanLap.toFixed(1)} s)`, meanLap > 34 && meanLap < 48);
+// Pace band. Flat out, the balanced car laps the ~400-unit line in 23.5 s
+// (1u = 28 cm of map); a human learning the map runs ~28-38 s. Bots belong
+// in there — rivals, not ghosts, and not on rails either.
+check(`race: bot pace is competitive but beatable (mean first lap ${meanLap.toFixed(1)} s)`, meanLap > 27 && meanLap < 40);
 check(`race: bots collect items (${(pickups / SEEDS.length).toFixed(1)} per race)`, pickups / SEEDS.length >= 10);
 check(`race: bots use what they collect (${items}/${pickups})`, items >= pickups * 0.8);
 check(`race: aimed EMPs catch somebody (${empsHit}/${emps})`, emps === 0 || empsHit / emps >= 0.6);
@@ -110,7 +110,7 @@ check(`race: bots boost on straights (${(boostT / ticks * 100).toFixed(1)}% of t
     total += sim.bots.length; lapped += lapAt.size; firsts.push(...lapAt.values());
   }
   const mean = firsts.reduce((a, b) => a + b, 0) / Math.max(1, firsts.length);
-  check(`reverse: bots race it backwards (${lapped}/${total} lapped, mean ${mean.toFixed(1)} s)`, lapped >= total * 0.9 && mean > 34 && mean < 48);
+  check(`reverse: bots race it backwards (${lapped}/${total} lapped, mean ${mean.toFixed(1)} s)`, lapped >= total * 0.9 && mean > 27 && mean < 40);
 }
 for (const [mode, variant] of [['sumo', 'drift'], ['koth', 'rush']]) {
   let err = null;

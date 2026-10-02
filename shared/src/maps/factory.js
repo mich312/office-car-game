@@ -31,7 +31,7 @@
 // level while others fly over them — and in Packing it gets its own
 // moment: a pallet kicker that jumps it across the belt coming down.
 // ---------------------------------------------------------------------------
-import { M } from '../constants.js';
+import { M, CAR_UNIT_M } from '../constants.js';
 
 const u = (v) => v * M;
 const H = 7; // eaves height of the hall; the sawtooth roof rises above it
@@ -368,7 +368,7 @@ const BATTERY_SPAWN = cp(6, 0); // the box junction
 // and the door in the block wall to Packing (x 4).
 const SOCCER = {
   ballSpawn: { x: u(-4), z: u(-7.5), y: u(0.5) },
-  ballRadius: u(0.42),
+  ballRadius: 0.42 / CAR_UNIT_M, // car-sized, not room-sized: bigger than the cars
   goals: [
     { team: 0, x: u(-12), z: u(-7.5), dir: 1, width: u(1.8), name: 'Goods-In Goal' },
     { team: 1, x: u(4), z: u(-7.5), dir: -1, width: u(1.8), name: 'Packing Goal' },
@@ -564,99 +564,119 @@ export const FACTORY = {
   // light at every hour; the key stays high (it is the roof, not a sun),
   // and what changes through the day is its colour and the glazing's.
   // At night the skylights go deep blue and the 5000 K high-bays and the
-  // machines' own lights do all the work.
+  // machines' own lights do all the work. The 7 m hall holds air: a cool
+  // haze by day, dark blue at night, so the far end of the hall recedes.
   LIGHTING: {
     morning: {
       label: 'Early shift', clock: '06:40',
-      sun: { pos: [70, 210, -60], color: '#e8f0ff', intensity: 1.25 },
-      amb: { intensity: 0.26, color: '#d6e2f6' },
-      hemi: { intensity: 0.42, sky: '#e4eeff', ground: '#3c3c38' },
-      ceiling: 26,
+      sun: { pos: [70, 210, -60], color: '#e8f0ff', intensity: 1.8 },
+      amb: { intensity: 0.12, color: '#d6e2f6' },
+      hemi: { intensity: 0.28, sky: '#e4eeff', ground: '#3c3c38' },
+      ceiling: 0.3,
       env: {
-        intensity: 0.55, bg: '#1a2230',
-        window: { color: '#cfe0ff', intensity: 2.2 }, ceil: { color: '#f2f6ff', intensity: 2.6 },
-        warm: { color: '#ffd9a8', intensity: 0.5 }, key: { color: '#eef4ff', intensity: 1.4 },
+        intensity: 0.36, bg: '#1a2230',
+        window: { color: '#cfe0ff', intensity: 2.2 }, ceil: { color: '#f2f6ff', intensity: 1.8 },
+        warm: { color: '#ffd9a8', intensity: 0.5 }, key: { color: '#eef4ff', intensity: 1.2 },
       },
       shaft: { opacity: 0, color: '#dbe8ff', tilt: 0.99, yaw: 0, length: 22 },
       pool: 0.08, panel: 1.4,
-      bloom: { intensity: 0.6, threshold: 0.8 },
-      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.62 },
+      bloom: { intensity: 0.7, threshold: 1.0 },
+      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.68 },
       practical: 0.5, wet: false,
+      exposure: 1.18,
+      fog: { color: '#8193ad', density: 0.0042 },
+      grade: { contrast: 1.1, sat: 0.94, shadow: '#3a5478', high: '#f0f4ff', split: 0.1, lift: 0.02, vignette: 0.32, grain: 0.03 },
     },
     afternoon: {
       label: 'Day shift', clock: '13:10',
-      sun: { pos: [40, 230, 30], color: '#fff9f0', intensity: 1.5 },
-      amb: { intensity: 0.3, color: '#e6ecf4' },
-      hemi: { intensity: 0.5, sky: '#f2f6ff', ground: '#46443e' },
-      ceiling: 22,
+      sun: { pos: [40, 230, 30], color: '#fff9f0', intensity: 2.1 },
+      amb: { intensity: 0.15, color: '#e6ecf4' },
+      hemi: { intensity: 0.32, sky: '#f2f6ff', ground: '#46443e' },
+      ceiling: 0.25,
       env: {
-        intensity: 0.65, bg: '#28303a',
-        window: { color: '#ffffff', intensity: 3 }, ceil: { color: '#f6f8ff', intensity: 2.8 },
-        warm: { color: '#ffe6c4', intensity: 0.6 }, key: { color: '#ffffff', intensity: 1.8 },
+        intensity: 0.44, bg: '#28303a',
+        window: { color: '#ffffff', intensity: 3 }, ceil: { color: '#f6f8ff', intensity: 2 },
+        warm: { color: '#ffe6c4', intensity: 0.6 }, key: { color: '#ffffff', intensity: 1.6 },
       },
       shaft: { opacity: 0, color: '#fff4dc', tilt: 1.2, yaw: 0, length: 20 },
       pool: 0.06, panel: 1.3,
-      bloom: { intensity: 0.6, threshold: 0.8 },
-      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.66 },
+      bloom: { intensity: 0.6, threshold: 1.05 },
+      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.7 },
       practical: 0.4, wet: false,
+      exposure: 1.1,
+      fog: { color: '#9aa8b8', density: 0.0036 },
+      grade: { contrast: 1.08, sat: 0.96, shadow: '#3a4a60', high: '#fff8ec', split: 0.06, lift: 0.01, vignette: 0.28, grain: 0.025 },
     },
     golden: {
       label: 'Late shift', clock: '18:50',
-      sun: { pos: [-60, 200, 40], color: '#ffe6c8', intensity: 1.25 },
-      amb: { intensity: 0.24, color: '#d9d4d8' },
-      hemi: { intensity: 0.42, sky: '#e8e2e8', ground: '#44382c' },
-      ceiling: 26,
+      sun: { pos: [-60, 200, 40], color: '#ffd8b0', intensity: 1.8 },
+      amb: { intensity: 0.1, color: '#d4ccd6' },
+      hemi: { intensity: 0.26, sky: '#e0d8e6', ground: '#44382c' },
+      ceiling: 0.35,
       env: {
-        intensity: 0.55, bg: '#2a2020',
-        window: { color: '#ffc890', intensity: 2.4 }, ceil: { color: '#f2f4ff', intensity: 2.4 },
-        warm: { color: '#ffb070', intensity: 0.9 }, key: { color: '#fff0e0', intensity: 1.4 },
+        intensity: 0.34, bg: '#2a2020',
+        window: { color: '#ffc890', intensity: 2.4 }, ceil: { color: '#f2f4ff', intensity: 1.6 },
+        warm: { color: '#ffb070', intensity: 0.9 }, key: { color: '#fff0e0', intensity: 1.2 },
       },
       shaft: { opacity: 0, color: '#ffb266', tilt: 0.9, yaw: 0, length: 22 },
       pool: 0.08, panel: 1.4,
-      bloom: { intensity: 0.62, threshold: 0.78 },
-      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.6 },
+      bloom: { intensity: 0.75, threshold: 1.0 },
+      shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.66 },
       practical: 0.55, wet: false,
+      exposure: 1.22,
+      fog: { color: '#6a5a58', density: 0.0044 },
+      grade: { contrast: 1.12, sat: 1.0, shadow: '#34406e', high: '#ffc080', split: 0.12, lift: 0.02, vignette: 0.36, grain: 0.03 },
     },
     night: {
       label: 'Night shift', clock: '02:15',
-      sun: { pos: [30, 220, 20], color: '#dfe6ff', intensity: 0.8 },
-      amb: { intensity: 0.14, color: '#b4c0dc' },
-      hemi: { intensity: 0.26, sky: '#c4d0f0', ground: '#28262a' },
-      ceiling: 34,
+      // the skylights are deep blue; the key is the high-bays now
+      sun: { pos: [30, 220, 20], color: '#b8c6f0', intensity: 0.45 },
+      amb: { intensity: 0.05, color: '#b4c0dc' },
+      hemi: { intensity: 0.12, sky: '#9aa8d8', ground: '#28262a' },
+      ceiling: 0.55,
       env: {
-        intensity: 0.4, bg: '#060a14',
-        window: { color: '#1e2e5a', intensity: 1 }, ceil: { color: '#eef2ff', intensity: 2.4 },
-        warm: { color: '#ffb46a', intensity: 0.5 }, key: { color: '#dfe6ff', intensity: 0.9 },
+        intensity: 0.2, bg: '#060a14',
+        window: { color: '#1e2e5a', intensity: 1 }, ceil: { color: '#eef2ff', intensity: 1.4 },
+        warm: { color: '#ffb46a', intensity: 0.5 }, key: { color: '#dfe6ff', intensity: 0.7 },
       },
       shaft: { opacity: 0, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
       pool: 0.14, panel: 1.8,
-      bloom: { intensity: 0.75, threshold: 0.72 },
+      bloom: { intensity: 0.95, threshold: 0.95 },
       shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.55 },
       practical: 1, wet: false,
+      exposure: 1.42,
+      fog: { color: '#0a1020', density: 0.0056 },
+      grade: { contrast: 1.16, sat: 0.9, shadow: '#2c3854', high: '#ffb870', split: 0.12, lift: 0.024, vignette: 0.46, grain: 0.035 },
     },
     // a power cut: the high-bays die, the skylights still let a little sky
     // in, the emergency lights and the machines on UPS do the rest
     lightsOut: {
       label: 'Power cut', clock: '--:--',
-      sun: { pos: [30, 220, 20], color: '#9fb4e0', intensity: 0.32 },
-      amb: { intensity: 0.1, color: '#8f9ec4' },
-      hemi: { intensity: 0.22, sky: '#8fa4d4', ground: '#1a1814' },
+      sun: { pos: [30, 220, 20], color: '#9fb4e0', intensity: 0.22 },
+      amb: { intensity: 0.03, color: '#8f9ec4' },
+      hemi: { intensity: 0.08, sky: '#8fa4d4', ground: '#1a1814' },
       ceiling: 0,
       env: {
-        intensity: 0.12, bg: '#05060a',
+        intensity: 0.1, bg: '#05060a',
         window: { color: '#3a4e88', intensity: 0.8 }, ceil: { color: '#3a4e88', intensity: 0.5 },
         warm: { color: '#4a3a28', intensity: 0.2 }, key: { color: '#5a6480', intensity: 0.3 },
       },
       shaft: { opacity: 0, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
       pool: 0, panel: 0.02,
-      bloom: { intensity: 0.7, threshold: 0.7 },
+      bloom: { intensity: 1.0, threshold: 0.9 },
       shadow: { bias: -0.0002, normalBias: 0.04, opacity: 0.3 },
       practical: 0.9, wet: false,
+      exposure: 2.0,
+      fog: { color: '#05070f', density: 0.006 },
     },
     // the ceiling point lights: 5000 K, and they reach across the hall
-    points: { color: '#f2f6ff', distance: 30 },
+    points: { color: '#f2f6ff', distance: 13 },
     glow: { at: [13.5, 0], color: '#ffae3d' }, // the Andon board
   },
+  // The hour the hall opens at (daylight.js defaultHour): the night shift —
+  // islands of 5000 K light over the work, the andon and the beacons glowing
+  // through a blue haze. Day shifts are a flat, even north light by design.
+  DEFAULT_HOUR: 'night',
   // the skylight glazing, per hour (the theme lights it)
   SKY: { morning: '#cddcf4', afternoon: '#e6eef8', golden: '#f4d2ae', night: '#0e1a3a' },
   MARKINGS, SIGNS, HANGING, FIRE_POINTS,

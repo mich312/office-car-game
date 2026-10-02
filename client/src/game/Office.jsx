@@ -3,7 +3,6 @@
 import { useMemo, useRef, useLayoutEffect, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
-import { Dust } from './dust.jsx';
 import * as THREE from 'three';
 import { M, SURFACES } from '@rc/shared';
 import { useMap } from './activeMap.js';
@@ -11,11 +10,16 @@ import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
 import Practicals from './Practicals.jsx';
+import SunShafts from './sunShafts.jsx';
+import { makeOfficeSkyMaterial, stepOfficeSky, OFFICE_SKY } from './officeSky.js';
+import { withFloorAO } from './floorAO.js';
+import { CEILING } from './Lighting.jsx';
 import { mat, castsShadow, receivesShadow, foldTint } from './materials.js';
 import { bake, placeMatrix } from './kit.js';
 import { buildPiece, pieceContext, rampParts } from './furniture.js';
 import { buildArchitecture } from './architecture.js';
-import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, stainTex, skylineTex, glowTex, shaftTex, ceilingTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
+import MapDressing from './dressing/index.jsx';
+import { raisedTex, raisedNormal, marbleTex, marbleNormal, epoxyTex, rubberTex, rubberNormal, carpetTex, woodTex, tileTex, concreteTex, glowTex, ceilingTex, carpetNormal, woodNormal, tileNormal, concreteNormal, orangePeel, wearRough } from './textures.js';
 
 // Every floor gets three maps, not one. Albedo alone reads as coloured
 // plastic under a directional light; the normal gives the surface something
@@ -96,6 +100,7 @@ export default function Office() {
       <Walls map={map} />
       <BigFurniture map={map} />
       <Ramps map={map} />
+      <MapDressing map={map} />
       <Practicals map={map} />
       {Dressing ? <Dressing map={map} /> : (
         <>
@@ -111,10 +116,12 @@ export default function Office() {
 }
 
 // -------------------------------------------- baked-look light pools & shafts
-// Positions mirror the ceiling pointLights in Lighting.jsx. Additive floor
-// quads sell the fixtures' cast for free; brightest at night, dead in a
-// blackout (only the server-room emergency pool stays, turning red).
-const POOL_SPOTS = [[-17.5, -6], [-1, 1.5], [2.5, -8], [-0.5, 9.5], [17, 1.5], [17, -7], [-11, -1]];
+// Under each ceiling point (Lighting.jsx CEILING) an additive floor quad
+// sells the fixture's cast for free — the point light itself falls off
+// physically now (decay 2), and the quad is the soft bright core a real
+// downlight leaves. Brightest at night, dead in a blackout (only the
+// server-room emergency pool stays, turning red).
+const POOL_M = 2.6; // pool diameter, metres
 
 function LightPools() {
   const hour = useStore((s) => s.timeOfDay);
@@ -138,76 +145,47 @@ function LightPools() {
   });
   return (
     <group>
-      {POOL_SPOTS.map(([x, z], i) => (
+      {CEILING.map(([x, z], i) => (
         <mesh key={i} rotation-x={-Math.PI / 2} position={[x * M, 0.03, z * M]} material={warmMat}>
-          <planeGeometry args={[11, 11]} />
+          <planeGeometry args={[POOL_M * M, POOL_M * M]} />
         </mesh>
       ))}
       <mesh rotation-x={-Math.PI / 2} position={[9.5 * M, 0.03, 4.5 * M]} material={serverMat}>
-        <planeGeometry args={[9, 9]} />
+        <planeGeometry args={[2.1 * M, 2.1 * M]} />
       </mesh>
     </group>
   );
 }
 
 const SERVER_RED = new THREE.Color('#ff5040'), SERVER_BLUE = new THREE.Color('#3d7bff');
-const _shaftColor = new THREE.Color();
 
-// Light through the north windows, laid down as giant parallel slabs. These
-// are the bands you drive through, so they take their tilt from the sun's
-// elevation: a low golden-hour sun lays them almost flat along the floor and
-// a high afternoon sun drops them steeply onto it.
+// Sunbeams through the north glass (sunShafts.jsx): one per window bay of
+// the lounge and the CEO suite, shaped by the sun's real direction.
+const SHAFT_BAYS = [[-12, 2], [-7.2, 2], [-2.4, 2], [2.4, 2], [7.2, 2], [11.4, 1.6], [15.2, 1.8], [18.8, 1.8]];
+const NORTH_GLASS = { z: 11.9, top: 2.85 };
 function LightShafts() {
-  const hour = useStore((s) => s.timeOfDay);
-  const event = useStore((s) => s.event);
-  const lightsOut = event?.id === 'lights_out';
-  const group = useRef();
-  const mat = useRef();
-  const tex = useMemo(() => shaftTex(), []);
-  const light = lightingFor(hour, lightsOut);
-  useFrame((_, dt) => {
-    if (!mat.current) return;
-    const k = Math.min(1, dt * 1.8);
-    const s = light.shaft;
-    mat.current.opacity += (s.opacity - mat.current.opacity) * k;
-    mat.current.color.lerp(_shaftColor.set(s.color), k);
-    if (group.current) {
-      group.current.rotation.x += (s.tilt - group.current.rotation.x) * k;
-      group.current.rotation.y += (s.yaw - group.current.rotation.y) * k;
-      const sc = s.length / 22;
-      group.current.scale.y += (sc - group.current.scale.y) * k;
-    }
-  });
-  // shared material across all shafts (first mesh's ref drives them all)
-  const material = useMemo(() => new THREE.MeshBasicMaterial({
-    map: tex, color: '#8fa8ff', transparent: true, opacity: 0.08,
-    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false,
-  }), [tex]);
-  mat.current = material;
-  return (
-    <group ref={group} position={[0, 6.1, 50]} rotation-x={0.99}>
-      {[-50, -20, 10, 40, 70].map((x, i) => (
-        <mesh key={i} position={[x, 0, 0]} material={material}>
-          <planeGeometry args={[7, 22]} />
-        </mesh>
-      ))}
-    </group>
-  );
+  return <SunShafts light={officeLightNow} bays={SHAFT_BAYS} glass={NORTH_GLASS} M={M} />;
 }
+const officeLightNow = () => {
+  const st = useStore.getState();
+  return lightingFor(st.timeOfDay, st.event?.id === 'lights_out');
+};
 
 // ------------------------------------------------------------------ floors
 function Floors({ map }) {
   const { ROOMS, MAP_BOUNDS } = map;
   // a map can tint a floor type (the cellar's lino and concrete are older and
   // greyer than upstairs): the tint multiplies the albedo map
+  // Every floor also takes the map's baked occlusion and wear (floorAO.js):
+  // dark under furniture and along the walls, polished down the racing line.
+  // (Floors remounts with its map — Office keys the group on map.id.)
   const tints = map.LOOK?.floors;
   const mats = useMemo(() => Object.fromEntries(Object.entries(FLOOR_MATS).map(([k, fn]) => {
     const m = fn();
     if (tints?.[k]) m.color.set(tints[k]);
+    withFloorAO(m, map);
     return [k, m];
   })), [tints]);
-  const stain = useMemo(() => new THREE.MeshBasicMaterial({ map: stainTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }), []);
-  const stains = map.STAINS || [];
   const floorGeos = useMemo(() => ROOMS.map(floorGeometry), [ROOMS]);
   useEffect(() => () => floorGeos.forEach((g) => g.dispose()), [floorGeos]);
   return (
@@ -220,12 +198,7 @@ function Floors({ map }) {
         <mesh key={r.id} rotation-x={-Math.PI / 2} position={[r.x, r.floor === 'concrete' ? -0.02 : 0, r.z]} receiveShadow
           material={mats[r.floor]} geometry={floorGeos[i]} />
       ))}
-      {/* coffee stains */}
-      {stains.map(([x, z, s], i) => (
-        <mesh key={i} rotation-x={-Math.PI / 2} rotation-z={i * 1.7} position={[x * M, 0.02, z * M]} material={stain}>
-          <planeGeometry args={[s * M * 0.35, s * M * 0.3]} />
-        </mesh>
-      ))}
+      {/* the coffee stains are drawn with the map's decals (dressing/decals.js) */}
     </>
   );
 }
@@ -278,12 +251,30 @@ const BEZEL_GEO = (() => {
   return g;
 })();
 
+// After hours most troffers are off — motion sensors, zone by zone — and
+// the few still on cluster round the ceiling points (where Lighting.jsx's
+// real lights are, so the lit panels and the light on the floor agree).
+// That turns a uniformly lit building into lit islands and dark stretches to
+// drive between. Share of zones switched off, per hour:
+const TROFFERS_OFF = { morning: 0, afternoon: 0, golden: 0.6, night: 0.7 };
+
 function Ceiling({ map }) {
   const { WALL_HEIGHT } = map;
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
-  const panelMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 }), []);
+  // an off panel is a white diffuser lit only by the room: the per-instance
+  // colour switches the glow, not the paint
+  const panelMat = useMemo(() => {
+    const m = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff4dd', emissiveIntensity: 1.6 });
+    m.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <color_fragment>', '')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_INSTANCING_COLOR\n\ttotalEmissiveRadiance *= vColor;\n#endif');
+    };
+    m.customProgramCacheKey = () => 'troffer';
+    return m;
+  }, []);
   // front side only: the slabs face down, so from above (photo mode's
   // aerial) the office reads as a dollhouse, not a white lid
   const tileMat = useMemo(() => new THREE.MeshStandardMaterial({ map: ceilingTex(), roughness: 0.95 }), []);
@@ -339,10 +330,29 @@ function Ceiling({ map }) {
     inst.current.instanceMatrix.needsUpdate = true;
     bezel.current.instanceMatrix.needsUpdate = true;
   }, [panels]);
+  // which panels are lit: on an hour change, not per frame (the emissive
+  // intensity above still eases, so the switch reads as the room dimming)
+  useLayoutEffect(() => {
+    const spots = (map.CEILING_LIGHTS || CEILING).map(([x, z]) => [x * M, z * M]);
+    const off = lightsOut ? 1 : TROFFERS_OFF[hour] ?? 0;
+    const c = new THREE.Color();
+    panels.forEach(([x, z], i) => {
+      const near = spots.some(([sx, sz]) => Math.hypot(x - sx, z - sz) < 3.4 * M);
+      // a zone is ~2 × 2 panels (7 × 6.5 m): hash it, not the panel, so dark
+      // reads as a switched-off area rather than salt and pepper
+      const zx = Math.floor(x / (6.8 * M)), zz = Math.floor(z / (6.4 * M));
+      const h = Math.abs(Math.sin(zx * 127.1 + zz * 311.7) * 43758.5453) % 1;
+      const on = !lightsOut && (off === 0 || near || h >= off);
+      inst.current.setColorAt(i, c.setScalar(on ? 1 : 0));
+    });
+    if (inst.current.instanceColor) inst.current.instanceColor.needsUpdate = true;
+  }, [panels, hour, lightsOut, map]);
   return (
     <group>
-      <mesh rotation-x={Math.PI / 2} position={[3.5 * M, WALL_HEIGHT, 0]} geometry={slabs[0]} material={tileMat} />
-      <mesh rotation-x={Math.PI / 2} position={[-17.7 * M, WALL_HEIGHT, -6.5 * M]} geometry={slabs[1]} material={tileMat} />
+      {/* the slabs cast: the sun reaches the floor only through the glass
+          (Lighting.jsx fades the shadow box's edge to shade on this floor) */}
+      <mesh rotation-x={Math.PI / 2} position={[3.5 * M, WALL_HEIGHT, 0]} geometry={slabs[0]} material={tileMat} castShadow />
+      <mesh rotation-x={Math.PI / 2} position={[-17.7 * M, WALL_HEIGHT, -6.5 * M]} geometry={slabs[1]} material={tileMat} castShadow />
       <instancedMesh ref={inst} args={[null, null, panels.length]} material={panelMat} frustumCulled={false}>
         <planeGeometry args={[1.16 * M, 0.56 * M]} />
       </instancedMesh>
@@ -507,20 +517,30 @@ function Ramps({ map }) {
 }
 
 // ------------------------------------------- outside: skyline, rain, night
+// The sky and the city past the glass follow the hour (officeSky.js): a
+// golden-hour sun low in the west over dark towers, the city lighting up as
+// the light goes.
 function Outside() {
   const hour = useStore((s) => s.timeOfDay);
   const wet = lightingFor(hour, false).wet;
-  const sky = useMemo(() => skylineTex(), []);
+  const skies = useMemo(() => [makeOfficeSkyMaterial(1), makeOfficeSkyMaterial(90 / 140)], []);
+  useEffect(() => () => skies.forEach((m) => m.dispose()), [skies]);
+  const first = useRef(true);
+  useFrame((_, dt) => {
+    const st = useStore.getState();
+    const out = st.event?.id === 'lights_out';
+    const L = lightingFor(st.timeOfDay, out);
+    stepOfficeSky(skies, out ? OFFICE_SKY.lightsOut : OFFICE_SKY[st.timeOfDay] || OFFICE_SKY.golden, L.sun.pos, first.current ? 1 : Math.min(1, dt * 1.8));
+    first.current = false;
+  });
   return (
     <group>
       {/* city backdrop past the north windows */}
-      <mesh position={[0, 10 * M * 0.32, 27 * M]} rotation-y={Math.PI}>
+      <mesh position={[0, 10 * M * 0.32, 27 * M]} rotation-y={Math.PI} material={skies[0]}>
         <planeGeometry args={[140 * M, 11 * M]} />
-        <meshBasicMaterial map={sky} fog={false} />
       </mesh>
-      <mesh position={[-27 * M, 10 * M * 0.32, 5 * M]} rotation-y={Math.PI / 2}>
+      <mesh position={[-27 * M, 10 * M * 0.32, 5 * M]} rotation-y={Math.PI / 2} material={skies[1]}>
         <planeGeometry args={[90 * M, 11 * M]} />
-        <meshBasicMaterial map={sky} fog={false} />
       </mesh>
       <Rain />
       {/* wet balcony sheen once the light has gone */}
@@ -570,7 +590,8 @@ function Rain() {
   );
 }
 
-// -------------------------------------------------- dust + floating paper
+// ----------------------------------------------------------- floating paper
+// (the dust lives in the sunbeams now — sunShafts.jsx — where dust shows)
 function Ambience() {
   const papers = useRef();
   const paperData = useMemo(() => Array.from({ length: 12 }, () => ({
@@ -598,7 +619,6 @@ function Ambience() {
   });
   return (
     <group>
-      <Dust count={140} scale={[140, 15, 90]} position={[0, 8, 0]} size={2.2} speed={0.25} opacity={0.35} color="#ffe9c9" />
       <instancedMesh ref={papers} args={[null, null, 12]} frustumCulled={false}>
         <planeGeometry args={[1.16, 1.65]} />
         <meshStandardMaterial color="#f4f2ec" side={THREE.DoubleSide} roughness={0.9} />

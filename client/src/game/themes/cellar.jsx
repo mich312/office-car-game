@@ -21,6 +21,7 @@ import { Body } from '../propBody.jsx';
 import { useMap } from '../activeMap.js';
 import { Kit, prism } from './cellar-kit.js';
 import { cellarMats, WORLD_UV, CASTS } from './cellar-tex.js';
+import { withFloorAO } from '../floorAO.js';
 import { labelsFor } from './cellar-labels.js';
 import { buildWalls, buildGlass, buildDoors, buildFloors, buildMarkings, buildCeiling, buildSigns, buildFixtures } from './cellar-set.js';
 import { buildPiece, pieceFrame, crt, tower, keyboard, C } from './cellar-pieces.js';
@@ -60,7 +61,19 @@ function buildStatic(map) {
 export function Dressing({ map }) {
   const { parts, sprinklers } = useMemo(() => buildStatic(map), [map]);
   useEffect(() => () => parts.forEach((p) => p.geometry.dispose()), [parts]);
-  const mats = useMemo(() => ({ ...cellarMats(), ...labelsFor(map).mats }), [map]);
+  const mats = useMemo(() => {
+    const base = cellarMats();
+    // the finishes laid over the engine's floor take the map's baked
+    // occlusion and wear too (floorAO.js)
+    for (const k of ['vinyl', 'raised', 'perf', 'esd', 'carpet', 'conc']) {
+      withFloorAO(base[k], map);
+      // and the map's tint (LOOK.finishes): a basement floor must not be the
+      // brightest thing in a room lit from pools overhead
+      const tint = map.LOOK?.finishes?.[k];
+      if (tint) base[k].color.set(tint);
+    }
+    return { ...base, ...labelsFor(map).mats };
+  }, [map]);
   return (
     <group name="cellar-dressing">
       {parts.map((p, i) => (
@@ -240,7 +253,19 @@ function propParts(type, map) {
 const U = 0.4; // the Body's origin above the prop's floor, in units
 function CellarProp({ p, spec, type, map }) {
   const parts = propParts(type, map);
-  const mats = useMemo(() => ({ ...cellarMats(), ...labelsFor(map).mats }), [map]);
+  const mats = useMemo(() => {
+    const base = cellarMats();
+    // the finishes laid over the engine's floor take the map's baked
+    // occlusion and wear too (floorAO.js)
+    for (const k of ['vinyl', 'raised', 'perf', 'esd', 'carpet', 'conc']) {
+      withFloorAO(base[k], map);
+      // and the map's tint (LOOK.finishes): a basement floor must not be the
+      // brightest thing in a room lit from pools overhead
+      const tint = map.LOOK?.finishes?.[k];
+      if (tint) base[k].color.set(tint);
+    }
+    return { ...base, ...labelsFor(map).mats };
+  }, [map]);
   return (
     <Body p={p} mass={spec.mass} friction={spec.friction ?? 0.7} angularDamping={spec.angularDamping ?? 0.15}>
       {spec.box && (

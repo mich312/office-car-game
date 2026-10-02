@@ -12,20 +12,25 @@ import {
   rightingTorque, airRightingK, groundRightingK, roofKickNeeded, recoveryTick, RECOVERY_AFTER_S,
   SLOPE_ASSIST, GRAVITY, BOOST_MAX, BOOST_REGEN, BOOST_DRAIN,
   BATTERY_SPEED_PENALTY, RESPAWN_Y, INPUT_SEND_RATE,
-  DRIFT_TIER_BOOST_S, DRIFT_TIER_COLORS, SLIPSTREAM,
+  DRIFT_TIER_BOOST_S, DRIFT_TIER_TIMES, DRIFT_TIER_COLORS, SLIPSTREAM,
   POWERUP_EFFECT, PHASE, MSG, M, ABILITY_FX,
   BUMP_REL_SPEED, BUMP_MIN_FWD_KEEP, SPEED_HARD_CAP, ANGVEL_CAP, DOWNFORCE,
   SAFE_POSE_INTERVAL_MS, SAFE_POSE_BUFFER, SAFE_POSE_MIN_GROUNDED_S,
   tunedStats, driftTier, driftStep, newDriftState, isDrifting, brakeDecel, COAST_DRAG,
   landingStrength, impactStrength, chaseHeading, raceSpawn, soccerKickoff,
   SURFACES, surfaceAt, floorHeight, seamCell,
+  CHASE, chaseFov, chaseRig, LEAN, leanTarget, newHeave, heaveStep,
 } from '@rc/shared';
 import { useStore } from '../store.js';
 import { net, on, send, sendState, sampleRemote, remoteVelocity } from '../net.js';
 import { useControls } from './useControls.js';
 import CarModel, { tyreScale } from './CarModel.jsx';
-import Particles, { burst, puff } from './particles.jsx';
+import Particles, { burst, smoke } from './particles.jsx';
 import SkidMarks, { skid } from './SkidMarks.jsx';
+import BlobShadows, { blobCars } from './BlobShadows.jsx';
+import { carView, setCamProbe, clearLens } from './carView.js';
+import { setRimLight } from './carKit.js';
+import { lightingFor } from './daylight.js';
 import { audio } from '../audio.js';
 import { rumble } from './rumble.js';
 import { currentMap } from './activeMap.js';
@@ -38,6 +43,12 @@ const BASE_MASS = 14;
 const MOTION = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.3 : 1;
 const DUST = ['#d9cfc0', '#c4b8a6', '#efe6d8'];
 const SPARKS = ['#ffe27a', '#ffb347', '#ffffff'];
+// Tyre smoke takes the colour of what it came off: rubber haze on hard
+// floors, warmer on wood, and carpet throws up a duller, thinner fibre dust.
+const SMOKE_TINT = {
+  wood: ['#e0d0b4', 0.26], carpet: ['#b3a597', 0.18], rug: ['#b3a597', 0.18], rubber: ['#9a9590', 0.2],
+};
+const SMOKE_DEFAULT = ['#efedea', 0.26];
 const HALF = { x: CAR_WIDTH / 2, y: CAR_HEIGHT / 2, z: CAR_LENGTH / 2 };
 const WHEELS = [
   [-0.28, -0.05, 0.34], [0.28, -0.05, 0.34], // front L/R
@@ -57,12 +68,29 @@ const _torque = { x: 0, y: 0, z: 0 }; // righting torque impulse
 const _worldUp = { x: 0, y: 1, z: 0 };
 const _camTarget = new THREE.Vector3();
 // what the chase camera may not sit inside: fixed colliders that aren't
-// sensors (QueryFilterFlags ONLY_FIXED | EXCLUDE_SENSORS) — props and other
-// cars move, and pulling the lens in for them would make it twitch
+// sensors (QueryFilterFlags ONLY_FIXED | EXCLUDE_SENSORS)…
 const CAM_BLOCKERS = 6 | 8;
+// …and big loose props (ONLY_DYNAMIC | EXCLUDE_SENSORS, filtered by size): at
+// a metre off the floor a sofa or a plant pot fills the lens as surely as a
+// wall does. Mugs and pens don't count — pulling in for them is twitch.
+const CAM_PROPS = 3 | 8;
+const BIG_PROP = 0.35; // u³ — about one and a half cars
+const bigProp = new Map(); // collider handle → big enough to block the lens
+const isBigProp = (c) => {
+  let b = bigProp.get(c.handle);
+  if (b === undefined) { b = c.volume() > BIG_PROP; bigProp.set(c.handle, b); }
+  return b;
+};
 const _camPos = new THREE.Vector3();
 const _look = new THREE.Vector3();
+const _anchor = new THREE.Vector3(); // the car as drawn (interpolated)
+const _aq = new THREE.Quaternion();
+const _vfwd = new THREE.Vector3();
+const _pivot = new THREE.Vector3();
+const _rig = {};
+const _lean = {};
 const _chase = [0, 1];
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 // One object for the life of the app. react-three-rapier re-applies a body's
 // transform (from the last RENDERED pose) whenever a mutable prop changes,
 // and an inline {{…}} is a new object — i.e. a change — on every render. A
@@ -71,7 +99,7 @@ const _chase = [0, 1];
 // every round with a mutator started from wherever you'd parked.
 const ME = { playerId: 'me' };
 
-export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0, boostHeld: false, miniTurbos: 0 }; // read by HUD/minimap/controller
+export const telemetry = { boost: BOOST_MAX, speed: 0, x: 0, z: 0, heading: 0, grounded: false, y: 0, steer: 0, throttle: 0, roll: 0, pitch: 0, boostHeld: false, miniTurbos: 0, driftTier: 0, driftCharge: 0 }; // read by HUD/minimap/controller
 if (typeof window !== 'undefined') window.__rcTelemetry = telemetry;
 
 export default function LocalCar() {
@@ -123,7 +151,15 @@ export default function LocalCar() {
     slipBoostUntil: 0,
     slipCooldownUntil: 0,
     shake: 0,
-    fov: 60,
+    fov: CHASE.fov,
+    // chase rig (see shared/src/feel.js CHASE): smoothed yaw and heights,
+    // the launch/brake surge, how far a wall has pulled the lens in
+    camYaw: 0,
+    camY: 0,
+    lookY: 0,
+    aLongSm: 0,
+    camPull: 0,
+    camReset: true,
     speed: 0,
     steerVis: 0,
     slipping: false,
@@ -146,6 +182,7 @@ export default function LocalCar() {
     squash: 0, // 0…1 landing squash on the visual shell
     camDip: 0, // 0…1 landing camera dip
     fovPunch: 0, // degrees of zoom-in on a hit
+    groundY: [0, 0, 0, 0], // world y under each wheel (smoke is laid on it)
   }).current;
 
   // the engine sound wears the selected car's voice
@@ -155,8 +192,11 @@ export default function LocalCar() {
   const steerRef = useRef(0);
   const boostingRef = useRef(false);
   const flagsRef = useRef(0);
-  // measured weight transfer (rad): roll from lateral G, pitch from accel/brake
-  const leanRef = useRef({ roll: 0, pitch: 0 });
+  // measured weight transfer (rad): roll from lateral G, pitch from
+  // accel/brake; plus the raw per-step accelerations (antenna, heave, surge),
+  // the slip angle (front wheels counter-steer) and extra rear-wheel spin
+  const leanRef = useRef({ roll: 0, pitch: 0, aLat: 0, aLong: 0, aUp: 0, slip: 0, spin: 0, heave: 0 });
+  const heave = useRef(newHeave());
   // per-wheel visual Y (local) so the wheels follow the suspension rays
   const wheelR = (carId === 'monster' ? 0.18 : 0.13) * tyreScale(style?.tyre);
   const wheelYRef = useRef([0, 0, 0, 0].map(() => -0.05 - car.settle + wheelR));
@@ -171,14 +211,47 @@ export default function LocalCar() {
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     S.postHSpeed = -1; // a teleport's speed change is not a crash
     S.drift = newDriftState(); // nor does a drift survive one
+    S.camReset = true; // …nor should the lens sweep across the map after it
+    S.pvx = undefined; // and the jump is no acceleration
   };
   // headless testing / screenshots, alongside window.__rcTelemetry: park the
-  // car at (x, z) meters facing rotY
+  // car at (x, z) meters facing rotY — optionally dropped from y (world units)
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    window.__rcTeleport = (x, z, rotY = 0) => teleport(x * M, SPAWN_Y, z * M, rotY);
+    window.__rcTeleport = (x, z, rotY = 0, y) => teleport(x * M, y ?? SPAWN_Y, z * M, rotY);
     return () => { delete window.__rcTeleport; };
   });
+
+  // The lens probe every camera uses (carView.js): one ray from the origin to
+  // the lens against fixed colliders, one against big loose props, never our
+  // own car. → the share of the way the lens may go, stopping 0.15 short of
+  // whatever is in the way but never closer than 0.45 to the origin.
+  useEffect(() => {
+    let ray = null;
+    setCamProbe((ox, oy, oz, tx, ty, tz) => {
+      const dx = tx - ox, dy = ty - oy, dz = tz - oz;
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 0.46) return 1;
+      ray ||= new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
+      ray.origin.x = ox; ray.origin.y = oy; ray.origin.z = oz;
+      ray.dir.x = dx / len; ray.dir.y = dy / len; ray.dir.z = dz / len;
+      const body = rb.current || undefined;
+      const wall = world.castRay(ray, len, true, CAM_BLOCKERS, undefined, undefined, body);
+      const prop = world.castRay(ray, len, true, CAM_PROPS, undefined, undefined, body, isBigProp);
+      const t = Math.min(wall ? wall.timeOfImpact ?? wall.toi : Infinity, prop ? prop.timeOfImpact ?? prop.toi : Infinity);
+      return Number.isFinite(t) ? Math.min(1, Math.max(0.45, t - 0.15) / len) : 1;
+    });
+    return () => { setCamProbe(null); bigProp.clear(); };
+  }, [world, rapier]);
+  // our car's contact shadow (BlobShadows): the drawn car, and the body its
+  // ground ray must not hit
+  useEffect(() => {
+    blobCars.set('me', { obj: visual.current, body: rb });
+    return () => {
+      blobCars.delete('me');
+      setRimLight(); // the garage turntable gets the neutral rim back
+    };
+  }, []);
 
   // Ask the server for a respawn. It scores the spawn slots (races get our
   // safe-pose proposal instead) and answers with RESPAWN_AT → we teleport,
@@ -292,7 +365,12 @@ export default function LocalCar() {
               rumble(1, 350);
               audio.duck(0.5, 0.2, 0.9);
             }
-            if (fx.at) burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8 });
+            if (fx.at) {
+              burst(fx.at, { count: fx.blocked ? 10 : 30, color: ['#ffb347', '#ff5c33', '#ffe27a'], speed: 12, size: 0.18, ttl: 0.8, kind: 'spark' });
+              for (let i = 0; i < (fx.blocked ? 2 : 6); i++) {
+                smoke(fx.at, [(Math.random() - 0.5) * 3, 1 + Math.random(), (Math.random() - 0.5) * 3], { size: 0.25, grow: 3.5, ttl: 1.4, color: '#5a5550', alpha: 0.4, rise: 1.2 });
+              }
+            }
             break;
           case 'robot_hit':
             if (fx.target === me) {
@@ -334,7 +412,7 @@ export default function LocalCar() {
             if (fx.a !== me && fx.b !== me) {
               // spectator view of someone else's collision: sparks at impact
               if (fx.kind === 'hit' && fx.at) {
-                burst([fx.at[0], (fx.at[1] || 0) + 0.3, fx.at[2]], { count: 10, color: ['#ffe27a', '#ffb347', '#ffffff'], speed: 6, size: 0.07, ttl: 0.4, up: 2 });
+                burst([fx.at[0], (fx.at[1] || 0) + 0.3, fx.at[2]], { count: 10, color: ['#ffe27a', '#ffb347', '#ffffff'], speed: 6, size: 0.07, ttl: 0.4, up: 2, kind: 'spark' });
                 audio.impact(0.45, fx.at); // placed in the world: the panner does distance and side
               }
               break;
@@ -419,7 +497,7 @@ export default function LocalCar() {
           case 'eliminated':
             // zap sparks where they went down; if it's me, park the car in
             // the ghost realm — SpectatorCam takes the camera from here
-            if (fx.at) burst(fx.at, { count: 26, color: ['#ff5f6b', '#ffe27a', '#fff'], speed: 9, size: 0.14, ttl: 0.9 });
+            if (fx.at) burst(fx.at, { count: 26, color: ['#ff5f6b', '#ffe27a', '#fff'], speed: 9, size: 0.14, ttl: 0.9, kind: 'spark' });
             if (fx.id === me) {
               audio.zap();
               audio.duck(0.7, 0.8, 1.6);
@@ -474,6 +552,20 @@ export default function LocalCar() {
     const fwdSpeed = _v.dot(_fwd);
     S.speed = _v.length();
     speedRef.current = fwdSpeed;
+    // Acceleration in the car's own frame, measured per physics step (fixed
+    // dt): what the last step's forces and contacts actually did. The body
+    // lean, the antenna, the heave and the camera surge all read it. Measured
+    // per render frame it was spiky — at 144 Hz most frames hold no step
+    // (reads 0) and the rest hold one (reads 2.4× too much).
+    if (S.pvx !== undefined) {
+      const clampA = (n) => Math.max(-60, Math.min(60, n));
+      const ax = (vel.x - S.pvx) / dt, ay = (vel.y - S.pvy) / dt, az = (vel.z - S.pvz) / dt;
+      const L = leanRef.current;
+      L.aLat = clampA(ax * _right.x + az * _right.z);
+      L.aLong = clampA(ax * _fwd.x + az * _fwd.z);
+      L.aUp = clampA(ay);
+    }
+    S.pvx = vel.x; S.pvy = vel.y; S.pvz = vel.z;
 
     // ---------------- suspension: 4 rays along car-down
     // The Ray is built once and re-aimed per wheel: four allocations every
@@ -493,6 +585,7 @@ export default function LocalCar() {
       const hit = world.castRayAndGetNormal(ray, SUSPENSION_REST + 0.15, true, undefined, undefined, undefined, body);
       // wheel visual sits where the ray hit (or droops at full travel in the air)
       wheelYRef.current[wi] = wy - (hit ? Math.min(hit.timeOfImpact ?? hit.toi, SUSPENSION_REST + 0.1) : SUSPENSION_REST * 0.8) + wheelR;
+      S.groundY[wi] = hit ? _p.y + ray.dir.y * (hit.timeOfImpact ?? hit.toi) : pos.y - 0.3;
       if (hit) {
         // the floor under this wheel isn't perfectly flat: grout grooves,
         // plank seams and pile (shared/src/surfaces.js). Only on the floor
@@ -547,7 +640,17 @@ export default function LocalCar() {
         S.squash = Math.max(S.squash, landing);
         S.camDip = Math.max(S.camDip, landing);
         S.shake = Math.max(S.shake, 0.12 + landing * 0.35);
-        burst([pos.x, pos.y - 0.12, pos.z], { count: Math.round(5 + landing * 14), color: DUST, speed: 2 + landing * 4, size: 0.09, ttl: 0.55, up: 0.9, gravity: 0.4 });
+        // a ring of dust kicked out from under the car, and a few grains
+        const gy = (S.groundY[0] + S.groundY[1] + S.groundY[2] + S.groundY[3]) / 4;
+        const [tint] = SMOKE_TINT[S.wheelSurf?.id] || SMOKE_DEFAULT;
+        const n = Math.round(5 + landing * 7);
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + Math.random() * 0.6;
+          const sp = 1.2 + landing * 3;
+          smoke([pos.x + Math.cos(a) * 0.35, gy + 0.05, pos.z + Math.sin(a) * 0.45], [Math.cos(a) * sp, 0.2, Math.sin(a) * sp],
+            { size: 0.12, grow: 3.2, ttl: 0.9, color: tint, alpha: 0.18 + landing * 0.16, floor: gy, drag: 0.04, rise: 0.25, jitter: 0.3 });
+        }
+        burst([pos.x, gy + 0.05, pos.z], { count: Math.round(2 + landing * 6), color: DUST, speed: 2 + landing * 4, size: 0.05, ttl: 0.55, up: 0.9, gravity: 0.4 });
         audio.thud(landing);
         if (landing > 0.7) audio.duck(0.25, 0.08, 0.5);
         rumble(0.25 + landing * 0.6, 90 + landing * 120);
@@ -562,7 +665,7 @@ export default function LocalCar() {
         // sparks where we were headed, i.e. at whatever stopped us
         const pl = S.postHSpeed || 1;
         burst([pos.x + (S.postVX / pl) * 0.55, pos.y + 0.1, pos.z + (S.postVZ / pl) * 0.55],
-          { count: Math.round(4 + hit * 12), color: SPARKS, speed: 3 + hit * 5, size: 0.06, ttl: 0.35, up: 2 });
+          { count: Math.round(4 + hit * 12), color: SPARKS, speed: 3 + hit * 5, size: 0.06, ttl: 0.35, up: 2, kind: 'spark' });
         audio.impact(0.3 + hit * 0.7);
         if (hit > 0.6) audio.duck(0.3, 0.1, 0.6);
         rumble(0.3 + hit * 0.7, 80 + hit * 140);
@@ -770,7 +873,7 @@ export default function LocalCar() {
         for (const rear of [WHEELS[2], WHEELS[3]]) {
           _corner.set(rear[0], rear[1] - 0.05, rear[2]).applyQuaternion(_q);
           burst([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z],
-            { count: 5 + dr.tierUp * 2, color: DRIFT_TIER_COLORS[dr.tierUp - 1], speed: 3.5, size: 0.07, ttl: 0.4, up: 2.2 });
+            { count: 5 + dr.tierUp * 2, color: DRIFT_TIER_COLORS[dr.tierUp - 1], speed: 3.5, size: 0.07, ttl: 0.4, up: 2.2, kind: 'spark' });
         }
       }
       if (drifting) {
@@ -779,7 +882,7 @@ export default function LocalCar() {
           for (const rear of [WHEELS[2], WHEELS[3]]) {
             _corner.set(rear[0], rear[1] - 0.08, rear[2]).applyQuaternion(_q);
             burst([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z],
-              { count: 1, color: DRIFT_TIER_COLORS[tier - 1], speed: 2.5, size: 0.055, ttl: 0.3, up: 1.5 });
+              { count: 1, color: DRIFT_TIER_COLORS[tier - 1], speed: 2.5, size: 0.055, ttl: 0.3, up: 1.5, kind: 'spark' });
           }
         }
       }
@@ -788,18 +891,26 @@ export default function LocalCar() {
         const tier = dr.release;
         S.miniTurboUntil = nowMs + DRIFT_TIER_BOOST_S[tier - 1] * 1000;
         body.applyImpulse({ x: _fwd.x * mass * 3, y: 0, z: _fwd.z * mass * 3 }, true);
-        burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2 });
+        burst([pos.x, pos.y + 0.2, pos.z], { count: 8 + tier * 6, color: DRIFT_TIER_COLORS[tier - 1], speed: 5, size: 0.08, ttl: 0.5, up: 2, kind: 'spark' });
         audio.boostFire();
         rumble(0.3 + tier * 0.15, 150);
         telemetry.miniTurbos++;
       }
-      // tire smoke + skid marks on the floor
+      // tire smoke + skid marks on the floor. The smoke is laid ON the floor
+      // under each rear tyre; ~33 puffs a second a wheel, each growing from a
+      // tyre's width to most of a car, overlapping into one soft trail.
       if (S.slipping) {
+        const [tint, a0] = SMOKE_TINT[S.wheelSurf?.id] || SMOKE_DEFAULT;
         [WHEELS[2], WHEELS[3]].forEach((rear, wi) => {
           _corner.set(rear[0], rear[1] - 0.1, rear[2]).applyQuaternion(_q);
           skid(wi, pos.x + _corner.x, pos.z + _corner.z);
-          if (Math.random() < 0.7) {
-            puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_v.x * 0.1, 0.5, -_v.z * 0.1], 0.32, drifting ? '#e8e8e8' : '#cfcfcf');
+          if (Math.random() < 0.55) {
+            const gy = S.groundY[2 + wi];
+            // it leaves with some of the car's speed and drags to a stop, so
+            // the cloud rolls along behind the car for a beat instead of
+            // being dropped where the camera passes straight through it
+            smoke([pos.x + _corner.x, gy + 0.06, pos.z + _corner.z], [_v.x * 0.45, 0.25, _v.z * 0.45],
+              { size: 0.2, grow: 5.2, ttl: 1.4, color: tint, alpha: a0 * (drifting ? 1 : 0.7), floor: gy, jitter: 0.9, drag: 0.08 });
           }
         });
       } else {
@@ -827,6 +938,16 @@ export default function LocalCar() {
       body.setAngvel({ x: angNow.x, y: 0, z: angNow.z }, true);
     }
     S.prevDrifting = drifting;
+    // what the wheels show: the slip angle (the fronts counter-steer into a
+    // slide) and rear-tyre surface speed over road speed — a launch lights
+    // them up, a drift keeps them turning faster than the car goes
+    {
+      const L = leanRef.current;
+      L.slip = grounded && fwdSpeed > 2 ? Math.atan2(_v.dot(_right), fwdSpeed) : 0;
+      const launchTop = car.topSpeed * 0.4;
+      const launch = throttle > 0 && fwdSpeed < launchTop ? (1 - Math.max(0, fwdSpeed) / launchTop) * 9 : 0;
+      L.spin = grounded ? Math.max(launch, drifting ? 3 + Math.abs(fwdSpeed) * 0.5 : 0) : throttle > 0 ? 12 : 0;
+    }
     // Off the grounded branch (airborne, or frozen) the drift session still
     // needs its step: holding drift over a ramp hop keeps the charge for the
     // landing, letting go in the air forfeits it.
@@ -851,7 +972,8 @@ export default function LocalCar() {
         // wind streaks telegraph the charging draft
         if (Math.random() < 0.35) {
           _corner.set((Math.random() < 0.5 ? -1 : 1) * 0.45, 0.15, 0.6).applyQuaternion(_q);
-          puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 4, 0.6, -_fwd.z * 4], 0.14, '#cfe4ff', 0.35);
+          smoke([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 4, 0.3, -_fwd.z * 4],
+            { size: 0.05, grow: 3, ttl: 0.35, color: '#cfe4ff', alpha: 0.3, glow: 0.5, rise: 0, drag: 0.3, jitter: 0.3 });
         }
         if (S.slipT >= SLIPSTREAM.CHARGE_S && nowMs > S.slipCooldownUntil) {
           S.slipBoostUntil = nowMs + SLIPSTREAM.BOOST_S * 1000;
@@ -876,9 +998,11 @@ export default function LocalCar() {
       if (S.boosting) S.boost = Math.max(0, S.boost - BOOST_DRAIN * dt);
       const f = fwdSpeed < car.topSpeed * BOOST_TOP_MULT ? car.boost * mass : 0;
       body.applyImpulse({ x: _fwd.x * f * dt, y: 0, z: _fwd.z * f * dt }, true);
+      // exhaust: hot self-lit puffs left hanging in the car's wake
       if (Math.random() < 0.8) {
         _corner.set(0, 0.05, -0.55).applyQuaternion(_q);
-        puff([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 6, 1, -_fwd.z * 6], 0.22, freeBoost && !S.boosting ? '#ffd27a' : '#7ab8ff', 0.35);
+        smoke([pos.x + _corner.x, pos.y + _corner.y, pos.z + _corner.z], [-_fwd.x * 3, 0.3, -_fwd.z * 3],
+          { size: 0.07, grow: 3, ttl: 0.32, color: freeBoost && !S.boosting ? '#ffd27a' : '#7ab8ff', alpha: 0.5, glow: 1, rise: 0.2, drag: 0.05, jitter: 0.4 });
       }
     }
     if (!S.boosting && grounded) {
@@ -916,6 +1040,10 @@ export default function LocalCar() {
     telemetry.boosting = S.boosting || freeBoost;
     telemetry.boostHeld = S.boosting; // the meter, not a free burst (driving test)
     telemetry.boost = S.boost;
+    // the drift meter on the HUD: tier reached (0-3) and charge toward the
+    // top tier (0..1), zero outside a drift so the meter drops with it
+    telemetry.driftTier = S.prevDrifting ? driftTier(S.drift.charge) : 0;
+    telemetry.driftCharge = S.prevDrifting ? Math.min(1, S.drift.charge / DRIFT_TIER_TIMES[2]) : 0;
     telemetry.speed = S.speed;
     telemetry.x = pos.x;
     telemetry.z = pos.z;
@@ -928,11 +1056,12 @@ export default function LocalCar() {
 
     // ---------------- stun visuals
     if (stunned && Math.random() < 0.4) {
-      burst([pos.x, pos.y + 0.6, pos.z], { count: 2, color: '#ffe27a', speed: 3, size: 0.06, ttl: 0.3, up: 2 });
+      burst([pos.x, pos.y + 0.6, pos.z], { count: 2, color: '#ffe27a', speed: 3, size: 0.06, ttl: 0.3, up: 2, kind: 'spark' });
     }
     // Ram Mode: angry red wake
     if (nowMs < S.ramUntil && Math.random() < 0.6) {
-      puff([pos.x, pos.y + 0.3, pos.z], [(Math.random() - 0.5) * 2, 1.2, (Math.random() - 0.5) * 2], 0.3, '#ff4d3d', 0.5);
+      smoke([pos.x, pos.y + 0.3, pos.z], [(Math.random() - 0.5) * 2, 0.8, (Math.random() - 0.5) * 2],
+        { size: 0.14, grow: 3, ttl: 0.5, color: '#ff4d3d', alpha: 0.35, glow: 1 });
     }
 
     // ---------------- upside-down & fall recovery
@@ -984,9 +1113,27 @@ export default function LocalCar() {
     const throttle = (keys.current.fwd ? 1 : 0) - (keys.current.back ? 1 : 0);
     const drifting = S.prevDrifting;
 
+    // ---------------- the car as drawn
+    // Rapier draws the body interpolated between physics steps; everything
+    // that frames the car reads that pose, not the body's newest state (see
+    // carView.js). Physics steps before this frame callback, so it is current.
+    const vis = visual.current;
+    if (vis) {
+      vis.getWorldPosition(_anchor);
+      vis.getWorldQuaternion(_aq);
+      _vfwd.set(0, 0, 1).applyQuaternion(_aq);
+    } else {
+      _anchor.set(pos.x, pos.y, pos.z);
+      _vfwd.copy(_fwd);
+    }
+    carView.x = _anchor.x; carView.y = _anchor.y; carView.z = _anchor.z;
+    carView.yaw = Math.atan2(_vfwd.x, _vfwd.z);
+    carView.ready = !st.spectating;
+
     // ---------------- camera (SpectatorCam owns it while eliminated)
     if (st.spectating) {
       audio.update({ speed: 0, throttle: 0, slipping: false, boosting: false, topSpeed: car.topSpeed });
+      S.camReset = true;
       return;
     }
     if (S.fallCamUntil > nowMs && !st.photoMode) {
@@ -994,96 +1141,136 @@ export default function LocalCar() {
       _camTarget.set(pos.x + 3.5, Math.max(pos.y + 16, 7), pos.z + 3.5);
       camera.position.lerp(_camTarget, 1 - Math.pow(0.005, dt));
       camera.lookAt(pos.x, pos.y, pos.z);
+      S.camReset = true;
     } else if (!st.photoMode) {
-      // In a slide the camera swings part-way toward the direction of travel,
-      // so a drift shows where you're going, not just where the nose points
-      // (shared/src/feel.js). The position lerp below does the smoothing.
-      chaseHeading(_fwd.x, _fwd.z, vel.x, vel.z, _chase, 0.45 * MOTION);
-      const back = _camPos.set(-_chase[0], 0, -_chase[1]);
-      const dist = 4.0 + Math.min(1.6, S.speed * 0.03);
+      // The chase rig (numbers in shared/src/feel.js CHASE). The lens is
+      // bolted to the car as drawn: only its heading and its height are
+      // smoothed. The old rig lerped the lens POSITION toward a point behind
+      // the car, and a lerp chasing a moving target trails it by v·τ — the
+      // camera fell 1–3 u further back the faster you went and the car
+      // shrank to a speck exactly when there was most to see.
+      const kOf = (tau) => 1 - Math.exp(-Math.min(rawDt, 0.5) / tau); // framerate-independent
+      const reset = S.camReset;
+      const sf = Math.min(1, S.speed / car.topSpeed);
+      const boostingNow = S.boosting || nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil;
+      S.fov = reset ? chaseFov(sf, boostingNow, MOTION) : S.fov + (chaseFov(sf, boostingNow, MOTION) - S.fov) * kOf(0.2);
+      const rig = chaseRig(sf, S.fov, _rig);
+      // heading: behind the car, swung part-way toward the direction of
+      // travel in a slide so a drift shows where you're going (feel.js), and
+      // lagging the car's yaw a beat so a turn shows the car turning
+      chaseHeading(_vfwd.x, _vfwd.z, vel.x, vel.z, _chase, CHASE.swing * MOTION);
+      const yawT = Math.atan2(_chase[0], _chase[1]);
+      S.camYaw = reset ? yawT : S.camYaw + wrapAngle(yawT - S.camYaw) * kOf(MOTION < 1 ? 0.05 : CHASE.yawTau);
+      // height: soaks up suspension chatter on the ground; in the air the
+      // lens lags a climb so a jump rises in frame, but follows a fall
+      // briskly (lagging a drop would sink the car out of the bottom of the
+      // frame) — and never loses the car either way
+      const yT = _anchor.y + (grounded ? 0 : 0.15);
+      const falling = yT < S.camY;
+      S.camY = reset ? yT : S.camY + (yT - S.camY) * kOf(grounded ? CHASE.yTau : falling ? CHASE.yTau : CHASE.yTauAir);
+      S.camY = Math.max(_anchor.y - 1, Math.min(_anchor.y + 0.5, S.camY));
+      S.lookY = reset ? _anchor.y : S.lookY + (_anchor.y - S.lookY) * kOf(grounded || falling ? 0.05 : 0.12);
+      // surge: the car pulls away under power, the lens closes in under
+      // braking — from acceleration, so nothing trails at a steady speed
+      S.aLongSm = reset ? 0 : S.aLongSm + ((leanRef.current.aLong || 0) - S.aLongSm) * kOf(CHASE.surgeTau);
+      const surge = Math.max(CHASE.surgeMin, Math.min(CHASE.surgeMax, S.aLongSm * CHASE.surgeGain)) * MOTION;
       // a hard landing dips the camera with the car, then it recovers
-      const dip = S.camDip * 0.7 * MOTION;
+      const dip = S.camDip * CHASE.dip * MOTION;
       S.camDip *= Math.pow(0.004, dt);
-      _camTarget.set(
-        pos.x + back.x * dist,
-        pos.y + 2.0 + (grounded ? 0 : 0.4) - dip,
-        pos.z + back.z * dist,
-      );
-      // framerate-independent smoothing (unclamped dt so slow frames still converge)
-      const lerpK = 1 - Math.pow(0.0015, Math.min(rawDt, 0.5));
-      camera.position.lerp(_camTarget, lerpK);
-      // keep the camera above the floor
-      if (camera.position.y < 0.7) camera.position.y = 0.7;
-      // ...and out of walls and furniture: backed against a wall or parked
-      // under a bench it sat inside them and filled the screen with their
-      // insides. One ray from the car to the lens against fixed colliders;
-      // the lens comes forward to just short of whatever is in the way.
-      {
-        const cam = camera.position, oy = pos.y + 0.8;
-        const dx = cam.x - pos.x, dy = cam.y - oy, dz = cam.z - pos.z;
-        const len = Math.hypot(dx, dy, dz);
-        if (len > 0.6) {
-          const cr = _camRay.current || (_camRay.current = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }));
-          cr.origin.x = pos.x; cr.origin.y = oy; cr.origin.z = pos.z;
-          cr.dir.x = dx / len; cr.dir.y = dy / len; cr.dir.z = dz / len;
-          const hit = world.castRay(cr, len, true, CAM_BLOCKERS, undefined, undefined, body);
-          if (hit) {
-            const t = Math.max(0.6, (hit.timeOfImpact ?? hit.toi) - 0.25);
-            cam.set(pos.x + cr.dir.x * t, oy + cr.dir.y * t, pos.z + cr.dir.z * t);
-          }
-        }
+      const bx = Math.sin(S.camYaw), bz = Math.cos(S.camYaw);
+      const dist = rig.dist + surge;
+      _camPos.set(_anchor.x - bx * dist, S.camY + rig.height - dip, _anchor.z - bz * dist);
+      // never below the car's own roofline (on a desk top as on the floor)
+      _camPos.y = Math.max(_camPos.y, _anchor.y + 0.3);
+      // ...and out of walls, furniture and big props. Pivot just above the
+      // car; a ray to the lens; blocked, the lens snaps in to just short of
+      // the obstacle, and eases back out (τ 0.35 s) once it's clear, so a
+      // grazing edge or a passing chair can't make it pump. Pulled in hard,
+      // the boom rises too: the view looks down over what's behind you
+      // instead of into your own bumper.
+      _pivot.set(_anchor.x, _anchor.y + 0.5, _anchor.z);
+      const pullT = 1 - clearLens(_pivot.x, _pivot.y, _pivot.z, _camPos.x, _camPos.y, _camPos.z);
+      S.camPull = reset || pullT > S.camPull ? pullT : S.camPull + (pullT - S.camPull) * kOf(0.35);
+      if (S.camPull > 0.001) {
+        const raise = 0.9 * Math.max(0, (S.camPull - 0.25) / 0.75);
+        _camPos.sub(_pivot).multiplyScalar(1 - S.camPull).add(_pivot);
+        _camPos.y += raise;
+        // the raise (or a slow release) can reach round something the first
+        // ray never saw: check the final lens too
+        const f = clearLens(_pivot.x, _pivot.y, _pivot.z, _camPos.x, _camPos.y, _camPos.z);
+        if (f < 1) _camPos.sub(_pivot).multiplyScalar(f).add(_pivot);
       }
-      // keep the car anchored in the lower third: modest look-ahead, higher aim
-      _look.set(pos.x + _fwd.x * 2.0 + vel.x * 0.035, pos.y + 0.85 - dip * 0.4, pos.z + _fwd.z * 2.0 + vel.z * 0.035);
+      S.camReset = false;
+      camera.position.copy(_camPos);
+      telemetry.camDist = _camPos.distanceTo(_anchor); // focus distance for the depth of field
+      // aim: ahead of the car, mostly along the lens heading and partly along
+      // the nose, plus a little of where it's going. A lens pulled in by a
+      // wall aims in by as much, or the car drops out of the bottom of the
+      // frame just when the room is tight.
+      const na = CHASE.noseAim;
+      let ax = bx * (1 - na) + _vfwd.x * na, az = bz * (1 - na) + _vfwd.z * na;
+      const al = Math.hypot(ax, az) || 1;
+      ax /= al; az /= al;
+      const reach = Math.max(0.35, Math.min(1, Math.hypot(_camPos.x - _anchor.x, _camPos.z - _anchor.z) / dist));
+      _look.set(
+        _anchor.x + (ax * rig.lookAhead + vel.x * CHASE.lookVel) * reach,
+        S.lookY + rig.lookUp - dip * 0.3,
+        _anchor.z + (az * rig.lookAhead + vel.z * CHASE.lookVel) * reach,
+      );
       // trauma-style shake: amplitude ∝ shake², plus a rotational component —
-      // rotation is what makes a shake read as force instead of glitch
+      // rotation is what makes a shake read as force instead of glitch. The
+      // aim point is closer than it was, so the same shove moves it less.
       const trauma = S.shake * S.shake * MOTION;
       if (S.shake > 0.01) {
-        _look.x += (Math.random() - 0.5) * trauma * 2.2;
-        _look.y += (Math.random() - 0.5) * trauma * 1.7;
-        _look.z += (Math.random() - 0.5) * trauma * 2.2;
+        _look.x += (Math.random() - 0.5) * trauma * 1.1;
+        _look.y += (Math.random() - 0.5) * trauma * 0.85;
+        _look.z += (Math.random() - 0.5) * trauma * 1.1;
         S.shake *= Math.pow(0.02, dt);
       }
       camera.lookAt(_look);
       if (S.shake > 0.01) camera.rotateZ((Math.random() - 0.5) * trauma * 0.09);
-      const boostingNow = S.boosting || nowMs < S.miniTurboUntil || nowMs < S.slipBoostUntil;
-      const targetFov = 58 + Math.min(1, S.speed / car.topSpeed) * 11 + (boostingNow ? 8 : 0);
-      S.fov += (targetFov - S.fov) * Math.min(1, dt * 5);
       // a hit punches the lens in for a beat — outside the smoothing above,
       // so it lands on the frame of the hit and snaps back
       const fov = S.fov - S.fovPunch * MOTION;
       S.fovPunch *= Math.pow(0.001, dt);
       if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
+    } else {
+      S.camReset = true; // back from photo mode: no sweep from the orbit
     }
 
     // ---------------- body lean from measured acceleration
     // Weight transfer the suspension can't produce (every force is applied at
-    // the centre of mass): derive lateral/longitudinal G from the velocity
-    // delta and tilt the visual shell — outward roll in curves, squat on
-    // throttle, dive on the brakes. Decays to neutral on its own.
-    if (dt > 0.001) {
-      _right.set(1, 0, 0).applyQuaternion(_q);
-      const ax = (vel.x - (S.pvx ?? vel.x)) / dt;
-      const az = (vel.z - (S.pvz ?? vel.z)) / dt;
-      const ay = (vel.y - (S.pvy ?? vel.y)) / dt;
-      S.pvx = vel.x; S.pvz = vel.z; S.pvy = vel.y;
-      const clampA = (n) => Math.max(-60, Math.min(60, n));
-      const aLat = clampA(ax * _right.x + az * _right.z);
-      const aLong = clampA(ax * _fwd.x + az * _fwd.z);
-      // the antenna wants the raw acceleration, not the smoothed lean
-      leanRef.current.aLat = aLat;
-      leanRef.current.aLong = aLong;
-      leanRef.current.aUp = clampA(ay);
-      const tRoll = grounded ? Math.max(-0.14, Math.min(0.14, aLat * 0.0032)) : 0;
-      const tPitch = grounded ? Math.max(-0.09, Math.min(0.09, -aLong * 0.0035)) : 0;
-      const k = Math.min(1, dt * 7);
-      leanRef.current.roll += (tRoll - leanRef.current.roll) * k;
-      leanRef.current.pitch += (tPitch - leanRef.current.pitch) * k;
-      telemetry.roll = leanRef.current.roll;
-      telemetry.pitch = leanRef.current.pitch;
+    // the centre of mass): the per-step acceleration (measured in the physics
+    // step above) tilts the visual shell — outward roll in curves, squat on
+    // throttle, dive on the brakes — about a low roll centre (CarModel), and
+    // a bump sets the body bobbing on its springs. Decays to neutral.
+    {
+      const L = leanRef.current;
+      leanTarget(L.aLat || 0, L.aLong || 0, grounded, _lean);
+      const k = 1 - Math.exp(-dt * LEAN.rate);
+      L.roll += (_lean.roll - L.roll) * k;
+      L.pitch += (_lean.pitch - L.pitch) * k;
+      // (not on a landing: the squash has that, and both at once sank the
+      // shell into the floor on a hard one)
+      L.heave = heaveStep(heave.current, grounded && S.squash < 0.05 ? L.aUp || 0 : 0, dt).y;
+      telemetry.roll = L.roll;
+      telemetry.pitch = L.pitch;
     }
     leanRef.current.squash = S.squash;
     S.squash *= Math.pow(0.0008, dt);
+
+    // the paint's rim light in the owner's colour: stronger the darker the
+    // room, so rivals stay findable at night without shouting at midday
+    {
+      const lightsOut = st.event?.id === 'lights_out';
+      const key = `${st.timeOfDay}|${lightsOut}|${map.id}`;
+      if (key !== S.rimKey) {
+        S.rimKey = key;
+        const L = lightingFor(st.timeOfDay, lightsOut, map);
+        const fill = (L.amb?.intensity ?? 0.3) + (L.hemi?.intensity ?? 0.5);
+        setRimLight(Math.max(0.12, Math.min(0.75, 0.95 - fill * 0.85)));
+      }
+    }
 
     // ---------------- audio
     audio.update({ speed: S.speed, throttle, slipping: S.slipping && grounded, boosting: S.boosting, topSpeed: car.topSpeed, surface: grounded ? S.wheelSurf?.id : null });
@@ -1233,6 +1420,7 @@ export default function LocalCar() {
       </RigidBody>
       <Particles />
       <SkidMarks />
+      <BlobShadows />
     </>
   );
 }

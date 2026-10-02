@@ -1,0 +1,18 @@
+/* HUD root (HUD.jsx). The layer is fixed full-screen and click-through;
+   interactive children opt back in. The Toy Box root (.tb-hud) carries the
+   layout flags from hud/useLayout.js:
+     .is-compact   landscape phone (max-height 500px): the px phone layout
+     .is-touch     the touch pad carries speed / drift / boost / item / ability
+   (.hud stays for the surfaces not yet ported to tb-* components.) */
+
+.hud { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-hud); }
+.hud .panel, .hud button, .hud input { pointer-events: auto; }
+
+.tb-hud { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-hud); }
+.tb-hud button, .tb-hud a, .tb-hud input, .tb-hud select, .tb-hud label { pointer-events: auto; }
+
+/* a phone held upright during a match: this and nothing else */
+.tb-rotate { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: min(20rem, 86vw);
+  display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 1.75rem 1.5rem; text-align: center; }
+.tb-rotate .tb-i { width: 3rem; height: 3rem; color: var(--paper); }
+.tb-rotate .tb-disp { font-size: 1.75rem; line-height: 1.05; color: var(--paper); }

@@ -221,16 +221,26 @@ const compose = (pos, rot, scale) => {
 };
 
 // A piece under construction: parts in its own frame, plus a transform stack
-// so a builder can say "at this corner, do the leg".
+// so a builder can say "at this corner, do the leg". (Decal cards ride along
+// in .decals; only the dressing layer draws them — furniture has none.)
 export class Piece {
   constructor() {
     this.parts = [];
+    this.decals = [];
     this.stack = [new THREE.Matrix4()];
   }
   get top() { return this.stack[this.stack.length - 1]; }
   // add(matKey, geometry, [x, y, z], [rx, ry, rz]?, scale?, colour?)
   add(mat, geo, pos = [0, 0, 0], rot = null, scale = null, color = null) {
     this.parts.push({ mat, geo, m: this.top.clone().multiply(compose(pos, rot, scale)), color });
+    return this;
+  }
+  // A printed label, a sticker, a tape strip: a w × h card of the decal
+  // atlas (dressing/decals.js) facing the frame's +z at pos. It doesn't join
+  // the material batch — it rides in the map's one merged decal mesh, so a
+  // label costs no draw call of its own. a = opacity, tint multiplies.
+  decal(kind, w, h, pos = [0, 0, 0], rot = null, a = 1, tint = null) {
+    this.decals.push({ kind, w, h, m: this.top.clone().multiply(compose(pos, rot, null)), a, tint });
     return this;
   }
   // run fn with everything it adds placed at pos/rot (nestable)

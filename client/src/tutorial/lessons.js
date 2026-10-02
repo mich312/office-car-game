@@ -1,14 +1,16 @@
 // The driving test: five things every new driver needs before their first
 // race, taught by doing, in the lobby (where you can already drive while
 // everyone readies up). Pure — the lesson machine and the hint rules run in
-// Node (scripts/test-tutorial.mjs); DrivingTest.jsx only draws them.
+// Node (scripts/test-tutorial.mjs); ui/Coach.jsx only draws them.
 //
 // Each lesson says what to press on each device and when it's been done,
 // judged from the car's telemetry — not from a keypress, so a lesson can't
 // be passed by mashing the right key while parked in a corner.
 
 // Prompts per input device. `keys` are keycaps; `touch` names the on-screen
-// button's icon, so the prompt shows the very button to press.
+// button's icon, so the prompt shows the very button to press. Every {token}
+// in a touch prompt is a glyph Coach.jsx draws (its ICONS set, all Toy icons:
+// scripts/test-tutorial.mjs holds the three lists together).
 export const LESSONS = [
   {
     id: 'drive',
@@ -18,7 +20,7 @@ export const LESSONS = [
   {
     id: 'steer',
     title: 'Take a corner',
-    say: { keys: '{A} and {D} steer', pad: 'Steer with the left stick', touch: 'Steer with {chevron-left} {chevron-right}' },
+    say: { keys: '{A} and {D} steer', pad: 'Steer with the left stick', touch: 'Drag the {steer} stick to steer' },
   },
   {
     id: 'brake',
@@ -31,7 +33,7 @@ export const LESSONS = [
     say: {
       keys: 'Hold {Shift} through a turn — sparks go blue, orange, pink — let go for a boost',
       pad: 'Hold {X} through a turn — sparks go blue, orange, pink — let go for a boost',
-      touch: 'Hold {wind} through a turn — sparks go blue, orange, pink — let go for a boost',
+      touch: 'Hold {drift} through a turn — sparks go blue, orange, pink — let go for a boost',
     },
   },
   {
@@ -113,8 +115,15 @@ export function tokens(text) {
 export const HINTS = {
   item: { keys: 'Press {E} to fire your {item}', pad: 'Press {Y} to fire your {item}', touch: 'Tap {gift} to fire your {item}' },
   stuck: { keys: 'Stuck? {R} puts you back on the road', pad: 'Stuck? {Start} puts you back on the road', touch: 'Stuck? Hold BRAKE to back out' },
-  ability: { keys: 'Your car has a special: {Q} — {ability}', pad: 'Your car has a special: {RB} — {ability}', touch: 'Your car has a special: {star} — {ability}' },
+  ability: {
+    keys: 'Your car has a special: press {Q} for {ability} — {abilityDesc}',
+    pad: 'Your car has a special: press {RB} for {ability} — {abilityDesc}',
+    touch: 'Your car has a special: tap {star} for {ability} — {abilityDesc}',
+  },
 };
+// the names Coach.jsx fills into a hint ({item} → "Rocket"); every other
+// {token} in a prompt is a keycap or, in a touch prompt, a button glyph
+export const HINT_FILL = ['item', 'ability', 'abilityDesc'];
 export const STUCK_AFTER_S = 3; // on the gas, going nowhere, this long
 export const ABILITY_HINT_AFTER_S = 25; // into your first match, if you haven't used it
 
