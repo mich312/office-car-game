@@ -25,9 +25,9 @@ import { useGfx } from './quality.js';
 // (The graphics setting 'low' drops the post chain and resolution live;
 // shadows are fixed when the canvas is made, so only the URL turns them off.)
 const LOWFX = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('lowfx');
-// The diegetic RC-transmitter cluster replaces the flat speed/boost HUD on
-// fine-pointer devices; phones keep the DOM cluster (screen space is scarce
-// behind the touch controls).
+// The diegetic RC-transmitter cluster is an opt-in (Break Room: Transmitter
+// HUD, default off) on fine-pointer devices; the DOM drive cluster and item
+// slots are the match HUD, and the HUD hides them while the transmitter is up.
 const FINE_POINTER = typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches;
 
 // Renderer stats hook for perf testing: accumulate across all passes in a
@@ -75,6 +75,7 @@ export default function Game() {
   const mutator = useStore((s) => s.mutator);
   const mapId = useStore((s) => s.mapId);
   const lowfx = useGfx() === 'low'; // ?lowfx included
+  const transmitter = useStore((s) => s.transmitter) ?? false;
   // Moon Gravity mutator: the whole physics world floats
   const gravity = mutator === 'moon_gravity' ? GRAVITY * MUTATORS.moon_gravity.gravity : GRAVITY;
 
@@ -116,7 +117,7 @@ export default function Game() {
         <SpectatorCam />
         <RivalAudio />
         <PhotoOrbitCam />
-        {FINE_POINTER && <ControllerHUD />}
+        {FINE_POINTER && transmitter && <ControllerHUD />}
         {!lowfx && <Effects />}
       </Suspense>
     </Canvas>

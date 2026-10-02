@@ -1,75 +1,50 @@
-/* Coach: driving test + match hints (Coach.jsx). Legacy layout on the Toy Box
-   tokens until it is ported (the hint moves out of the car zone then). */
+/* Coach (Coach.jsx): the match hint as a sticky memo from Facilities in the
+   top-centre column (never the car zone), and the lobby driving test as a
+   paper memo in the lobby's top-centre slot (SPEC-TOYBOX §4.7). Paper and
+   ink; the drift tier words wear their spark colours. */
 
-/* ------------------------------------------------ coach: driving test + hints */
-.coach {
-  position: absolute;
-  top: var(--hud-y);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(26rem, calc(100vw - 2 * var(--hud-x)));
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.8rem 1rem 0.9rem;
-  z-index: var(--z-toast);
-  animation: railin var(--t-slow) var(--ease-pop);
-  pointer-events: auto;
-}
-.coach-head { display: flex; align-items: center; gap: 0.6rem; }
-.coach-head .label { display: inline-flex; align-items: center; gap: 0.3rem; }
-.coach-dots { display: inline-flex; gap: 0.3rem; margin-left: auto; }
-.coach-dots i { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--line); transition: background var(--t-fast) var(--ease); }
-.coach-dots i.now { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-tint); }
-.coach-dots i.done { background: var(--good); }
-.coach-skip {
-  font: 600 0.75rem var(--font-body);
-  color: var(--text-3);
-  background: none;
-  border: 0;
-  padding: 0.15rem 0.3rem;
-  cursor: pointer;
-}
-.coach-skip:hover { color: var(--text-1); }
-.coach-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-family: var(--font-display);
-  font-size: 1.55rem;
-  letter-spacing: 0.04em;
-  line-height: 1.05;
-  color: var(--text-1);
-  animation: railin var(--t-slow) var(--ease-pop);
-}
-.coach-title.passed { color: var(--good); }
-.coach-say { display: inline; font-size: 0.92rem; line-height: 1.55; color: var(--text-2); }
-.coach-say .keycap { margin: 0 0.15rem; vertical-align: 0.05em; }
-.coach-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  margin: 0 0.15rem;
-  vertical-align: -0.35rem;
-  border-radius: 50%;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  color: var(--text-1);
-}
-.coach-hint { top: auto; bottom: calc(var(--hud-y-b) + 9rem); }
-/* in the lobby the rail owns the left: sit to its right, never on top of it
-   (below 700 px the rail is a bottom sheet and the centred card is clear) */
-@media (min-width: 701px) {
-  .coach-lobby {
-    left: auto;
-    right: var(--hud-x-r);
-    transform: none;
-    width: min(26rem, calc(100vw - var(--hud-x) - var(--hud-x-r) - min(21.5rem, 88vw) - 1rem));
-  }
-}
-.coach-hint .coach-say { color: var(--text-1); font-size: 1rem; }
-@media (prefers-reduced-motion: reduce) { .coach, .coach-title { animation: none; } }
-/* (also defined in lobby.css: the coach card and the lobby rail share it) */
-@keyframes railin { from { translate: -24px 0; } }
+/* ----------------------------------------------------- the paper memo */
+.tb-memo { position: relative; display: flex; align-items: center; gap: .75rem; max-width: 36rem; padding: .625rem 1.125rem .625rem .75rem;
+  border-radius: .75rem; background: var(--paper); color: var(--ink);
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), var(--drop-m), var(--ambient); transform: rotate(-1.2deg); }
+.tb-memo-k { flex: none; display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: .5625rem; background: var(--ink-2); color: var(--paper); }
+.tb-memo-k svg { width: 1.25rem; height: 1.25rem; fill: currentColor; }
+.tb-memo-b { display: flex; flex-direction: column; gap: .3125rem; min-width: 0; }
+.tb-memo-b > .tb-micro { color: var(--ink-dim); }
+.tb-memo-t { font: 600 1.0625rem/1.35 var(--f-ui); }
+.tb-memo-t b { font-weight: 800; }
+.tb-memo-t .tb-k { vertical-align: .0625rem; margin: 0 .125rem; }
+/* a touch-pad button named by its glyph */
+.tb-glyph { display: inline-grid; place-items: center; width: 1.625rem; height: 1.625rem; margin: 0 .125rem; vertical-align: -.375rem;
+  border-radius: 50%; background: var(--ink-2); color: var(--paper); box-shadow: 0 0 0 max(2px, .125rem) var(--ink); }
+.tb-glyph svg { width: 1rem; height: 1rem; fill: currentColor; }
+.tb-memo-t .c1 { color: var(--sky-lo); } .tb-memo-t .c2 { color: var(--blaze-lo); } .tb-memo-t .c3 { color: var(--bubble-lo); }
+
+/* --------------------------------------- lobby: the driving test card */
+.tb-coach-top { position: absolute; left: 0; right: 0; top: 1.625rem; display: flex; justify-content: center; pointer-events: none; z-index: var(--z-toast); }
+.tb-test { transform: none; max-width: 33rem; padding: .875rem 1.25rem .875rem .875rem; align-items: flex-start; pointer-events: auto; }
+.tb-test-h { display: flex; align-items: center; gap: .75rem; }
+.tb-test-dots { display: flex; gap: .3125rem; }
+.tb-test-dots i { width: 1rem; height: .625rem; border-radius: .1875rem; background: rgba(20, 14, 44, .15); transform: skewX(var(--lean)); }
+.tb-test-dots i.is-done { background: var(--lime); box-shadow: inset 0 0 0 2px var(--ink); }
+.tb-test-dots i.is-now { background: var(--sun); box-shadow: inset 0 0 0 2px var(--ink); }
+/* ≥ 44 px hit area through padding, without growing the card */
+.tb-test-skip { margin-left: auto; padding: .875rem .625rem; margin-block: -.875rem; min-height: 44px; font: 800 var(--t-xxs)/1 var(--f-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.tb-test-skip:hover { color: var(--ink); }
+.tb-test-t { display: flex; align-items: center; gap: .375rem; font-size: 1.75rem; line-height: 1; margin: .125rem 0; }
+.tb-test-t svg { width: 1.5rem; height: 1.5rem; fill: currentColor; }
+.tb-test-t.is-go { color: var(--lime-lo); }
+.tb-test .tb-memo-t { font-size: 1rem; }
+
+/* ------------------------------------------ landscape phone (px layout) */
+.tb-hud.is-compact .tb-memo { display: none; }              /* match tips wait for a bigger screen */
+.tb-hud.is-compact .tb-coach-top { top: 8px; left: 252px; right: 206px; }
+.tb-hud.is-compact .tb-test { display: flex; max-width: 100%; padding: 8px 12px 8px 8px; gap: 8px; border-radius: 10px; }
+.tb-hud.is-compact .tb-test .tb-memo-k { width: 28px; height: 28px; border-radius: 8px; }
+.tb-hud.is-compact .tb-test .tb-memo-k svg { width: 16px; height: 16px; }
+.tb-hud.is-compact .tb-test-dots i { width: 12px; height: 8px; }
+.tb-hud.is-compact .tb-test-t { font-size: 18px; }
+.tb-hud.is-compact .tb-test .tb-memo-t { font-size: 12px; line-height: 1.3; }
+.tb-hud.is-compact .tb-test .tb-k { min-width: 20px; height: 20px; font-size: 10px; }
+.tb-hud.is-compact .tb-glyph { width: 20px; height: 20px; vertical-align: -5px; }
+.tb-hud.is-compact .tb-glyph svg { width: 12px; height: 12px; }

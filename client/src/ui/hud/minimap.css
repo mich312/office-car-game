@@ -1,25 +1,21 @@
-/* Minimap + room chip (Minimap.jsx, MatchHUD.jsx). Legacy layout, framed as
-   a Toy Box window until it is ported. */
+/* Minimap + room tag (Minimap.jsx), top-right (SPEC-TOYBOX §4.8): a toy-box
+   window with the floor's lift code hanging off its top edge, the room you
+   are in as an ink ribbon under it. The canvas palette is in Minimap.jsx. */
 
-/* -------------------------------------------------------------- minimap */
-.map-cluster {
-  position: absolute;
-  top: var(--hud-y);
-  right: var(--hud-x-r);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.75rem;
-}
-.minimap {
-  display: block;
-  border-radius: var(--r-md);
-  border: var(--bw) solid var(--paper);
-  background: #110b27;
-  box-shadow: 0 0 0 var(--bw) var(--ink), 0 .3125rem 0 var(--bw) var(--ink), var(--ambient);
-}
-.map-room { padding: 0.2rem 0.7rem; font-size: 0.72rem; }
-.map-room .label { color: var(--paper); }
-@media (max-width: 700px) {
-  .minimap { width: 138px; height: 92px; }
-}
+.tb-map { width: 19.875rem; height: 12.25rem; padding: .5rem; }
+.tb-map-cv { display: block; width: 100%; height: 100%; border-radius: .625rem; }
+.tb-map-floor { position: absolute; left: .875rem; top: -1rem; }
+.tb-map-floor .tb-rib { height: 1.625rem; padding: 0 .75rem; }
+.tb-map-floor .tb-lbl { font-size: var(--t-micro); }
+.tb-room .tb-rib { height: 2.75rem; padding: 0 1.25rem 0 .875rem; gap: .625rem; }
+.tb-room .tb-disp { font-size: 1.875rem; line-height: 1; margin-top: .125rem; }
+.tb-room svg { width: 1.375rem; height: 1.375rem; fill: currentColor; }
+
+/* ------------------------------------------ landscape phone (px layout) */
+.tb-hud.is-compact .tb-map { width: 172px; height: 106px; padding: 4px; border-width: 4px; border-radius: 13px;
+  box-shadow: 0 0 0 2.5px var(--ink), inset 0 0 0 2px var(--ink), 0 5px 0 2.5px var(--ink); }
+.tb-hud.is-compact .tb-map-cv { border-radius: 8px; }
+.tb-hud.is-compact .tb-map-floor { display: none; }
+.tb-hud.is-compact .tb-room .tb-rib { height: 26px; padding: 0 11px 0 8px; gap: 5px; }
+.tb-hud.is-compact .tb-room .tb-disp { font-size: 16px; }
+.tb-hud.is-compact .tb-room svg { width: 13px; height: 13px; }

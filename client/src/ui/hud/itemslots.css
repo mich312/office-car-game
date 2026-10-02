@@ -1,57 +1,36 @@
-/* Item + ability action tray (ItemSlots.jsx). Legacy layout, retinted to
-   the Toy Box tokens until it is ported: ink boxes with a paper rim; the
-   ability is sky when ready; no looping shimmer. */
+/* Item + ability (ItemSlots.jsx), bottom-right (SPEC-TOYBOX §4.10). Grape =
+   item, sky = ability. The cooldown sweep is a conic gradient on --p, the
+   seconds are digit slots with the baked live shadow. Its left edge stays
+   right of the car zone at every size. */
 
-/* -------------------------------------------- bottom-right action tray */
-.action-tray {
-  position: absolute;
-  right: var(--hud-x-r);
-  bottom: var(--hud-y-b);
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-end;
-}
-.slot {
-  position: relative;
-  width: 5.3rem;
-  height: 5.6rem;
-  border-radius: var(--r-md);
-  background: linear-gradient(180deg, var(--ink-3) 0, var(--ink-2) 70%);
-  border: var(--bw) solid var(--paper);
-  box-shadow: 0 0 0 var(--bw) var(--ink), 0 .3125rem 0 var(--bw) var(--ink), var(--ambient);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  overflow: visible;
-}
-.slot .keycap { position: absolute; top: -0.55rem; right: -0.45rem; }
-.slot-icon { font-size: 1.9rem; line-height: 1; color: var(--paper); }
-.slot-name {
-  font-size: max(10px, 0.6rem);
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--paper-dim);
-  text-align: center;
-  max-width: 94%;
-  line-height: 1.15;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.slot .label { font-size: max(10px, 0.6rem); }
-/* empty powerup slot: a plain "powerup" label (no looping shimmer) */
-.slot-empty { display: none; }
-
-.slot.ability.ready { border-color: var(--sky); }
-.slot.ability.ready .slot-icon { color: var(--sky-hi); }
-.slot-cd {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: conic-gradient(rgba(20, 14, 44, 0.82) calc(var(--frac) * 360deg), transparent 0);
-  pointer-events: none;
-}
+.tb-kit { display: flex; align-items: flex-end; gap: 1.5rem; }
+.tb-slot { display: flex; flex-direction: column; align-items: center; gap: .75rem; }
+.tb-itembox { position: relative; width: 7.75rem; height: 7.75rem; padding: .5rem; border-radius: 2rem;
+  background: linear-gradient(160deg, var(--grape-hi) 0, var(--grape) 45%, var(--grape-lo) 100%);
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 .5rem 0 var(--bw) var(--ink), var(--ambient), inset 0 .1875rem 0 rgba(255,255,255,.35); }
+.tb-itembox.is-fired { animation: tb-press 140ms var(--ease-out); }
+.tb-itemwell { position: relative; width: 100%; height: 100%; border-radius: 1.5rem; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 38%, #fff 0, var(--paper) 45%, var(--paper-2) 80%, var(--paper-3) 100%);
+  box-shadow: inset 0 0 0 var(--bw) var(--ink), inset 0 -.5rem 0 rgba(20,14,44,.08); overflow: hidden; }
+.tb-itemwell::after { content: ""; position: absolute; left: .6875rem; top: .5rem; width: 2.625rem; height: .875rem; border-radius: 50%;
+  background: rgba(255,255,255,.85); transform: rotate(-16deg); }
+.tb-itemwell .tb-sticker { width: 4.875rem; height: 4.875rem; }
+.tb-itemwell .tb-q { font-size: 4rem; color: var(--paper-3); }
+.tb-itembox > .tb-k, .tb-ability > .tb-k { position: absolute; right: -.625rem; bottom: -.5rem; min-width: 2rem; height: 2rem; font-size: max(10px, .9375rem); border-radius: .5625rem; box-shadow: 0 .25rem 0 var(--ink); }
+.tb-slot > .tb-rib { height: 1.875rem; padding: 0 .875rem; }
+.tb-slot > .tb-rib .tb-disp { font-size: 1.1875rem; line-height: 1; margin-top: .0625rem; }
+.tb-slot.is-empty > .tb-rib { opacity: .85; }
+.tb-ability { position: relative; width: 5.25rem; height: 5.25rem; border-radius: 50%; padding: .5rem;
+  background: conic-gradient(var(--sky) 0 calc(var(--p, 1) * 1turn), var(--ink-2) 0);
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 .4375rem 0 var(--bw) var(--ink), var(--ambient); }
+.tb-ability::before { content: ""; position: absolute; inset: .3125rem; border-radius: 50%; border: 2px solid rgba(20,14,44,.7); }
+.tb-ability-core { position: relative; width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(180deg, var(--ink-4), var(--ink-2)); box-shadow: inset 0 0 0 var(--bw) var(--ink); }
+.tb-ability-core .tb-sticker { width: 2.25rem; height: 2.25rem; }
+.tb-ability-secs { position: absolute; inset: 0; display: grid; place-items: center; font-size: 2.25rem; color: var(--paper); }
+.tb-ability-secs .tb-slots { --slot: .6em; }
+.tb-ability.is-ready { background: var(--sky); }
+.tb-ability.is-ready .tb-ability-core { background: radial-gradient(circle at 50% 35%, var(--sky-hi), var(--sky) 60%, var(--sky-lo)); }
+.tb-slot.is-ab > .tb-rib .tb-lbl { font-size: var(--t-micro); }
+/* one digit centres in the ring (the empty tens slot folds away) */
+.tb-ability-secs .tb-slots > i:empty { display: none; }

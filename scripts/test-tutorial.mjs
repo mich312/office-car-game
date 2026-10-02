@@ -1,9 +1,11 @@
 // The driving test and the one-time hints (client/src/tutorial/lessons.js):
 // each lesson passes when the car actually does the thing, and not before;
 // the hints fire once, at the right moment, one at a time.
+import fs from 'node:fs';
 import {
-  LESSONS, PASS, newTest, stepTest, tokens, HINTS, nextHint, STUCK_AFTER_S, ABILITY_HINT_AFTER_S,
+  LESSONS, PASS, newTest, stepTest, tokens, HINTS, HINT_FILL, nextHint, STUCK_AFTER_S, ABILITY_HINT_AFTER_S,
 } from '../client/src/tutorial/lessons.js';
+import { TOY_ICONS } from '../client/src/ui/iconPaths.js';
 
 let fails = 0;
 const check = (name, cond) => { console.log((cond ? 'PASS' : 'FAIL') + ': ' + name); if (!cond) fails++; };
@@ -73,6 +75,27 @@ check(`hints: on the gas going nowhere for ${STUCK_AFTER_S} s → how to get uns
 check(`hints: ${ABILITY_HINT_AFTER_S} s in without using the special → tell them about it`, H({ matchTime: ABILITY_HINT_AFTER_S }) === 'ability' && H({ matchTime: ABILITY_HINT_AFTER_S, usedAbility: true }) === null);
 check('hints: never two at once', H({ holdingItem: true, showing: true }) === null);
 check('hints: never outside a match', H({ holdingItem: true, phase: 'lobby' }) === null && H({ holdingItem: true, phase: 'podium' }) === null);
+
+// ------------------------------------------------ touch prompt glyphs
+// A touch prompt names the pad button by its icon ({drift}, {flame}…): Coach
+// draws each token in its ICONS set as that Toy icon, any other token as a
+// keycap. So every glyph token must be in ICONS, and every ICONS entry must
+// be a real Toy icon (read from the sources: Coach.jsx is JSX).
+{
+  const coach = fs.readFileSync(new URL('../client/src/ui/Coach.jsx', import.meta.url), 'utf8');
+  const m = coach.match(/const ICONS = new Set\(\[([^\]]*)\]\)/);
+  const icons = m ? [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]) : [];
+  check('glyphs: Coach.jsx declares its ICONS set', icons.length > 0);
+  const touchTokens = new Set([...LESSONS.map((l) => l.say.touch), ...Object.values(HINTS).map((h) => h.touch)]
+    .flatMap((t) => tokens(t).filter((p) => p.key).map((p) => p.key))
+    .filter((k) => !HINT_FILL.includes(k)));
+  const missing = [...touchTokens].filter((k) => !icons.includes(k));
+  check(`glyphs: every touch-prompt token is a Coach icon (${[...touchTokens].join(', ')})`, missing.length === 0);
+  if (missing.length) console.log('  not in ICONS:', missing.join(', '));
+  const unknown = icons.filter((k) => !TOY_ICONS[k]);
+  check('glyphs: every Coach icon exists in TOY_ICONS', unknown.length === 0);
+  if (unknown.length) console.log('  not a Toy icon:', unknown.join(', '));
+}
 
 console.log(fails ? `\n${fails} tutorial check(s) failed` : '\nall tutorial checks passed');
 process.exit(fails ? 1 : 0);
