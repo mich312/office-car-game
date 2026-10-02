@@ -1,28 +1,77 @@
-/* Connect / error screens and the photo-mode hint (ConnectScreen.jsx; the
-   App.jsx loading fallback shares .connect-screen, so main.jsx imports it too). */
+/* ==========================================================================
+   CONNECT / ERROR / PHOTO HINT (ConnectScreen.jsx, SPEC-TOYBOX §4.19).
+   main.jsx imports this sheet too: App.jsx's loading fallback (.connect-screen)
+   shows before the HUD chunk has loaded.
+   ========================================================================== */
+.tb-conn, .connect-screen { position: fixed; inset: 0; z-index: var(--z-connect); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2.5rem; pointer-events: auto; padding: 1rem;
+  background: radial-gradient(ellipse 70% 60% at 50% 45%, rgba(20, 14, 44, .55), rgba(10, 6, 28, .88)); }
+html.lowfx .tb-conn, html.lowfx .connect-screen { background: rgba(10, 6, 28, .82); }
+/* the App.jsx fallback while the game chunk downloads (no HUD yet) */
+.connect-screen { background: var(--ink); }
+.connect-screen p { color: var(--paper); font: 800 max(10px, .9375rem)/1 var(--f-ui); letter-spacing: var(--track); text-transform: uppercase; text-shadow: var(--ts-live-s); }
 
-/* ------------------------------------------------------- connect states */
-.connect-screen {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1.4rem;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(ellipse 70% 60% at 50% 45%, rgba(20, 14, 44, 0.55), rgba(10, 6, 28, 0.88));
-  z-index: var(--z-connect);
-  pointer-events: auto;
-}
-.connect-screen .logo { align-items: center; }
-html.lowfx .connect-screen { background: rgba(10, 6, 28, 0.82); }
-.connect-screen p { color: var(--paper); font-size: 1rem; font-weight: 800; letter-spacing: 0.04em; text-shadow: var(--ts-live-s); }
-.connect-screen .toast { max-width: min(26rem, 90vw); }
+/* the brand lockup: an ink ribbon over MAYHEM (bubble → blaze), tilted */
+.tb-logo { display: flex; flex-direction: column; align-items: center; gap: .25rem; transform: rotate(-3deg); }
+.tb-logo > .tb-rib { height: 3rem; padding: 0 1.5rem; margin-bottom: -.5rem; z-index: 1; }
+.tb-logo > .tb-rib .tb-disp { font-size: 2rem; line-height: 1; }
+.tb-logo-m { font-size: 8.5rem; line-height: .9; --sw: 1rem; --ex: .625rem; --grad-base: var(--bubble-lo);
+  --fill: linear-gradient(180deg, var(--bubble-hi) 0, var(--bubble) 45%, var(--blaze) 100%); }
+.tb-logo .tb-micro { margin-top: .75rem; color: var(--paper); text-shadow: var(--ts-live-s); }
 
-.photo-hint {
-  position: fixed;
-  bottom: var(--hud-y-b);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
+/* the loader: a toy car on a dashed road, a bounded 20 laps (parked mid-road
+   under reduced motion) */
+.tb-load { display: flex; flex-direction: column; align-items: center; gap: 1.875rem; }
+.tb-road { position: relative; width: 22rem; height: 3.25rem; border-radius: 999px; background: var(--ink-2); overflow: hidden;
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 0 0 .4375rem var(--paper), 0 0 0 .625rem var(--ink), 0 .75rem 0 .4375rem var(--ink); }
+.tb-road::before { content: ""; position: absolute; left: 1rem; right: 1rem; top: 50%; height: .25rem; margin-top: .75rem;
+  background: repeating-linear-gradient(90deg, rgba(255, 248, 234, .5) 0 1rem, transparent 1rem 1.75rem); }
+.tb-load-car { position: absolute; left: 0; top: .25rem; width: 4.25rem; translate: 9rem 0; animation: tb-drive 1.8s cubic-bezier(.45, 0, .55, 1) 20 backwards; }
+/* (after the 20th lap it parks mid-road, where reduced motion keeps it) */
+.tb-load-car .tb-car { width: 4.25rem; height: 2.625rem; }
+@keyframes tb-drive { 0% { translate: -4.5rem 0; } 100% { translate: 22.5rem 0; } }
+.tb-load .tb-lbl { color: var(--paper); text-shadow: var(--ts-live-s); font-size: max(10px, .9375rem); }
+
+/* the error: a hazard barricade cap over a toy box */
+.tb-err { width: min(40rem, calc(100vw - 2rem)); padding: 0 0 1.5rem; overflow: hidden; }
+.tb-err-cap { position: relative; display: flex; align-items: center; gap: 1rem; height: 4rem; padding: 0 5.5rem 0 6.25rem;
+  background: var(--stripes) right / 5rem 100% no-repeat, linear-gradient(180deg, var(--cherry-hi), var(--cherry) 50%, var(--cherry-lo)); box-shadow: inset 0 -3px 0 var(--ink); }
+.tb-err-ic { position: absolute; left: 1.75rem; top: 50%; width: 3.5rem; height: 3.5rem; margin-top: -1.75rem; border-radius: 50%; display: grid; place-items: center;
+  background: var(--ink); color: var(--paper); box-shadow: 0 0 0 max(2px, .1875rem) var(--paper), 0 0 0 max(3px, .3125rem) var(--ink); }
+.tb-err-ic svg { width: 1.75rem; height: 1.75rem; }
+.tb-err-k { font: 800 var(--t-xxs)/1 var(--f-ui); letter-spacing: var(--track); text-transform: uppercase; color: var(--paper);
+  -webkit-text-stroke: max(2px, .1875rem) var(--ink); paint-order: stroke fill; }
+.tb-err-b { padding: 1.25rem 1.75rem .5rem; }
+.tb-err-b .tb-disp { font-size: 2.75rem; color: var(--paper); line-height: 1; }
+.tb-err-b p { margin-top: .75rem; font: 600 1.0625rem/1.45 var(--f-ui); color: var(--paper-dim); }
+.tb-err-f { display: flex; align-items: center; gap: 1.25rem; padding: 1.25rem 1.75rem 0; }
+.tb-err-f .tb-cta { flex: 1; height: 4.25rem; }
+.tb-err-f .tb-cta .tb-disp { font-size: 2rem; }
+.tb-err-f .tb-btn { min-height: 3.5rem; padding: 0 1.25rem; }
+
+/* photo mode: one ink ribbon, top centre (the shot's middle stays clean) */
+.tb-photo { position: absolute; left: 0; right: 0; top: var(--safe-t); display: flex; justify-content: center; pointer-events: none; }
+.tb-photo .tb-rib { height: 2.5rem; padding: 0 1.125rem; gap: .5rem; }
+.tb-photo svg { width: 1.125rem; height: 1.125rem; }
+.tb-photo .tb-k { height: 1.375rem; min-width: 1.375rem; margin: 0 .125rem; }
+
+/* landscape phone: the lockup and the card shrink to fit 390px */
+@media (max-height: 500px) {
+  .tb-conn { gap: 16px; }
+  .tb-logo > .tb-rib { height: 30px; padding: 0 14px; margin-bottom: -4px; }
+  .tb-logo > .tb-rib .tb-disp { font-size: 20px; }
+  .tb-logo-m { font-size: 64px; --sw: 8px; --ex: 5px; }
+  .tb-logo .tb-micro { margin-top: 6px; }
+  .tb-err { width: min(560px, calc(100vw - 24px)); padding-bottom: 14px; }
+  .tb-err-cap { height: 44px; padding-left: 64px; }
+  .tb-err-ic { left: 14px; width: 36px; height: 36px; margin-top: -18px; }
+  .tb-err-ic svg { width: 20px; height: 20px; }
+  .tb-err-b { padding: 10px 16px 4px; }
+  .tb-err-b .tb-disp { font-size: 26px; }
+  .tb-err-b p { font-size: 13px; margin-top: 6px; }
+  .tb-err-f { padding: 10px 16px 0; gap: 12px; }
+  .tb-err-f .tb-cta { height: 52px; }
+  .tb-err-f .tb-cta .tb-disp { font-size: 22px; }
+  .tb-err-f .tb-btn { min-height: 44px; }
+  .tb-load { gap: 16px; }
 }

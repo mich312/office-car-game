@@ -28,6 +28,13 @@ const KEYMAP = {
   KeyB: 'boost', ControlLeft: 'boost', Space: 'boost',
 };
 
+// The Break Room (pause menu) is open: the match keeps running, but the car
+// is left alone. Keys and one-shots are ignored (except M), the pad and the
+// touch pad read as released, and whatever was held is let go on open.
+const paused = () => useStore.getState().breakRoom;
+// Gamepad Back/Select opens and closes it (Start stays respawn, and closes it too).
+const toggleBreakRoom = () => useStore.setState((s) => ({ breakRoom: !s.breakRoom }));
+
 export function useControls() {
   const keys = useRef({
     fwd: false, back: false, left: false, right: false, drift: false, boost: false,
@@ -38,12 +45,29 @@ export function useControls() {
     // A/B boost, X/LB drift, Y item, RB car special, Start respawn. Polled per
     // physics step from LocalCar via keys.current.poll(). The on-screen
     // touch controls merge into the same channels.
-    let prevUse = false, prevRespawn = false, prevAbility = false;
+    let prevUse = false, prevRespawn = false, prevAbility = false, prevBack = false;
     keys.current.poll = () => {
       const k = keys.current;
       const pads = navigator.getGamepads ? navigator.getGamepads() : [];
       let gp = null;
       for (const p of pads) if (p && p.connected) { gp = p; break; }
+      if (gp) {
+        const back = !!gp.buttons[8]?.pressed;
+        if (back && !prevBack) toggleBreakRoom();
+        prevBack = back;
+      }
+      if (paused()) {
+        // Start closes it; nothing else reaches the car. A whisper of
+        // throttle keeps auto-gas (which fills in a zero throttle) from
+        // driving off on its own: the car coasts.
+        const start = !!gp?.buttons[9]?.pressed;
+        if (start && !prevRespawn) useStore.setState({ breakRoom: false });
+        prevRespawn = start;
+        prevUse = !!gp?.buttons[3]?.pressed;
+        prevAbility = !!gp?.buttons[5]?.pressed;
+        k.gpSteer = 0; k.gpThrottle = 1e-6; k.gpBrake = 0; k.gpDrift = false; k.gpBoost = false;
+        return;
+      }
       let steer = 0, thr = 0, brk = 0, drift = false, boost = false;
       if (gp) {
         const btn = (i) => !!gp.buttons[i]?.pressed;
@@ -70,6 +94,15 @@ export function useControls() {
     };
     const down = (e) => {
       if (e.repeat) return;
+      if (paused()) {
+        // only mute survives; Esc is routed by the HUD (it closes the room)
+        if (e.code === 'KeyM') {
+          const m = !useStore.getState().muted;
+          useStore.setState({ muted: m });
+          useStore.getState().save();
+        }
+        return;
+      }
       const k = KEYMAP[e.code];
       if (k) {
         keys.current[k] = true;
@@ -123,12 +156,15 @@ export function useControls() {
       const k = keys.current;
       k.fwd = k.back = k.left = k.right = k.drift = k.boost = false;
     };
+    // opening the Break Room lets go of everything held
+    const unsub = useStore.subscribe((s, prev) => { if (s.breakRoom && !prev.breakRoom) release(); });
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('mousedown', click);
     window.addEventListener('blur', release);
     document.addEventListener('visibilitychange', release);
     return () => {
+      unsub();
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('mousedown', click);

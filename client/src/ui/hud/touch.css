@@ -1,42 +1,90 @@
-/* Touch controls (TouchControls.jsx). Legacy layout (px, thumb-sized), as
-   ink toy buttons with a paper rim until it is ported. */
+/* ==========================================================================
+   TOUCH CONTROLS (TouchControls.jsx, SPEC-TOYBOX §4.16). Authored in px:
+   thumbs are physical, so nothing here scales with the fluid root.
+   A horizontal steer stick bottom-left (speed sits right above it, same
+   corner as the desktop drive cluster) and the right-thumb pad bottom-right
+   (item + ability live on it, same corner as the desktop kit). DRIFT is the
+   biggest button, at the thumb's rest spot. Every target is ≥ 44 px.
+   The pad's left edge stays right of the car zone down to 740×360.
+   ========================================================================== */
+.tb-touch { display: none; position: absolute; inset: 0; pointer-events: none; z-index: var(--z-touch); }
+.tb-hud.is-touch .tb-touch { display: block; }
+.tb-touch button, .tb-stick { pointer-events: auto; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 
-/* --------------------------------------------------- touch controls */
-.touch-controls { display: none; }
-@media (pointer: coarse) {
-  .touch-controls { display: block; position: absolute; inset: 0; pointer-events: none; }
-}
-.tc-left { position: absolute; left: calc(var(--hud-x) - 8px); bottom: 110px; display: flex; gap: 16px; }
-.tc-right {
-  position: absolute;
-  right: calc(var(--hud-x-r) - 10px);
-  bottom: 110px;
-  display: grid;
-  grid-template-columns: repeat(2, 62px);
-  gap: 12px;
-}
-.tc-btn {
-  pointer-events: auto;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, var(--ink-3), var(--ink-2));
-  border: 3px solid var(--paper);
-  box-shadow: 0 0 0 3px var(--ink), 0 5px 0 3px var(--ink);
-  color: var(--paper);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--f-display);
-  font-style: italic;
-  font-weight: 900;
-  font-size: 15px;
-  letter-spacing: 0.04em;
-}
-/* pressed: a short dip onto its drop, no scale and no glow */
-.tc-btn:active { background: var(--paper); color: var(--ink); translate: 0 3px; box-shadow: 0 0 0 3px var(--ink), 0 2px 0 3px var(--ink); }
-.tc-steer { width: 84px; height: 84px; }
-.tc-wide { grid-column: span 2; width: 100%; border-radius: 31px; }
+/* speed readout: one unit with the stick */
+.tb-tspd { position: absolute; left: calc(20px + env(safe-area-inset-left, 0px)); bottom: calc(154px + env(safe-area-inset-bottom, 0px));
+  display: flex; align-items: baseline; gap: 4px; color: var(--paper); pointer-events: none; }
+.tb-tspd .tb-spd-n { font-size: 44px; line-height: 1; --slot: .6em; }
+.tb-tspd .tb-spd-u { font-size: 13px; }
+
+/* the stick: the knob follows the finger on X, eases home on release */
+.tb-stick { position: absolute; left: calc(16px + env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  width: 134px; height: 134px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(20, 14, 44, 0) 0 52%, rgba(20, 14, 44, .36) 53% 100%);
+  box-shadow: inset 0 0 0 3px rgba(255, 248, 234, .8), 0 0 0 2.5px var(--ink), inset 0 0 0 5.5px var(--ink); }
+.tb-stick::before, .tb-stick::after { content: ""; position: absolute; top: 50%; margin-top: -8px; border: 8px solid transparent; }
+.tb-stick::before { left: 10px; border-right: 10px solid rgba(255, 248, 234, .9); border-left: 0; }
+.tb-stick::after { right: 10px; border-left: 10px solid rgba(255, 248, 234, .9); border-right: 0; }
+.tb-knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+  translate: var(--kx, 0px) 0; transition: translate var(--d-fast) var(--ease-out);
+  display: grid; place-items: center; color: var(--ink-4);
+  background: radial-gradient(circle at 42% 35%, #fff, var(--paper) 45%, var(--paper-2));
+  box-shadow: inset 0 0 0 3px var(--ink), 0 4px 0 var(--ink); }
+.tb-stick.is-held .tb-knob { transition: none; }
+.tb-knob svg { width: 28px; height: 28px; }
+
+/* the right-thumb pad: 208×212, buttons placed by right/bottom offsets */
+.tb-pad { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  width: 208px; height: 212px; }
+.tb-tbtn { position: absolute; display: grid; place-items: center; padding: 0; border-radius: 50%; color: var(--paper);
+  box-shadow: inset 0 0 0 3px var(--ink), inset 0 4px 0 rgba(255, 255, 255, .35), inset 0 -6px 0 rgba(20, 14, 44, .25), 0 5px 0 var(--ink); }
+/* pressed: a short dip onto its drop; no scale, no glow */
+.tb-tbtn:active, .tb-tbtn.is-pressed { translate: 0 3px; box-shadow: inset 0 0 0 3px var(--ink), inset 0 -3px 0 rgba(20, 14, 44, .25), 0 2px 0 var(--ink); }
+.tb-tbtn > svg { fill: currentColor; }
+.tb-tbtn .tl { position: absolute; bottom: -16px; left: 50%; translate: -50% 0; font: 800 10px/1 var(--f-ui); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--paper); text-shadow: var(--ts-live-s); white-space: nowrap; pointer-events: none; }
+.tb-pedal { border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font: 800 10px/1 var(--f-ui); letter-spacing: .08em; text-transform: uppercase; }
+/* a quick tap: one bounded dip (the item fires on touch-down) */
+@keyframes tb-tap { 0%, 100% { translate: 0 0; } 40% { translate: 0 3px; } }
+.tb-tbtn.a-press { animation: tb-tap 140ms ease-out; }
+
+.t-gas { right: 0; bottom: 0; width: 60px; height: 94px; color: var(--ink); background: linear-gradient(180deg, var(--lime-hi), var(--lime) 55%, var(--lime-lo)); }
+.t-gas svg { width: 24px; height: 24px; }
+.t-auto { position: absolute; top: -12px; left: 50%; translate: -50% 0; height: 20px; padding: 0 7px; display: grid; place-items: center; border-radius: 6px;
+  background: var(--ink); color: var(--lime); font: 800 10px/1 var(--f-ui); letter-spacing: .08em; text-transform: uppercase; box-shadow: 0 0 0 2px var(--paper); }
+.t-brake { right: 76px; bottom: 0; width: 56px; height: 70px; color: var(--paper); background: linear-gradient(180deg, var(--cherry-hi), var(--cherry) 55%, var(--cherry-lo)); }
+.t-brake svg { width: 22px; height: 22px; }
+.t-drift { right: 72px; bottom: 88px; width: 82px; height: 82px; color: var(--ink); background: linear-gradient(180deg, var(--sky-hi), var(--sky) 55%, var(--sky-lo)); }
+.t-drift > svg { width: 34px; height: 34px; }
+/* drift tiers 1/2/3 ride on the drift button, lit by the hud loop */
+.t-tiers { position: absolute; top: -11px; left: 50%; translate: -50% 0; display: flex; gap: 2px; pointer-events: none; }
+.t-tiers i { display: grid; place-items: center; width: 17px; height: 15px; border-radius: 4px; font: italic 900 10px/1 var(--f-display);
+  color: var(--paper-dim); background: var(--ink-3); box-shadow: inset 0 0 0 1.5px var(--ink); transform: skewX(var(--lean)); }
+.t-tiers i.is-on { background: var(--c); color: var(--ink); }
+/* boost: a blaze conic ring = the meter */
+.t-boost { right: 150px; bottom: 4px; width: 56px; height: 56px; padding: 6px; background: conic-gradient(var(--blaze) 0 calc(var(--v) * 1turn), var(--ink-2) 0); }
+.t-boost .core { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; color: var(--ink);
+  background: radial-gradient(circle at 50% 35%, var(--blaze-hi), var(--blaze) 60%, var(--blaze-lo)); box-shadow: inset 0 0 0 2.5px var(--ink); }
+.t-boost.is-boosting .core { background: repeating-linear-gradient(-45deg, var(--blaze) 0 5px, var(--blaze-hi) 5px 10px); }
+.t-boost svg { width: 24px; height: 24px; fill: currentColor; }
+/* item: a grape box with a paper well; the glyph IS the label (aria-label names it) */
+.t-item { right: 0; bottom: 112px; width: 62px; height: 62px; border-radius: 18px; padding: 5px; background: linear-gradient(160deg, var(--grape-hi), var(--grape) 45%, var(--grape-lo)); }
+.t-item .well { width: 100%; height: 100%; border-radius: 13px; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 38%, #fff, var(--paper) 50%, var(--paper-2)); box-shadow: inset 0 0 0 2.5px var(--ink); }
+.t-item .well svg { width: 38px; height: 38px; }
+.t-item .tb-q { font-size: 30px; color: var(--paper-3); }
+/* ability: a sky cooldown ring (--p) + seconds; solid sky when ready */
+.t-ab { --t-ab-glyph: rgba(255, 248, 234, .35); right: 156px; bottom: 100px; width: 52px; height: 52px; padding: 5px;
+  background: conic-gradient(var(--sky) 0 calc(var(--p) * 1turn), var(--ink-2) 0); }
+.t-ab .core { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(180deg, var(--ink-4), var(--ink-2)); box-shadow: inset 0 0 0 2.5px var(--ink); }
+.t-ab .core svg { width: 22px; height: 22px; }
+.t-ab .secs { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; color: var(--paper); pointer-events: none; }
+.t-ab.is-ready { --t-ab-glyph: var(--ink); background: var(--sky); }
+.t-ab.is-ready .core { background: radial-gradient(circle at 50% 35%, var(--sky-hi), var(--sky) 60%, var(--sky-lo)); }
+.t-horn { right: 152px; bottom: 168px; width: 44px; height: 44px; background: var(--paper); color: var(--ink); }
+.t-horn svg { width: 20px; height: 20px; }
+
+/* lobby: nothing to fire yet (no item, no ability) */
+.tb-touch.is-lobby .t-item, .tb-touch.is-lobby .t-ab { display: none; }

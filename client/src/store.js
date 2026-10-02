@@ -19,12 +19,23 @@ function sanitizeVolumes(v) {
 
 let focusTimer = null;
 
+// ?lowfx (weak GPUs, CI) forces the low graphics tier for this page load
+// without overwriting the saved choice.
+const LOWFX = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('lowfx');
+const GFX = ['high', 'medium', 'low'];
+const HUD_SCALES = [0.9, 1, 1.1];
+// the XP the last match paid (the results payslip): { gained, before, after, place, score }
+const sanitizeXp = (x) => (x && [x.gained, x.before, x.after].every(Number.isFinite)
+  ? { gained: x.gained, before: x.before, after: x.after, place: Number(x.place) || 0, score: Number(x.score) || 0 }
+  : null);
+
 export const useStore = create((set, get) => ({
   // (exposed below as window.__rcStore for headless testing / debugging,
   // matching the existing window.__rcTelemetry affordance)
   screen: 'menu', // 'menu' | 'game'
   connected: false,
   connectError: null,
+  connectFatal: false, // the server turned us away for good (bad code, full house): no "Try again"
   // Which office to join: null = quick play, 'new' = open a private room,
   // or a code (an invite link lands here via ?room=). roomCode/roomPrivate
   // are where the server actually put us.
@@ -69,7 +80,7 @@ export const useStore = create((set, get) => ({
   autoGas: saved.autoGas !== undefined
     ? !!saved.autoGas
     : (typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches),
-  eventWarn: null, // { id, name, icon, startsIn } — telegraphed office event
+  eventWarn: null, // { id, name, icon, startsIn, until } — telegraphed office event
   spectating: false, // eliminated in Last Car Standing → drone cam
   spectateTarget: null, // name of the car the drone cam is following
   lcs: null, // { locked: [roomIds], warn: { room, until }, alive }
@@ -84,6 +95,20 @@ export const useStore = create((set, get) => ({
   // Set when you change a bolt-on, cleared a few seconds later so the
   // turntable goes back to its slow spin.
   focus: null, // 'front' | 'rear' | 'side' | 'roof' | 'wheel' | null
+
+  // Display prefs (the Break Room): the renderer reads gfx, the HUD corners
+  // scale by hudScale, reduceMotion stills every UI animation, transmitter
+  // brings back the diegetic RC transmitter in place of the drive cluster.
+  // The subscription at the bottom mirrors them onto <html>.
+  gfx: LOWFX ? 'low' : (GFX.includes(saved.gfx) ? saved.gfx : 'high'),
+  gfxSaved: GFX.includes(saved.gfx) ? saved.gfx : 'high', // what save() writes: ?lowfx never persists
+  hudScale: HUD_SCALES.includes(saved.hudScale) ? saved.hudScale : 1,
+  reduceMotion: !!saved.reduceMotion,
+  transmitter: !!saved.transmitter, // default OFF
+  breakRoom: false, // the pause menu is open (not persisted; the match keeps running)
+  lastXp: sanitizeXp(saved.lastXp), // set on MATCH_END (net.js), before addXp
+  matchEndAt: 0, // local time the MATCH_END arrived: the results countdown runs from it
+  cupLog: [], // [{ round, modeId }] Office Cup rounds played so far (the server never names them)
 
   // profile / progression
   name: saved.name || '',
@@ -110,11 +135,12 @@ export const useStore = create((set, get) => ({
   },
   save() {
     const { name, car, paint, cos, style, tune, xp, muted, autoGas, volumes, drivingTest, hintsSeen } = get();
+    const { gfxSaved: gfx, hudScale, reduceMotion, transmitter, lastXp } = get();
     // guarded like the read at the top: where storage is blocked (quota,
     // restricted embed) a throw here would abort whatever gameplay handler
     // called us — e.g. addXp inside MATCH_END would kill the podium events
     try {
-      localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas, volumes, drivingTest, hintsSeen }));
+      localStorage.setItem('rc-mayhem', JSON.stringify({ name, car, paint, cos, style, tune, xp, muted, autoGas, volumes, drivingTest, hintsSeen, gfx, hudScale, reduceMotion, transmitter, lastXp }));
     } catch { /* profile just doesn't persist */ }
   },
   setFocus(region) {
@@ -134,6 +160,20 @@ export const useStore = create((set, get) => ({
     const xp = get().xp;
     return UNLOCKS.filter((u) => u.xp <= xp);
   },
+  // Break Room display prefs: set, persist, and (via the subscription below)
+  // mirror onto <html>. Graphics picked here is also what gets saved.
+  setPref(key, value) {
+    if (key === 'gfx') {
+      if (!GFX.includes(value)) return;
+      set({ gfx: value, gfxSaved: value });
+    } else if (key === 'hudScale') {
+      if (!HUD_SCALES.includes(value)) return;
+      set({ hudScale: value });
+    } else if (key === 'reduceMotion' || key === 'transmitter' || key === 'autoGas') {
+      set({ [key]: !!value });
+    } else return;
+    get().save();
+  },
   setTimeOfDay(id) {
     set({ timeOfDay: id, night: id === 'night' });
   },
@@ -147,3 +187,20 @@ export const useStore = create((set, get) => ({
 }));
 
 if (typeof window !== 'undefined') window.__rcStore = useStore;
+
+// Display prefs live on <html>, where every stylesheet can see them:
+//   html.lowfx          no burst / confetti / glow / backdrop effects (gfx 'low')
+//   html.reduce-motion  every UI animation and transition off (with the OS setting)
+//   --hud-scale         the match HUD corners (0.9 / 1 / 1.1)
+if (typeof document !== 'undefined') {
+  const apply = (s) => {
+    const html = document.documentElement;
+    html.classList.toggle('lowfx', s.gfx === 'low');
+    html.classList.toggle('reduce-motion', !!s.reduceMotion);
+    html.style.setProperty('--hud-scale', String(s.hudScale));
+  };
+  apply(useStore.getState());
+  useStore.subscribe((s, prev) => {
+    if (s.gfx !== prev.gfx || s.reduceMotion !== prev.reduceMotion || s.hudScale !== prev.hudScale) apply(s);
+  });
+}
