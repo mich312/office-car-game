@@ -5,7 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
 import * as THREE from 'three';
 import { M, SURFACES } from '@rc/shared';
-import { useMap } from './activeMap.js';
+import { useMap, currentMap } from './activeMap.js';
 import { THEMES, PIECES, RAMP_SKINS, WALL_STYLES } from './themes/index.js';
 import { useStore } from '../store.js';
 import { lightingFor } from './daylight.js';
@@ -124,10 +124,12 @@ export default function Office() {
 const POOL_M = 2.6; // pool diameter, metres
 
 function LightPools() {
+  const map = useMap();
   const hour = useStore((s) => s.timeOfDay);
   const event = useStore((s) => s.event);
   const lightsOut = event?.id === 'lights_out';
-  const light = lightingFor(hour, lightsOut);
+  // (these office pieces read the office's own table, map.LIGHTING)
+  const light = lightingFor(hour, lightsOut, map);
   const glow = useMemo(() => glowTex(), []);
   const warmMat = useMemo(() => new THREE.MeshBasicMaterial({
     map: glow, color: '#ffe3b0', transparent: true, opacity: 0.12,
@@ -168,7 +170,7 @@ function LightShafts() {
 }
 const officeLightNow = () => {
   const st = useStore.getState();
-  return lightingFor(st.timeOfDay, st.event?.id === 'lights_out');
+  return lightingFor(st.timeOfDay, st.event?.id === 'lights_out', currentMap());
 };
 
 // ------------------------------------------------------------------ floors
@@ -282,7 +284,7 @@ function Ceiling({ map }) {
   // (Lighting.jsx, LightPools, LightShafts all lerp at ~dt*1.8) — assigning
   // it synchronously made the 140 panels snap while the world cross-faded
   useFrame((_, dt) => {
-    const target = lightingFor(hour, lightsOut).panel;
+    const target = lightingFor(hour, lightsOut, map).panel;
     panelMat.emissiveIntensity += (target - panelMat.emissiveIntensity) * Math.min(1, dt * 1.8);
   });
   // the main slab covers everything east of the balcony, plus the reception
@@ -521,15 +523,16 @@ function Ramps({ map }) {
 // golden-hour sun low in the west over dark towers, the city lighting up as
 // the light goes.
 function Outside() {
+  const map = useMap();
   const hour = useStore((s) => s.timeOfDay);
-  const wet = lightingFor(hour, false).wet;
+  const wet = lightingFor(hour, false, map).wet;
   const skies = useMemo(() => [makeOfficeSkyMaterial(1), makeOfficeSkyMaterial(90 / 140)], []);
   useEffect(() => () => skies.forEach((m) => m.dispose()), [skies]);
   const first = useRef(true);
   useFrame((_, dt) => {
     const st = useStore.getState();
     const out = st.event?.id === 'lights_out';
-    const L = lightingFor(st.timeOfDay, out);
+    const L = lightingFor(st.timeOfDay, out, map);
     stepOfficeSky(skies, out ? OFFICE_SKY.lightsOut : OFFICE_SKY[st.timeOfDay] || OFFICE_SKY.golden, L.sun.pos, first.current ? 1 : Math.min(1, dt * 1.8));
     first.current = false;
   });

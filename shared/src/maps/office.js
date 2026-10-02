@@ -360,6 +360,13 @@ export const PROPS = [
   p('chair', 11.8, -8.65, 0, 0.3), p('trash', 11.3, -6.85), p('chair', -6, -7.6, 0, 2.6), p('bottle', -6.5, -9.55, 0, -0.5),
   // games corner, a chair pushed back from the meeting table, the CEO's door
   p('basketball', 14.6, -6.2), p('book', 13.9, -8.3, 0, 0.9), p('chair', 16.05, 4.35, 0, 2.9), p('plant', 18.1, 5.75),
+  // second pass, the lap's last bare metres outside the standup discs: the
+  // balcony's way in and its south end, the reception's swing to the grid,
+  // the pitch's north-west corner, the lounge's turn to the door, café west
+  p('plant', -15.3, 9.95), p('plant', -17, 2.6), p('bottle', -16.95, 1, 0, 1.3),
+  p('plant', -14.7, -7.15), p('box', -16.1, -6.55, 0, 0.5),
+  p('plant', -2.3, 5.95), p('plant', 3, 8.95),
+  p('chair', -5, -7.7, 0, 2.2), p('trash', -7.3, -9.6),
 ];
 
 // Race spawn grid — reception, facing east toward the storage door.
@@ -526,6 +533,43 @@ const DECALS = [
   // games, storage
   ['tyre2', 17.6, -5.8, 1.4, 3.2, 0.9, 0.5], ['scuff', 15.5, -7.2, 1.2, 1, 0.3, 0.5],
   ['tyre', -11, -8.1, 1.2, 4, 1.57, 0.4], ['bunny', -13.7, -11.7, 0.25, 0.2, 0.2, 0.9],
+  // reception is the start: somebody taped a grid on the tile — a box per
+  // slot, a chequered line across the lane at the first checkpoint — and
+  // the plank has scuffed the floor in front of the desk
+  ['office_chequer', -16.5, -8, 1.9, 0.24, Math.PI / 2, 0.95],
+  ...[-19.8, -18.6, -17.4].flatMap((x) => [-9.6, -8.1, -6.6, -5.1].map((z) => ['office_slot', x, z, 0.46, 0.34, 0, 0.85, '#f2f2ee'])),
+  ['scuff', -17.5, -9.95, 1.3, 0.6, 0, 0.55], ['footprints', -15.6, -4.4, 0.5, 1, 2.4, 0.35],
+  // storage: the slab's joints, a keep-clear stencil at the washroom door,
+  // hazard tape along the rack fronts, oil and dust where pallets stood
+  ['joint', -11, -8, 8, 0.3, Math.PI / 2, 0.7], ['joint', -11, -8, 6, 0.3, 0, 0.6],
+  ['office_keepclear', -11, -4.6, 1.4, 0.7, Math.PI, 0.8],
+  ['hazard', -13.17, -6, 1.8, 0.14, Math.PI / 2, 0.85], ['hazard', -13.17, -10.3, 1.8, 0.14, Math.PI / 2, 0.85],
+  ['hazard', -8.83, -10.8, 1.8, 0.14, Math.PI / 2, 0.85],
+  ['oil', -12, -9.7, 0.8, 0.6, 0.7, 0.8], ['dust', -9.4, -6.3, 1.2, 1, 0.3, 0.7], ['crack', -10.3, -10.5, 1.4, 0.35, 0.6, 0.7],
+  ['footprints', -11, -5, 0.5, 1, 3.1, 0.35],
+  // …and a walkway painted through it, door to door
+  ['tape', -11, -7.3, 5.7, 0.14, 0, 0.8, '#ecebe4'], ['tape', -11, -8.7, 5.7, 0.14, 0, 0.8, '#ecebe4'],
+  // café west: crumbs under the stools, a ring on the tile by the bar
+  ['crumbs', -7.3, -5.4, 0.8, 1.6, 0.2, 0.75], ['ring', -6.2, -6.9, 0.2, 0.2, 0.3, 0.7], ['gum', -4.8, -6.6, 0.4, 0.4, 0.6, 0.8],
+  ['scraps', 0.6, -5.3, 0.6, 0.6, 0.4, 0.8],
+  // the kitchen run: coffee drips and crumbs at the machine, a spill by the
+  // sink, the shine worn into the tile along the counter
+  ['ring', -1.3, -10.75, 0.2, 0.2, 0.2, 0.8], ['ring', -0.7, -10.9, 0.18, 0.18, 1.3, 0.7], ['crumbs', -1.8, -10.7, 0.6, 0.4, 0.4, 0.8],
+  ['spill', 2.6, -10.8, 0.5, 0.35, 0.9, 0.8], ['footprints', -2.8, -10.6, 0.5, 1, 1.6, 0.35], ['gum', 3.6, -9.9, 0.35, 0.35, 0.2, 0.8],
+  // games: the key painted under the hoop, balls' scuffs round it
+  ['office_court', 19.85, -7, 1.3, 1.9, -Math.PI / 2, 0.85], ['scuff', 18.9, -8.6, 1, 0.8, 0.8, 0.45],
+  // the open office is RC soccer's pitch, and somebody has taped it out:
+  // the halfway line, the centre circle, a box at each goal (flat: the
+  // pitch keeps nothing solid)
+  ...[[-2.85, 2.3], [-0.55, 2.2], [1.65, 2.2], [3.85, 2.2], [6, 2]].map(([z, w]) => ['tape', -1, z, w, 0.12, Math.PI / 2, 0.9, '#f2f2ee']),
+  ['office_ring', -1, 1.5, 2.4, 2.4, 0, 0.8, '#f2f2ee'],
+  ['tape', -7.4, 2.8, 1.2, 0.12, 0, 0.9, '#f2f2ee'], ['tape', -7.4, 5.2, 1.2, 0.12, 0, 0.9, '#f2f2ee'], ['tape', -6.8, 4, 2.4, 0.12, Math.PI / 2, 0.9, '#f2f2ee'],
+  ['tape', 5.4, -1.7, 1.2, 0.12, 0, 0.9, '#f2f2ee'], ['tape', 5.4, 0.7, 1.2, 0.12, 0, 0.9, '#f2f2ee'], ['tape', 4.8, -0.5, 2.4, 0.12, Math.PI / 2, 0.9, '#f2f2ee'],
+  // the washroom's wet floor by the basins; the server room's open tile;
+  // paper under the printers
+  ['wet', -12.3, -0.25, 1.3, 0.7, 0.1, 0.6], ['footprints', -10.2, -1.6, 0.5, 1, 1.2, 0.4],
+  ['office_void', 8.3, 4.5, 0.6, 0.6, 0, 0.95],
+  ['scraps', 9, -2.8, 0.8, 0.8, 0.4, 0.8],
 ];
 
 // Clutter: [kind, x, z, rotY, opts] (dressing/kinds). Wall-huggers, their
@@ -548,7 +592,7 @@ const CLUTTER = [
   ['floorlamp', -5.65, 11.5, 0], ['floorlamp', 4.65, 11.5, 0, { shade: '#d9785a' }],
   ['beanbag', -9.75, 11.38, 0.4, { color: '#c0573f' }], ['magazines', -9.3, 10.6, 0.3],
   ['bigplant', 12.2, 11.62, 0], ['watercooler', 6.95, 7.3, 0], ['trough', -9.3, 7.28, 0, { len: 1.6 }],
-  ['floorbox', 7, 10.55, 0, { cable: 0.5 }], ['backpack', 1, 11.65, Math.PI, { color: '#3f5f8a' }],
+  ['floorbox', 7, 10.55, 0, { cable: 0.5 }], ['backpack', -6.3, 11.62, Math.PI, { color: '#3f5f8a' }],
   // cafeteria: the recycling point and the empties by the games door, the
   // mop and its sign by the tables, a bin by the bar, a fig and yesterday's
   // papers by the open-office door
@@ -564,6 +608,49 @@ const CLUTTER = [
   // open office (the pitch: flat only): floor boxes feeding the pods
   ['floorbox', -2.55, -1, -Math.PI / 2, { cable: 0.4 }], ['floorbox', 0.55, -1, Math.PI / 2, { cable: 0.4 }],
   ['floorbox', -2.55, 4, -Math.PI / 2, { cable: 0.4 }], ['floorbox', 0.55, 4, Math.PI / 2, { cable: 0.4 }],
+  // reception: a runner from the terrace door, the company's first car in a
+  // showcase by the glass, a waiting chair and its side table under the
+  // art, the roll-up banner beside the desk, a radiator behind the grid
+  ['mat', -17.5, -3.45, Math.PI / 2, { w: 2.6, d: 0.9 }], ['office_display', -19.9, -1.45, Math.PI],
+  ['office_armchair', -14.52, -6.1, -Math.PI / 2, { color: '#3f6fa8' }], ['office_sidetable', -14.42, -5.3, 0],
+  ['office_banner', -15.45, -11.62, 0], ['radiator', -20.84, -7.3, Math.PI / 2, { len: 1.2 }],
+  // storage: a pallet of stock, stacked chairs, the stepladder, a cable
+  // drum, archive boxes, and the vacuum cleaner that lives by the door
+  ['office_pallet', -12.3, -11.45, 0, { n: 2 }], ['office_chairstack', -8.45, -4.45, Math.PI, { color: '#c0573f' }],
+  ['office_ladder', -12.9, -4.27, Math.PI], ['office_spool', -9.6, -4.33, 0, { color: '#c0573f' }],
+  ['office_archive', -8.32, -6, -Math.PI / 2, { cols: 2, h: 3 }], ['office_vacuum', -12.25, -4.35, Math.PI],
+  // café: stools at the bar, a mat at the sink
+  ['mat', -3, -10.64, 0, { w: 1, d: 0.45 }],
+  ['office_barstool', -7.45, -6.2, Math.PI / 2, { color: '#2f4f7e' }], ['office_barstool', -7.45, -5.45, Math.PI / 2, { color: '#2f4f7e' }],
+  ['office_barstool', -7.45, -4.7, Math.PI / 2, { color: '#2f4f7e' }],
+  // games: the arcade cabinet and the drinks fridge on the far wall,
+  // darts beside the hoop, last night's pizza
+  ['office_arcade', 20.5, -8.3, -Math.PI / 2], ['office_minifridge', 20.62, -9.2, -Math.PI / 2],
+  ['office_dartboard', 20.86, -5.2, -Math.PI / 2, { y: 1.2 }], ['office_pizza', 15.3, -9.9, 0.4],
+  // meeting: the flipchart by the door
+  ['office_flipchart', 20.55, -1.2, -Math.PI / 2],
+  // CEO: a putting green under the window, the bag in the corner, a globe
+  ['office_putting', 15.39, 11.35, 0, { w: 2.8, d: 0.6 }], ['office_flag', 16.4, 11.35, 0],
+  ['office_golfbag', 13.28, 11.62, Math.PI / 2], ['office_globe', 20.4, 9.6, 0],
+  // lounge: a guitar between the sofas, a pizza box by the bean bag
+  ['office_guitar', 1.35, 11.6, Math.PI], ['office_pizza', -8.6, 11, 0.9],
+  // balcony: the barbecue and a deck chair in the far corner, a can for
+  // the planters
+  ['office_bbq', -20.35, 11.35, 0.6], ['office_deckchair', -19.1, 11.2, Math.PI, { color: '#c0573f' }],
+  ['office_wateringcan', -20.6, 0.9, 0.5],
+  // focus booths: the quiet sign, poufs
+  ['office_aframe', -13.5, 1.3, 0, { print: 'office_quiet' }], ['office_pouf', -10.9, 6.6, 0, { color: '#3f7d7a' }],
+  ['office_pouf', -11.5, 6.65, 0, { color: '#c0573f' }],
+  // bathroom: the hand dryer, a sanitary bin, the mop and the scales
+  ['office_handdryer', -10.6, 0.81, Math.PI, { y: 1 }], ['bin', -13.72, -3.7, 0, { h: 0.3, color: '#e6e4de' }],
+  ['mopbucket', -9.6, -3.72, 0, { color: '#2f6fb5' }], ['office_scale', -8.7, -3.5, 0.3],
+  // server room: the cooling unit at the end of the aisle, a crash cart, a
+  // lifted floor tile, a cable drum, the extinguisher by the door
+  ['office_crac', 12.54, 4.5, -Math.PI / 2], ['office_crashcart', 6.55, 2.55, 0.3],
+  ['office_liftedtile', 8.1, 5.08, Math.PI], ['office_spool', 12.5, 6.55, 0, { color: '#1d3b6b' }],
+  ['extinguisher', 6.3, 5.7, Math.PI / 2],
+  // printer nook: the post pigeonholes, a recycling bin
+  ['office_pigeonholes', 12.68, -1.5, -Math.PI / 2], ['bin', 7.9, 1.7, 0, { color: '#2f5f9e' }],
 ];
 
 // Static decor from the props' models, where no car reaches: [name, x, y,
@@ -572,7 +659,7 @@ const DECOR_PROPS = [
   ['plant2', 7.45, 1.1, 11.25, 0.3, '#ebe6dc'], ['book', 8.15, 1.1, 11.3, 0.4, '#2f4f7e'], // lounge bar
   ['mug', -6.8, 1.1, -5.9, 0, '#e8503a'], ['glass', -6.75, 1.1, -6.3], ['sheets', -6.85, 1.1, -5, 0.3, '#fbfaf5'], // café bar
   ['box', -6.5, 1.9, -11.4, 0.2, '#f1e8dc'], ['bottle', -6.15, 1.9, -11.5, 0, '#2d7fd0'], // on the fridge
-  ['roll', -13.3, 0.85, 0.3], // a spare on the basin counter
+  ['roll', -13.3, 0.85, 0.3], ['roll', -13.18, 0.85, 0.3], ['roll', -13.24, 0.95, 0.3], // spares on the basin counter
   ['plant', -13.62, 0, 11.6, 0.8, '#3b3d42', { collide: 'box' }], // lounge corner
   ['plant', -14.45, 0, -11.55, 0, '#b5623f', { collide: 'box' }], // reception corner
 ];
@@ -583,7 +670,139 @@ const SCATTER = [
   ['paper', -1, 1, 5, 4, 7], ['postit', -1, 1.5, 6, 5, 12], ['paper', 9.5, -0.6, 3, 2, 6],
   ['scrap', 12.3, -4.9, 1, 0.5, 5],
   ['leaf', 12.2, 11.5, 0.8, 0.6, 12, { colors: ['#4c7a33', '#6f8f3a', '#8a7a3a'] }],
+  ['scrap', -11.6, -10.9, 1.2, 0.5, 5], ['crumb', -7.2, -5.4, 0.7, 1.6, 40], ['scrap', 13.9, 7.4, 0.6, 0.4, 3],
 ];
+
+// The office's own light, hour by hour (client/src/game/daylight.js reads
+// it: the schema and the units are documented there). It began as the
+// house table, which was authored on this floor; what is the office's own:
+//
+//   morning    first coffee. A cold blue room, the sun a pale-gold bar laid
+//              down from the east. Its low sun raked a white-hot highlight
+//              across the games corner's boards and the café tile: the sun
+//              is a little softer and higher, the window reflection dimmer
+//              and the bloom later, so the bars stay gold instead of glare.
+//   afternoon  the office at work: every fitting on, a high sun, clean and
+//              bright, but not flat — teal in the shadows, a warm key.
+//   golden     after hours, the floor's own fiction (DEFAULT_HOUR). The
+//              fill was lavender and the café's white tile read as lilac
+//              card: the fill is a cooler, less violet blue now (the warm /
+//              cool split still carries), the bounce off the floors is
+//              warmer — the lounge's sofas and legs pick it up — and the
+//              haze is ember rather than plum.
+//   night      the last one out: moonlight at the glass, the fittings left
+//              on as pools, the practicals (screens, LEDs, the vending
+//              machine) the brightest things on the floor.
+const G = (contrast, sat, shadow, high, split, lift, vignette, grain) => ({ contrast, sat, shadow, high, split, lift, vignette, grain });
+const LIGHTING = {
+  roofed: true,
+  // the server room's glow (and the blackout's emergency light)
+  glow: { at: [9.5, 4.5], color: '#3d7bff' },
+  morning: {
+    label: 'Morning',
+    clock: '07:40',
+    sun: { pos: [165, 56, 96], color: '#ffe4c2', intensity: 3.2 },
+    amb: { intensity: 0.08, color: '#b6c8ee' },
+    hemi: { intensity: 0.3, sky: '#c4d6ff', ground: '#4a4436' },
+    ceiling: 0.3,
+    env: {
+      intensity: 0.4,
+      bg: '#3c4c6e',
+      window: { color: '#d8e6ff', intensity: 3.2 },
+      ceil: { color: '#e8eeff', intensity: 0.9 },
+      warm: { color: '#ffd9a8', intensity: 0.8 },
+      key: { color: '#eaf2ff', intensity: 1.5 },
+    },
+    shaft: { opacity: 0.22, color: '#ffe6c4', tilt: 0.76, yaw: 0.22, length: 30 },
+    pool: 0.05,
+    panel: 1.1,
+    bloom: { intensity: 0.6, threshold: 1.25 },
+    shadow: { bias: -0.0003, normalBias: 0.06, opacity: 0.9 },
+    practical: 0.18,
+    wet: false,
+    exposure: 1.1,
+    fog: { color: '#8ea4c8', density: 0.0046 },
+    grade: G(1.1, 0.98, '#44609a', '#fff0d6', 0.11, 0.016, 0.3, 0.025),
+  },
+  afternoon: {
+    label: 'Afternoon',
+    clock: '14:20',
+    sun: { pos: [40, 190, 74], color: '#fff1dc', intensity: 5.0 },
+    amb: { intensity: 0.15, color: '#dfe8f4' },
+    hemi: { intensity: 0.4, sky: '#e4eefc', ground: '#5a4c38' },
+    ceiling: 0.44,
+    env: {
+      intensity: 0.6,
+      bg: '#8fa8cc',
+      window: { color: '#ffffff', intensity: 5.4 },
+      ceil: { color: '#fff6e4', intensity: 1.3 },
+      warm: { color: '#ffe6c4', intensity: 1.2 },
+      key: { color: '#ffffff', intensity: 2.4 },
+    },
+    shaft: { opacity: 0.08, color: '#fff4dc', tilt: 1.24, yaw: 0.05, length: 20 },
+    pool: 0.04,
+    panel: 1.0,
+    bloom: { intensity: 0.5, threshold: 1.2 },
+    shadow: { bias: -0.00015, normalBias: 0.03, opacity: 0.95 },
+    practical: 0.08,
+    wet: false,
+    exposure: 0.98,
+    fog: { color: '#b0c4d8', density: 0.0026 },
+    grade: G(1.15, 1.07, '#3d6a82', '#fff2dc', 0.08, 0.004, 0.26, 0.02),
+  },
+  golden: {
+    label: 'Golden hour',
+    clock: '19:05',
+    sun: { pos: [-172, 30, 108], color: '#ff9440', intensity: 7 },
+    amb: { intensity: 0.08, color: '#a8aac6' },
+    hemi: { intensity: 0.32, sky: '#a2a8cc', ground: '#6a4428' },
+    ceiling: 0.42,
+    env: {
+      intensity: 0.3,
+      bg: '#6a5260',
+      window: { color: '#ffb060', intensity: 6.5 },
+      ceil: { color: '#c4c4e0', intensity: 0.7 },
+      warm: { color: '#ff9c4a', intensity: 2.4 },
+      key: { color: '#ffd0a0', intensity: 2.6 },
+    },
+    shaft: { opacity: 0.34, color: '#ffa850', tilt: 0.5, yaw: -0.3, length: 38 },
+    pool: 0.12,
+    panel: 1.3,
+    bloom: { intensity: 0.85, threshold: 1.0 },
+    shadow: { bias: -0.00035, normalBias: 0.07, opacity: 0.9 },
+    practical: 0.45,
+    wet: false,
+    exposure: 1.3,
+    fog: { color: '#46303a', density: 0.0052 },
+    grade: G(1.14, 1.06, '#3a4a82', '#ffb066', 0.12, 0.022, 0.4, 0.03),
+  },
+  night: {
+    label: 'Night',
+    clock: '23:40',
+    sun: { pos: [-96, 128, 152], color: '#7f9fff', intensity: 0.7 },
+    amb: { intensity: 0.05, color: '#aab6d8' },
+    hemi: { intensity: 0.12, sky: '#8a9cd0', ground: '#2e2820' },
+    ceiling: 1.0,
+    env: {
+      intensity: 0.16,
+      bg: '#070b16',
+      window: { color: '#4c6cb8', intensity: 1.2 },
+      ceil: { color: '#ffe8c4', intensity: 1.2 },
+      warm: { color: '#ffd9a8', intensity: 0.6 },
+      key: { color: '#ffffff', intensity: 0.6 },
+    },
+    shaft: { opacity: 0.04, color: '#8fa8ff', tilt: 0.99, yaw: 0, length: 22 },
+    pool: 0.36,
+    panel: 2.4,
+    bloom: { intensity: 0.9, threshold: 0.95 },
+    shadow: { bias: -0.0002, normalBias: 0.05, opacity: 0.5 },
+    practical: 1,
+    wet: true,
+    exposure: 1.45,
+    fog: { color: '#0b1226', density: 0.006 },
+    grade: G(1.16, 0.95, '#2a3664', '#ffc890', 0.13, 0.028, 0.46, 0.035),
+  },
+};
 
 // Everything above, as one map (maps/index registers it).
 export const OFFICE = {
@@ -608,12 +827,17 @@ export const OFFICE = {
   // after hours, the sun low in the west, the city lighting up past the
   // glass — the office's own fiction, and its best light.
   DEFAULT_HOUR: 'golden',
+  LIGHTING,
   // Paint. Most of the floor is the house off-white; a few rooms get their
   // own colour on the walls that face into them (architecture.js), so each
   // reads as a place from car height: a greige reception, sage kitchen,
   // aqua washroom, a blue meeting room, a green CEO study, an orange games
   // corner, a dark server room.
   LOOK: {
+    // the tile is a cool grey-blue under its albedo; warmed to a limestone
+    // cream, the café, reception and washroom stop reading lilac under a
+    // blue fill. The concrete, a shade warmer too.
+    floors: { tile: '#fff0da', concrete: '#fbf4ea' },
     wall: '#e8e4da',
     skirt: '#d8d2c6',
     frame: '#f3f1ec',
