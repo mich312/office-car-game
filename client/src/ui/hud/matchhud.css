@@ -1,0 +1,120 @@
+/* Match HUD (MatchHUD.jsx).
+   Toy Box layout (SPEC-TOYBOX §4.0/§4.1): five .tb-corner wrappers carry the
+   HUD-size scale (--hud-scale, anchored at their own corner); their children
+   carry the entrance animations, so the two never fight over `scale`. The
+   top-centre column is centred by LAYOUT (left/right 0 + flex), never by a
+   transform. The car zone (centre 40% × lower 45%) holds nothing persistent.
+   Below it: the legacy drive cluster, hazard toast, spectator chip and
+   printer flash, retinted until they are ported. */
+
+/* ------------------------------------------------------------ corners */
+/* a whisper of top/bottom scrim so stickers hold on white ceilings: not a panel */
+.tb-scrim { position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(10, 6, 28, .32) 0, rgba(10, 6, 28, 0) 12rem),
+              linear-gradient(0deg, rgba(10, 6, 28, .28) 0, rgba(10, 6, 28, 0) 10.5rem); }
+.tb-corner { position: absolute; scale: var(--hud-scale); }
+.tb-tl { left: var(--safe-l); top: 1.25rem; transform-origin: 0 0; display: flex; flex-direction: column; align-items: flex-start; }
+.tb-tr { right: var(--safe-r); top: var(--safe-t); transform-origin: 100% 0; display: flex; flex-direction: column; align-items: flex-end; gap: 1.125rem; }
+.tb-bl { left: var(--safe-l); bottom: var(--safe-b); transform-origin: 0 100%; }
+.tb-br { right: var(--safe-r); bottom: var(--safe-b); transform-origin: 100% 100%; }
+.tb-tc { left: 0; right: 0; top: var(--safe-t); transform-origin: 50% 0; display: flex; flex-direction: column; align-items: center; gap: .875rem; }
+.tb-tc > * { flex: none; }
+/* the touch pad carries speed / drift / boost / item / ability; the opt-in
+   RC transmitter (ControllerHUD) carries speed / boost / Q / E */
+.tb-hud.is-touch .tb-bl, .tb-hud.is-touch .tb-br,
+.tb-hud.is-transmitter .tb-bl, .tb-hud.is-transmitter .tb-br { display: none; }
+
+/* --------------------------------------------- bottom-left drive cluster */
+@property --frac { syntax: '<number>'; initial-value: 0; inherits: false; }
+.drive-cluster {
+  position: absolute;
+  left: var(--hud-x);
+  bottom: var(--hud-y-b);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.7rem;
+}
+/* fine pointers get the in-world RC transmitter instead (ControllerHUD.jsx),
+   which also carries the powerup/ability buttons (.hud prefix outranks the
+   later .action-tray display rule) */
+@media (pointer: fine) {
+  .hud .drive-cluster { display: none; }
+  .hud .action-tray { display: none; }
+}
+.boost-ring {
+  position: relative;
+  width: 7.6rem;
+  height: 7.6rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--ink-a) 58%, transparent 59%);
+  transition: --frac 0.12s linear;
+}
+.boost-ring::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 220deg,
+      var(--boost) calc(var(--frac) * 280deg),
+      rgba(255, 248, 234, 0.14) calc(var(--frac) * 280deg) 280deg,
+      transparent 280deg);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+  mask: radial-gradient(closest-side, transparent calc(100% - 8px), #000 calc(100% - 7px));
+}
+.boost-ring.full::before {
+  background:
+    conic-gradient(from 220deg,
+      var(--blaze-hi) 280deg,
+      transparent 280deg);
+}
+.boost-ring .speed {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.boost-ring .speed b {
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 900;
+  font-size: 2.9rem;
+  line-height: 0.95;
+  text-shadow: var(--ts-live);
+}
+.boost-ring .speed span { margin-top: 2px; color: var(--paper); text-shadow: var(--ts-live-s); }
+
+/* zap warning + spectator */
+.zap-toast {
+  position: absolute;
+  top: 24%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  animation: toastin var(--t-slow) var(--ease-pop), tb-shake 300ms 450ms ease-in-out 3;
+}
+.zap-toast b { font-family: var(--f-display); font-style: italic; font-weight: 900; font-size: 1.2rem; letter-spacing: 0.02em; }
+
+.spectate-chip {
+  position: absolute;
+  bottom: calc(var(--hud-y-b) + 6.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+}
+.spectate-chip small { color: var(--paper-dim); font-weight: 600; }
+
+.printer-flash {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-flash);
+  pointer-events: none;
+  background: rgba(255, 248, 234, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  animation: printFade 1.4s ease-out forwards;
+}
+@keyframes printFade { 0% { opacity: 1; } 55% { opacity: 0.95; } 100% { opacity: 0; } }

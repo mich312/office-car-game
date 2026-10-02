@@ -1,121 +1,152 @@
-/* Design tokens + base. The whole UI draws from this sheet — see
-   docs/UI_REDESIGN_PLAN.md ("After Hours, Inc."). */
+/* ==========================================================================
+   TINY RC MAYHEM: "Toy Box Arcade" tokens (SPEC-TOYBOX §2). FROZEN: new
+   tokens go into component CSS as local custom properties.
+   Two surface families, one outline, one lean:
+     STICKERS: skewed ribbons and outlined type floating on the world
+     BOXES:    toy-box windows (paper rim, ink outline, plastic interior)
+   1rem = 16px at the 1600x900 reference; the root tracks min(vw, vh) so the
+   whole UI scales as one layout from 1280x720 to 2560x1440 and beyond.
+   ========================================================================== */
 
-@font-face {
-  font-family: 'Barlow Condensed';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('../assets/fonts/barlow-condensed-latin-600-normal.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'Barlow Condensed';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('../assets/fonts/barlow-condensed-latin-700-normal.woff2') format('woff2');
-}
+/* ---- fonts: self-hosted latin subsets, OFL (assets/fonts/OFL-*.txt) ------ */
+@font-face { font-family: 'Kanit'; font-style: italic; font-weight: 900; font-display: swap;
+  src: url('../assets/fonts/kanit-latin-900-italic.woff2') format('woff2'); }
+@font-face { font-family: 'Rubik'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('../assets/fonts/rubik-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Rubik'; font-style: normal; font-weight: 800; font-display: swap;
+  src: url('../assets/fonts/rubik-latin-800-normal.woff2') format('woff2'); }
+
+/* ---- the fluid root ------------------------------------------------------ */
+:root { --u: clamp(10px, min(1vw, 1.7778vh), 28px); }
+html { font-size: var(--u); }
+/* landscape phones get a dedicated px layout (.is-compact), so pin the root */
+@media (max-height: 500px) { html { font-size: 16px; } }
 
 :root {
-  /* surfaces — cool night-office ink */
-  --bg-0: #0b0e16;
-  --bg-1: #131826;
-  --bg-2: #1c2334;
-  --line: #2a3348;
-  --glass: rgba(17, 22, 35, 0.86);
+  /* ---- ink: every outline, drop and dark surface (night indigo) -------- */
+  --ink:   #140e2c;
+  --ink-2: #201a4a;
+  --ink-3: #2d2566;
+  --ink-4: #40388a;
+  --ink-5: #6a60c4;               /* hairlines on ink (map walls, rules) */
+  --ink-a: rgba(20, 14, 44, .62); /* scrims */
 
-  /* text */
-  --text-1: #eef2fa;
-  --text-2: #9aa7c0;
-  --text-3: #8291ae;
+  /* ---- paper: rims, light stickers, text on ink ------------------------ */
+  --paper:   #fff8ea;
+  --paper-2: #f3e7cf;
+  --paper-3: #dccbad;
+  --paper-dim: #c9c0dc;           /* secondary text on ink, 9.9:1 */
+  --ink-dim: #4b4468;             /* secondary text on paper, 8.5:1 */
 
-  /* the desk lamp — primary accent */
-  --amber: #ffb454;
-  --amber-deep: #c97b1c;
-  --amber-tint: rgba(255, 180, 84, 0.14);
+  /* ---- toy plastics: each hue has exactly ONE job ---------------------- */
+  --sun:    #ffd23f; --sun-hi:    #ffe98a; --sun-lo:    #ffab00;   /* YOU and yours */
+  --cherry: #ff3b4a; --cherry-hi: #ff7a84; --cherry-lo: #c81a2a;   /* HAZARD: Facilities, events, errors, low clock */
+  --blaze:  #ff6a1f; --blaze-hi:  #ffab6e; --blaze-lo:  #d9420a;   /* BOOST */
+  --sky:    #2bb5ff; --sky-hi:    #7fd3ff; --sky-lo:    #0a7fd0;   /* ABILITY (and drift tier 1) */
+  --grape:  #8c5bff; --grape-hi:  #b394ff; --grape-lo:  #5a2fd6;   /* ITEM and the round's twist (mutator) */
+  --lime:   #7de23a; --lime-hi:   #b0f27c; --lime-lo:   #3fa511;   /* GO: ready, objectives, "go here" */
+  --bubble: #ff3e8e; --bubble-hi: #ff74b0; --bubble-lo: #c9166a;   /* HOT: final lap, variant, stamps (and drift tier 3) */
 
-  /* signals */
-  --info: #5cc8ff;
-  --info-tint: rgba(92, 200, 255, 0.12);
-  --good: #4ade80;
-  --good-tint: rgba(74, 222, 128, 0.14);
-  --bad: #ff5c5c;
-  --bad-tint: rgba(255, 92, 92, 0.16);
-  --note: #ffe27a;
-  --note-ink: #4a3d0e;
+  /* semantic aliases (components use these, never the raw hue) */
+  --you: var(--sun);       --you-hi: var(--sun-hi);       --you-lo: var(--sun-lo);
+  --hazard: var(--cherry); --hazard-hi: var(--cherry-hi); --hazard-lo: var(--cherry-lo);
+  --boost: var(--blaze);   --ability: var(--sky);         --item: var(--grape);
+  --go: var(--lime);       --hot: var(--bubble);
+  --drift-1: var(--sky);   --drift-2: var(--blaze);       --drift-3: var(--bubble); /* = the in-game spark colours */
+  --team-orange: #ff8a3d;  --team-blue: #4da3ff;          /* RC Soccer sides (existing game colours) */
+  /* the barricade: hazard is always red + paper stripes, never colour alone */
+  --stripes: repeating-linear-gradient(-50deg, var(--paper) 0 .5rem, var(--cherry-lo) .5rem 1.125rem);
 
-  /* type */
-  --font-display: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
-  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* ---- type ------------------------------------------------------------ */
+  --f-display: 'Kanit', 'Arial Black', Impact, sans-serif;           /* 900 italic, caps only */
+  --f-ui: 'Rubik', system-ui, -apple-system, 'Segoe UI', sans-serif; /* 600 / 800, tnum */
+  --t-mega:  11.5rem;     /* 184 countdown numeral (ends above the car zone) */
+  --t-hero:  11rem;       /* 176 race position */
+  --t-xxl:   6.5rem;      /* 104 speed */
+  --t-xl:    4.125rem;    /*  66 clock, room code */
+  --t-l:     2.5rem;      /*  40 screen titles */
+  --t-m:     1.75rem;     /*  28 banners, room tag */
+  --t-s:     1.25rem;     /*  20 names in tables */
+  --t-xs:    1rem;        /*  16 feed, rows */
+  --t-xxs:   max(10px, .8125rem); /* 13 labels, keycaps */
+  --t-micro: max(10px, .6875rem); /* 11 over-labels; never below 10px */
+  --track: .08em;
+  /* outlined type: -webkit-text-stroke width (static or rarely-changing type only) */
+  --sw-s: .25rem; --sw-m: .4375rem; --sw-l: .75rem; --sw-xl: 1.125rem;
+  /* LIVE numbers (speed, clock, cooldown seconds): outline + drop baked into ONE
+     text-shadow set, no stroke, no gradient overlay (cheap to repaint per frame) */
+  --ts-live:
+    .19rem 0 0 var(--ink), -.19rem 0 0 var(--ink), 0 .19rem 0 var(--ink), 0 -.19rem 0 var(--ink),
+    .135rem .135rem 0 var(--ink), -.135rem .135rem 0 var(--ink), .135rem -.135rem 0 var(--ink), -.135rem -.135rem 0 var(--ink),
+    .175rem .075rem 0 var(--ink), -.175rem .075rem 0 var(--ink), .175rem -.075rem 0 var(--ink), -.175rem -.075rem 0 var(--ink),
+    .075rem .175rem 0 var(--ink), -.075rem .175rem 0 var(--ink), .075rem -.175rem 0 var(--ink), -.075rem -.175rem 0 var(--ink),
+    0 .5rem 0 var(--ink), .19rem .45rem 0 var(--ink), -.19rem .45rem 0 var(--ink);
+  --ts-live-s:
+    .125rem 0 0 var(--ink), -.125rem 0 0 var(--ink), 0 .125rem 0 var(--ink), 0 -.125rem 0 var(--ink),
+    .09rem .09rem 0 var(--ink), -.09rem .09rem 0 var(--ink), .09rem -.09rem 0 var(--ink), -.09rem -.09rem 0 var(--ink),
+    0 .25rem 0 var(--ink);
+  /* digit slot for Kanit (no tnum): widest digit "0" is .68em */
+  --slot: .64em;
 
-  /* shape */
-  --r-ctl: 8px;
-  --r-card: 12px;
-  --r-panel: 16px;
+  /* ---- shape ------------------------------------------------------------ */
+  --lean: -9deg;                 /* the one skew every sticker shares */
+  --r-xs: .375rem; --r-sm: .5625rem; --r-md: .875rem; --r-lg: 1.25rem; --r-xl: 1.75rem; --r-pill: 999px;
+  --bw: max(2px, .1875rem);      /* the ink outline */
+  --rim: max(3px, .3125rem);     /* the paper rim on boxes */
 
-  /* layers */
-  --z-hud: 10;
-  --z-sheet: 20;
-  --z-toast: 25;
-  --z-flash: 30;
-  --z-connect: 50;
+  /* ---- space (4px base at the reference) --------------------------------- */
+  --s1: .25rem; --s2: .5rem; --s3: .75rem; --s4: 1rem; --s5: 1.5rem; --s6: 2rem; --s7: 3rem;
+  --safe-l: calc(1.75rem + env(safe-area-inset-left, 0px));
+  --safe-r: calc(1.75rem + env(safe-area-inset-right, 0px));
+  --safe-t: calc(1.5rem + env(safe-area-inset-top, 0px));
+  --safe-b: calc(1.625rem + env(safe-area-inset-bottom, 0px));
+  --hud-scale: 1;                /* Break Room HUD size: .9 / 1 / 1.1 (match HUD corners only) */
 
-  /* motion */
-  --t-fast: 120ms;
-  --t-slow: 280ms;
-  --ease: cubic-bezier(0.2, 0, 0.2, 1);
-  --ease-pop: cubic-bezier(0.2, 1.4, 0.4, 1);
+  /* ---- depth: hard toy drops + one soft ambient ------------------------ */
+  --drop-s: 0 .1875rem 0 var(--ink);
+  --drop-m: 0 .3125rem 0 var(--ink);
+  --drop-l: 0 .5rem 0 var(--ink);
+  --ambient: 0 .875rem 1.875rem rgba(6, 3, 20, .42);
+  --glow-you: 0 0 1.375rem rgba(255, 210, 63, .5);
 
-  /* HUD safe-area frame */
-  --hud-x: calc(24px + env(safe-area-inset-left, 0px));
-  --hud-x-r: calc(24px + env(safe-area-inset-right, 0px));
-  --hud-y: calc(20px + env(safe-area-inset-top, 0px));
-  --hud-y-b: calc(20px + env(safe-area-inset-bottom, 0px));
+  /* ---- focus: ONE ring, everywhere (interactive UI always sits on ink) -- */
+  --focus: 3px solid var(--paper);
+  --focus-offset: 3px;
+
+  /* ---- layers ------------------------------------------------------------ */
+  --z-hud: 10; --z-touch: 15; --z-sheet: 20; --z-toast: 25; --z-flash: 30; --z-pause: 40; --z-connect: 50;
+
+  /* ---- motion: bounded entrances only; individual translate/scale/rotate -- */
+  --ease-pop: cubic-bezier(.34, 1.56, .64, 1);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --d-fast: 120ms; --d-med: 240ms; --d-slow: 420ms;
+
+  /* ---- legacy aliases: old names still referenced by Menu.jsx / garage.css /
+     Coach.jsx and the not-yet-ported HUD files. Delete when
+     grep -rn "var(--\(bg-\|text-\|amber\|glass\|info\|good\|bad\|note\|line\)" client/src is empty. */
+  --bg-0: var(--ink); --bg-1: var(--ink-2); --bg-2: var(--ink-3); --line: var(--ink-4);
+  --glass: var(--ink-2);
+  --text-1: var(--paper); --text-2: var(--paper-dim); --text-3: var(--paper-dim);
+  --amber: var(--sun); --amber-deep: var(--sun-lo); --amber-tint: rgba(255, 210, 63, .16);
+  --info: var(--sky); --info-tint: rgba(43, 181, 255, .14);
+  --good: var(--lime); --good-tint: rgba(125, 226, 58, .16);
+  --bad: var(--cherry); --bad-tint: rgba(255, 59, 74, .18);
+  --note: var(--paper); --note-ink: var(--ink);
+  --font-display: var(--f-display); --font-body: var(--f-ui);
+  --r-ctl: var(--r-sm); --r-card: var(--r-md); --r-panel: var(--r-lg);
+  --t-fast: var(--d-fast); --t-slow: var(--d-slow); --ease: var(--ease-out);
+  --hud-x: var(--safe-l); --hud-x-r: var(--safe-r); --hud-y: var(--safe-t); --hud-y-b: var(--safe-b);
 }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+/* html.lowfx (?lowfx or Break Room graphics = low): no soft shadows, no
+   confetti, no glows. The UI never blurs or filters the render anyway. */
+html.lowfx { --ambient: 0 0 0 transparent; --glow-you: 0 0 0 transparent; }
 
-/* the HUD scales with the viewport instead of shrinking into the corners */
-html { font-size: clamp(14px, 0.5vw + 9.6px, 19px); }
-
-html, body, #root { height: 100%; overflow: hidden; }
-body {
-  font-family: var(--font-body);
-  background: var(--bg-0);
-  color: var(--text-1);
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-button { font-family: inherit; }
-input { font-family: inherit; }
-
-/* label style — the only place letterspaced caps are allowed */
-.label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-
-kbd {
-  display: inline-block;
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  padding: 0 6px;
-  font-size: 0.72rem;
-  font-family: var(--font-body);
-  font-weight: 600;
-  color: var(--text-2);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+/* ---- legacy faces: Barlow Condensed is no UI font any more, but canvas text
+   in the world still names it (game/ControllerHUD.jsx, game/OfficeBoard.jsx,
+   game/themes/garageKit.js). Delete these, the two woff2 files and
+   LICENSE-OFL.txt when grep -rn Barlow client/src/game is empty. */
+@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('../assets/fonts/barlow-condensed-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('../assets/fonts/barlow-condensed-latin-700-normal.woff2') format('woff2'); }

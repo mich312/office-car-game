@@ -1,0 +1,42 @@
+/* Countdown (Countdown.jsx). Legacy layout, retinted to the Toy Box tokens
+   until it is ported: the invite is a paper memo, the numeral is outlined
+   Kanit (blaze while counting, lime at GO). */
+
+/* ------------------------------------------------------------ countdown */
+.countdown {
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+.invite { max-width: min(26rem, 92vw); text-align: left; }
+.invite-mutator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 2px dashed var(--ink-4);
+  font-size: 0.78rem;
+  color: var(--grape-hi);
+}
+.toast-warn .invite-mutator, .invite.toast-warn .invite-mutator { border-color: rgba(20, 14, 44, 0.25); color: var(--grape-lo); }
+.toast-warn .variant-tag { color: var(--bubble-lo); }
+.count-num {
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 900;
+  font-size: 7.5rem;
+  line-height: 1;
+  color: var(--blaze);
+  -webkit-text-stroke: var(--sw-l) var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 .5rem 0 var(--ink);
+  animation: tb-punch var(--d-slow) var(--ease-pop) both;
+}
+.count-num.go { color: var(--lime); }

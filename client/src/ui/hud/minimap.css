@@ -1,0 +1,25 @@
+/* Minimap + room chip (Minimap.jsx, MatchHUD.jsx). Legacy layout, framed as
+   a Toy Box window until it is ported. */
+
+/* -------------------------------------------------------------- minimap */
+.map-cluster {
+  position: absolute;
+  top: var(--hud-y);
+  right: var(--hud-x-r);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+.minimap {
+  display: block;
+  border-radius: var(--r-md);
+  border: var(--bw) solid var(--paper);
+  background: #110b27;
+  box-shadow: 0 0 0 var(--bw) var(--ink), 0 .3125rem 0 var(--bw) var(--ink), var(--ambient);
+}
+.map-room { padding: 0.2rem 0.7rem; font-size: 0.72rem; }
+.map-room .label { color: var(--paper); }
+@media (max-width: 700px) {
+  .minimap { width: 138px; height: 92px; }
+}

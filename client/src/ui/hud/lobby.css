@@ -1,0 +1,161 @@
+/* Lobby rail (Lobby.jsx). Legacy layout, retinted to the Toy Box tokens until
+   it is ported: your vote and READY UP are sun (YOU), ready and vote bars lime. */
+
+/* ------------------------------------------------------------- lobby rail */
+.lobby-rail {
+  position: absolute;
+  left: var(--hud-x);
+  top: var(--hud-y);
+  bottom: var(--hud-y-b);
+  width: min(21.5rem, 88vw);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 1.1rem 1.1rem 0.9rem;
+  overflow: hidden;
+  animation: railin var(--t-slow) var(--ease-pop);
+}
+@keyframes railin { from { translate: -24px 0; } }
+.lobby-rail h2 {
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 900;
+  font-size: 1.6rem;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  -webkit-text-stroke: var(--sw-s) var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 .1875rem 0 var(--ink);
+}
+/* the room you're in, and the link that brings friends to it */
+.room-badge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--ink);
+  border: 2px solid rgba(255, 248, 234, 0.16);
+  border-radius: var(--r-md);
+}
+.room-badge.private { border-color: var(--paper-dim); }
+.room-badge .label { display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+.room-code {
+  display: block;
+  font-family: var(--f-display);
+  font-style: italic;
+  font-size: 1.7rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1.05;
+  color: var(--text-1);
+}
+.room-badge.private .room-code { color: var(--paper); }
+.room-copy { white-space: nowrap; font-size: max(10px, 0.72rem); letter-spacing: 0.02em; padding: 0.45rem 0.6rem; flex: none; }
+.rail-players { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.rail-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.rail-player .icon { color: var(--text-3); }
+.rail-player.ready { border-color: var(--lime); }
+.rail-player.ready .ok { color: var(--good); }
+.rail-player .you { color: var(--text-3); font-weight: 400; }
+
+.ballots { display: flex; flex-direction: column; gap: 0.35rem; flex: 1; min-height: 0; overflow: auto; }
+.ballot {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--r-ctl);
+  cursor: pointer;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text-1);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.ballot .icon { color: var(--text-2); }
+.ballot:hover { border-color: var(--text-3); }
+.ballot.sel { border-color: var(--amber); background: var(--amber-tint); }
+.ballot.sel .icon { color: var(--amber); }
+.ballot b { display: block; font-size: 0.88rem; line-height: 1.2; }
+.ballot small { display: block; color: var(--text-3); font-size: 0.7rem; line-height: 1.3; }
+.ballot-tally { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; min-width: 2.6rem; }
+.ballot-tally span { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; color: var(--text-2); }
+.ballot-tally .bar { width: 2.6rem; height: 4px; border-radius: 2px; background: rgba(255, 248, 234, 0.1); overflow: hidden; }
+.ballot-tally .bar i { display: block; height: 100%; background: var(--lime); border-radius: 2px; transition: width var(--t-slow) var(--ease); }
+
+.map-ballots { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
+.map-ballot {
+  position: relative;
+  display: flex; align-items: center; gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--r-ctl);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text-1);
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.map-ballot:hover { border-color: var(--text-3); }
+.map-ballot b { font-size: 0.82rem; line-height: 1.15; flex: 1; }
+.map-ballot .icon { color: var(--text-2); flex: none; }
+.map-ballot .count { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; color: var(--text-2); }
+.map-ballot .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--lime); transition: width var(--t-slow) var(--ease); }
+/* the floor you're on wears a small green "here" dot */
+.map-ballot.here::after {
+  content: ''; position: absolute; top: 0.35rem; right: 0.35rem;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--good);
+}
+.map-ballot.sel { border-color: var(--amber); background: var(--amber-tint); }
+.map-ballot.sel .icon { color: var(--amber); }
+/* the cellar's ballot carries a little of its light: cold tube green */
+.map-ballot.map-cellar .icon { color: #8ff0c4; }
+.map-ballot.map-cellar.sel { border-color: #6fdcaa; background: rgba(111, 220, 170, 0.1); }
+.map-ballot.map-cellar .bar { background: #6fdcaa; }
+
+.ready-btn { width: 100%; padding: 0.85rem; font-size: 1.05rem; margin-top: auto; }
+.ready-btn.is-ready {
+  background: transparent;
+  color: var(--good);
+  border-color: var(--lime);
+  box-shadow: none;
+}
+
+/* lobby rail collapses to a bottom sheet on phones */
+@media (max-width: 700px) {
+  .lobby-rail {
+    top: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0;
+    width: min(30rem, 100vw);
+    max-height: 52vh;
+    border-radius: var(--r-panel) var(--r-panel) 0 0;
+    animation: sheetup var(--t-slow) var(--ease-pop);
+  }
+  @keyframes sheetup { from { transform: translate(-50%, 30px); } }
+}
+
+.hint-link {
+  font: inherit;
+  color: var(--paper);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}

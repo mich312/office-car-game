@@ -1,0 +1,75 @@
+/* Coach: driving test + match hints (Coach.jsx). Legacy layout on the Toy Box
+   tokens until it is ported (the hint moves out of the car zone then). */
+
+/* ------------------------------------------------ coach: driving test + hints */
+.coach {
+  position: absolute;
+  top: var(--hud-y);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(26rem, calc(100vw - 2 * var(--hud-x)));
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.8rem 1rem 0.9rem;
+  z-index: var(--z-toast);
+  animation: railin var(--t-slow) var(--ease-pop);
+  pointer-events: auto;
+}
+.coach-head { display: flex; align-items: center; gap: 0.6rem; }
+.coach-head .label { display: inline-flex; align-items: center; gap: 0.3rem; }
+.coach-dots { display: inline-flex; gap: 0.3rem; margin-left: auto; }
+.coach-dots i { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--line); transition: background var(--t-fast) var(--ease); }
+.coach-dots i.now { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-tint); }
+.coach-dots i.done { background: var(--good); }
+.coach-skip {
+  font: 600 0.75rem var(--font-body);
+  color: var(--text-3);
+  background: none;
+  border: 0;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+}
+.coach-skip:hover { color: var(--text-1); }
+.coach-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  letter-spacing: 0.04em;
+  line-height: 1.05;
+  color: var(--text-1);
+  animation: railin var(--t-slow) var(--ease-pop);
+}
+.coach-title.passed { color: var(--good); }
+.coach-say { display: inline; font-size: 0.92rem; line-height: 1.55; color: var(--text-2); }
+.coach-say .keycap { margin: 0 0.15rem; vertical-align: 0.05em; }
+.coach-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0 0.15rem;
+  vertical-align: -0.35rem;
+  border-radius: 50%;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  color: var(--text-1);
+}
+.coach-hint { top: auto; bottom: calc(var(--hud-y-b) + 9rem); }
+/* in the lobby the rail owns the left: sit to its right, never on top of it
+   (below 700 px the rail is a bottom sheet and the centred card is clear) */
+@media (min-width: 701px) {
+  .coach-lobby {
+    left: auto;
+    right: var(--hud-x-r);
+    transform: none;
+    width: min(26rem, calc(100vw - var(--hud-x) - var(--hud-x-r) - min(21.5rem, 88vw) - 1rem));
+  }
+}
+.coach-hint .coach-say { color: var(--text-1); font-size: 1rem; }
+@media (prefers-reduced-motion: reduce) { .coach, .coach-title { animation: none; } }
+/* (also defined in lobby.css: the coach card and the lobby rail share it) */
+@keyframes railin { from { translate: -24px 0; } }

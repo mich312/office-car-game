@@ -8,6 +8,7 @@ import { telemetry } from '../game/LocalCar.jsx';
 import { audio } from '../audio.js';
 import { LESSONS, newTest, stepTest, tokens, HINTS, nextHint } from '../tutorial/lessons.js';
 import Icon from './Icon.jsx';
+import './hud/coach.css';
 
 const SAMPLE_MS = 50;
 const ICONS = new Set(['chevron-left', 'chevron-right', 'wind', 'flame', 'gift', 'star']);

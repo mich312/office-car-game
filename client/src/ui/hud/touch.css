@@ -1,0 +1,42 @@
+/* Touch controls (TouchControls.jsx). Legacy layout (px, thumb-sized), as
+   ink toy buttons with a paper rim until it is ported. */
+
+/* --------------------------------------------------- touch controls */
+.touch-controls { display: none; }
+@media (pointer: coarse) {
+  .touch-controls { display: block; position: absolute; inset: 0; pointer-events: none; }
+}
+.tc-left { position: absolute; left: calc(var(--hud-x) - 8px); bottom: 110px; display: flex; gap: 16px; }
+.tc-right {
+  position: absolute;
+  right: calc(var(--hud-x-r) - 10px);
+  bottom: 110px;
+  display: grid;
+  grid-template-columns: repeat(2, 62px);
+  gap: 12px;
+}
+.tc-btn {
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, var(--ink-3), var(--ink-2));
+  border: 3px solid var(--paper);
+  box-shadow: 0 0 0 3px var(--ink), 0 5px 0 3px var(--ink);
+  color: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+/* pressed: a short dip onto its drop, no scale and no glow */
+.tc-btn:active { background: var(--paper); color: var(--ink); translate: 0 3px; box-shadow: 0 0 0 3px var(--ink), 0 2px 0 3px var(--ink); }
+.tc-steer { width: 84px; height: 84px; }
+.tc-wide { grid-column: span 2; width: 100%; border-radius: 31px; }

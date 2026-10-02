@@ -1,0 +1,26 @@
+/* Feed (Feed.jsx). Legacy layout, as ink ribbons until it is ported (the
+   server lines still carry their emoji until parseFeed maps them). */
+
+/* ----------------------------------------------------------------- feed */
+.feed {
+  position: absolute;
+  left: var(--hud-x);
+  top: var(--hud-y);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  max-width: 24rem;
+}
+.feed-item {
+  color: var(--paper);
+  background: var(--ink-2);
+  border: max(2px, .125rem) solid var(--paper);
+  padding: 0.35rem 0.8rem;
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 max(2px, .125rem) var(--ink), 0 .25rem 0 max(2px, .125rem) var(--ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  animation: feedin var(--t-slow) var(--ease-pop);
+}
+@keyframes feedin { from { translate: -1.25rem 0; } }

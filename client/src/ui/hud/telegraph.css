@@ -1,0 +1,12 @@
+/* Office-event banner (EventTelegraph.jsx). Legacy layout until it is ported:
+   the reminder is a paper memo (.toast-warn), the live event an ink card. */
+
+/* -------------------------------------------------------- event banner */
+.hud-event {
+  position: absolute;
+  top: calc(var(--hud-y) + 6.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  max-width: min(28rem, 92vw);
+}
