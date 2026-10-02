@@ -152,7 +152,10 @@ const f = (type, x, z, w, d, h, rotY = 0) => ({ type, x: u(x), z: u(z), w: u(w),
 
 export const FURNITURE = [
   // Reception — big desk, waiting corner
-  f('recdesk', -17.5, -10.7, 3.2, 1, 1.05),
+  // 1.7 m deep, its back against the wall: the plank jump off the grid
+  // carries a car ~1.6 m past the desk's front at full throttle, and a 1 m
+  // desk dropped it into a 0.7 m trench behind, nose to the wall
+  f('recdesk', -17.5, -11.04, 3.2, 1.68, 1.05),
   // the sofa backs onto the west wall, north of the grid's last row
   f('sofa', -20.3, -3.6, 2.4, 0.95, 0.75, Math.PI / 2),
   f('table', -19, -3.6, 1, 0.6, 0.4, Math.PI / 2),
@@ -200,7 +203,9 @@ export const FURNITURE = [
   f('island', -1, -9.2, 3, 1.1, 0.92),
   // at the run's west end: at its east end (5.3) it stood on the bottom half
   // of the steel ramp, which came out of its door and couldn't be driven
-  f('fridge', -6.9, -11.4, 1, 0.8, 1.9),
+  // flush with the counter's end: the car that drives the worktop stops
+  // against it instead of dropping into a 0.4 m slot between the two
+  f('fridge', -6.5, -11.4, 1, 0.8, 1.9),
   f('vending', 12.4, -11.5, 1, 0.8, 1.9),
   f('bartop', -6.8, -5.42, 0.6, 2.6, 1.1),
   f('table', 6.5, -6.5, 1.2, 1.2, 0.74),
@@ -208,7 +213,8 @@ export const FURNITURE = [
   f('table', 5, -10, 1.2, 1.2, 0.74),
   f('art', -3.5, -11.82, 1.8, 0.1, 1.2),
   // Games corner — foosball, hoop, hangout
-  f('foosball', 15.5, -4.5, 1.4, 0.8, 0.85),
+  // a tournament-length table (1.6 m): the ruler's jump lands on it
+  f('foosball', 15.4, -4.5, 1.6, 0.8, 0.85),
   f('hoop', 20.4, -7, 0.6, 0.6, 2.6, -Math.PI / 2),
   f('sofa', 14.32, -11.35, 2.4, 0.95, 0.75), // back to the south wall
   f('table', 17.5, -10.5, 1, 0.6, 0.4),
@@ -257,8 +263,10 @@ export const RAMPS = [
   ramp(18.5, 8.85, 1.7, 0.55, 0.78, 0, 'books'), // book-stack ramp onto the CEO desk
   ramp(-2.1, 11.3, 1.6, 0.6, 0.75, -Math.PI / 2, 'clipboard'), // clipboard onto the lounge sofa
   // ruler ramp onto the foosball table, from its open east end (off the west
-  // end its foot was 0.1 m from the wall: no way to line up on it)
-  ramp(17.05, -4.5, 1.7, 0.55, 0.85, -Math.PI / 2, 'ruler'),
+  // end its foot was 0.1 m from the wall: no way to line up on it). 2 m long:
+  // at 1.7 m (27°) a full-throttle car cleared the whole table and hit the
+  // wall behind it once the floor shrank to 28 cm a unit
+  ramp(17.2, -4.5, 2.0, 0.55, 0.85, -Math.PI / 2, 'ruler'),
   ramp(-17.5, -9.3, 1.8, 0.6, 1.05, Math.PI, 'plank'), // reception desk jump (tall!)
 ];
 
@@ -529,11 +537,11 @@ const CLUTTER = [
   ['bigplant', -14.36, -0.66, -Math.PI / 2], ['bin', -14.28, 0.15, -Math.PI / 2, { color: '#3a3d42' }],
   // reception: the company mat at the terrace door, coats and umbrellas by
   // it, deliveries waiting by the storage door, a cooler for the guests,
-  // the receptionist's bin and bag behind the desk
+  // the receptionist's bin beside the desk, a bag by the storage door
   ['mat', -17.5, -1.62, 0, { w: 1.6, d: 0.9, logo: true }],
   ['umbrellastand', -20.72, -1.3, Math.PI / 2], ['coatstand', -20.62, -1.95, Math.PI / 2],
   ['parcels', -14.4, -10.4, -Math.PI / 2], ['watercooler', -20.7, -10.4, Math.PI / 2],
-  ['bin', -18.3, -11.6, 0], ['backpack', -16.6, -11.7, 0],
+  ['bin', -19.45, -11.62, 0], ['backpack', -14.35, -9.6, -Math.PI / 2],
   // lounge: lamps at the sofas' ends, a bean bag and its magazines, a fig in
   // the corner, a cooler on the server-room wall, a trough on the glass, a
   // floor box feeding the bar
@@ -563,7 +571,7 @@ const CLUTTER = [
 const DECOR_PROPS = [
   ['plant2', 7.45, 1.1, 11.25, 0.3, '#ebe6dc'], ['book', 8.15, 1.1, 11.3, 0.4, '#2f4f7e'], // lounge bar
   ['mug', -6.8, 1.1, -5.9, 0, '#e8503a'], ['glass', -6.75, 1.1, -6.3], ['sheets', -6.85, 1.1, -5, 0.3, '#fbfaf5'], // café bar
-  ['box', -6.9, 1.9, -11.4, 0.2, '#f1e8dc'], ['bottle', -6.55, 1.9, -11.5, 0, '#2d7fd0'], // on the fridge
+  ['box', -6.5, 1.9, -11.4, 0.2, '#f1e8dc'], ['bottle', -6.15, 1.9, -11.5, 0, '#2d7fd0'], // on the fridge
   ['roll', -13.3, 0.85, 0.3], // a spare on the basin counter
   ['plant', -13.62, 0, 11.6, 0.8, '#3b3d42', { collide: 'box' }], // lounge corner
   ['plant', -14.45, 0, -11.55, 0, '#b5623f', { collide: 'box' }], // reception corner
